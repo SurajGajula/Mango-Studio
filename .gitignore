@@ -1,0 +1,7 @@
+.next
+
+.cursor
+
+*.env
+
+node_modules
