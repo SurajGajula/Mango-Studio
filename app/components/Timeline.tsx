@@ -11,6 +11,8 @@ export default function Timeline() {
   const videos = useManifestStore((state) => state.videos)
   const selectedVideoId = useManifestStore((state) => state.selectedVideoId)
   const setSelectedVideoId = useManifestStore((state) => state.setSelectedVideoId)
+  const replaceTargetId = useManifestStore((state) => state.replaceTargetId)
+  const setReplaceTargetId = useManifestStore((state) => state.setReplaceTargetId)
   const playbackTime = useManifestStore((state) => state.playbackTime)
   const isPlaying = useManifestStore((state) => state.isPlaying)
   const setPlaybackTime = useManifestStore((state) => state.setPlaybackTime)
@@ -92,7 +94,7 @@ export default function Timeline() {
     try {
       const blob = await exportVideo(videos, aspectRatio, setExportProgress)
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-      downloadBlob(blob, `seedance-export-${timestamp}.webm`)
+      downloadBlob(blob, `mango-export-${timestamp}.mp4`)
     } catch (error) {
       setExportProgress({
         phase: 'error',
@@ -256,11 +258,12 @@ export default function Timeline() {
                   const leftPercent = totalDuration > 0 ? (video.timestamp / totalDuration) * 100 : 0
                   const widthPercent = totalDuration > 0 && video.duration ? (video.duration / totalDuration) * 100 : 0
                   const isSelected = selectedVideoId === video.id
+                  const isReplaceTarget = replaceTargetId === video.id
                   const hasTrim = video.trimStart > 0 || video.trimEnd > 0
                   return (
                     <div
                       key={video.id}
-                      className={`${styles.timelineItem} ${isSelected ? styles.selected : ''} ${hasTrim ? styles.trimmed : ''}`}
+                      className={`${styles.timelineItem} ${isSelected ? styles.selected : ''} ${hasTrim ? styles.trimmed : ''} ${isReplaceTarget ? styles.replaceTarget : ''}`}
                       style={{
                         left: `${leftPercent}%`,
                         width: `${widthPercent}%`,
@@ -281,12 +284,27 @@ export default function Timeline() {
                             className={styles.trimHandleEnd}
                             onMouseDown={(e) => handleTrimStart(video.id, 'end', e)}
                           />
+                          <button
+                            className={`${styles.replaceButton} ${isReplaceTarget ? styles.active : ''}`}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setReplaceTargetId(isReplaceTarget ? null : video.id)
+                            }}
+                            title={isReplaceTarget ? 'Cancel replace mode' : 'Replace this video'}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
+                            </svg>
+                          </button>
                         </>
                       )}
                       <div className={styles.videoBox}>
                         <div className={styles.videoInfo}>
                           <div className={styles.title}>{video.title}</div>
-                          {hasTrim && (
+                          {isReplaceTarget && (
+                            <div className={styles.replaceIndicator}>Will be replaced</div>
+                          )}
+                          {hasTrim && !isReplaceTarget && (
                             <div className={styles.trimIndicator}>
                               Trimmed: {video.trimStart.toFixed(1)}s / {video.trimEnd.toFixed(1)}s
                             </div>

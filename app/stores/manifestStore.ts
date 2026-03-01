@@ -6,10 +6,12 @@ export type AspectRatio = '16:9' | '9:16'
 interface ManifestStore {
   videos: VideoClass[]
   selectedVideoId: string | null
+  replaceTargetId: string | null
   playbackTime: number
   isPlaying: boolean
   aspectRatio: AspectRatio
   addVideo: (video: VideoClass) => void
+  replaceVideo: (targetId: string, newVideo: VideoClass) => void
   removeVideo: (id: string) => void
   updateVideo: (id: string, updates: Partial<VideoClass>) => void
   trimVideo: (id: string, trimStart: number, trimEnd: number) => void
@@ -19,6 +21,7 @@ interface ManifestStore {
   getVideo: (id: string) => VideoClass | undefined
   clearVideos: () => void
   setSelectedVideoId: (id: string | null) => void
+  setReplaceTargetId: (id: string | null) => void
   getSelectedVideo: () => VideoClass | undefined
   setPlaybackTime: (time: number) => void
   setIsPlaying: (playing: boolean) => void
@@ -28,6 +31,7 @@ interface ManifestStore {
 export const useManifestStore = create<ManifestStore>((set, get) => ({
   videos: [],
   selectedVideoId: null,
+  replaceTargetId: null,
   playbackTime: 0,
   isPlaying: false,
   aspectRatio: '16:9',
@@ -51,6 +55,35 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
         isPlaying: false,
       }
     })
+  },
+
+  replaceVideo: (targetId: string, newVideo: VideoClass) => {
+    set((state) => {
+      const targetIndex = state.videos.findIndex((v) => v.id === targetId)
+      if (targetIndex === -1) return state
+
+      const targetVideo = state.videos[targetIndex]
+      const replacementVideo = new VideoClass(
+        newVideo.id,
+        newVideo.title,
+        newVideo.url,
+        newVideo.duration,
+        targetVideo.timestamp,
+        newVideo.createdAt,
+        newVideo.updatedAt
+      )
+
+      const updatedVideos = [...state.videos]
+      updatedVideos[targetIndex] = replacementVideo
+
+      return {
+        videos: updatedVideos,
+        selectedVideoId: replacementVideo.id,
+        replaceTargetId: null,
+        playbackTime: replacementVideo.timestamp,
+      }
+    })
+    get().recalculateTimestamps()
   },
 
   removeVideo: (id: string) => {
@@ -186,6 +219,10 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
 
   setSelectedVideoId: (id: string | null) => {
     set({ selectedVideoId: id })
+  },
+
+  setReplaceTargetId: (id: string | null) => {
+    set({ replaceTargetId: id })
   },
 
   getSelectedVideo: () => {

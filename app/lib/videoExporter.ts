@@ -1,7 +1,40 @@
 import { VideoClass } from '@/app/models/VideoClass'
+import { FFmpeg } from '@ffmpeg/ffmpeg'
+import { fetchFile, toBlobURL } from '@ffmpeg/util'
+
+let ffmpegInstance: FFmpeg | null = null
+let ffmpegLoading: Promise<FFmpeg> | null = null
+
+async function getFFmpeg(): Promise<FFmpeg> {
+  if (ffmpegInstance?.loaded) {
+    return ffmpegInstance
+  }
+  
+  if (ffmpegLoading) {
+    return ffmpegLoading
+  }
+  
+  ffmpegLoading = (async () => {
+    ffmpegInstance = new FFmpeg()
+    
+    const [coreURL, wasmURL] = await Promise.all([
+      toBlobURL('/ffmpeg/ffmpeg-core.js', 'text/javascript'),
+      toBlobURL('/ffmpeg/ffmpeg-core.wasm', 'application/wasm'),
+    ])
+    
+    await ffmpegInstance.load({
+      coreURL,
+      wasmURL,
+    })
+    
+    return ffmpegInstance
+  })()
+  
+  return ffmpegLoading
+}
 
 export interface ExportProgress {
-  phase: 'preparing' | 'rendering' | 'encoding' | 'complete' | 'error'
+  phase: 'preparing' | 'rendering' | 'encoding' | 'converting' | 'complete' | 'error'
   progress: number
   message: string
 }
@@ -41,7 +74,7 @@ export async function exportVideo(
       video.preload = 'auto'
       video.playsInline = true
       video.muted = false
-      video.src = clip.url
+      video.src = clip.url || ''
 
       video.onloadeddata = () => {
         videoElements.set(clip.id, video)
@@ -98,19 +131,51 @@ export async function exportVideo(
   onProgress?.({ phase: 'rendering', progress: 15, message: 'Starting render...' })
 
   return new Promise((resolve, reject) => {
-    mediaRecorder.onstop = () => {
-      onProgress?.({ phase: 'encoding', progress: 95, message: 'Finalizing...' })
+    mediaRecorder.onstop = async () => {
+      onProgress?.({ phase: 'encoding', progress: 95, message: 'Finalizing WebM...' })
       
-      // Clean up
       videoElements.forEach((v) => {
         v.pause()
         v.src = ''
       })
       audioContext.close()
 
-      const blob = new Blob(chunks, { type: mimeType })
-      onProgress?.({ phase: 'complete', progress: 100, message: 'Export complete!' })
-      resolve(blob)
+      const webmBlob = new Blob(chunks, { type: mimeType })
+      
+      onProgress?.({ phase: 'converting', progress: 96, message: 'Loading FFmpeg...' })
+      
+      try {
+        const ff = await getFFmpeg()
+        
+        onProgress?.({ phase: 'converting', progress: 97, message: 'Converting to MP4...' })
+        
+        const webmData = await fetchFile(webmBlob)
+        await ff.writeFile('input.webm', webmData)
+        
+        await ff.exec([
+          '-i', 'input.webm',
+          '-c:v', 'libx264',
+          '-preset', 'ultrafast',
+          '-crf', '23',
+          '-c:a', 'aac',
+          '-b:a', '128k',
+          '-movflags', '+faststart',
+          'output.mp4'
+        ])
+        
+        const mp4Data = await ff.readFile('output.mp4')
+        const mp4Blob = new Blob([new Uint8Array(mp4Data as Uint8Array)], { type: 'video/mp4' })
+        
+        await ff.deleteFile('input.webm')
+        await ff.deleteFile('output.mp4')
+        
+        onProgress?.({ phase: 'complete', progress: 100, message: 'Export complete!' })
+        resolve(mp4Blob)
+      } catch (err) {
+        console.error('FFmpeg conversion failed:', err)
+        onProgress?.({ phase: 'error', progress: 0, message: 'MP4 conversion failed, using WebM' })
+        resolve(webmBlob)
+      }
     }
 
     mediaRecorder.onerror = (e) => {

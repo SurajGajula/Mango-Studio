@@ -1,13 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getGenAIClient } from '@/app/lib/genaiClient'
+import { VideoGenerationReferenceType } from '@google/genai'
 import fs from 'fs/promises'
 import path from 'path'
 import os from 'os'
+
+interface ReferenceImageInput {
+  base64: string
+  mimeType: string
+}
 
 interface GenerateVideoRequest {
   prompt: string
   aspectRatio?: '16:9' | '9:16'
   negativePrompt?: string
+  referenceImages?: ReferenceImageInput[]
+  firstFrame?: ReferenceImageInput
+  lastFrame?: ReferenceImageInput
 }
 
 export async function POST(request: NextRequest) {
@@ -22,13 +31,34 @@ export async function POST(request: NextRequest) {
     const aspectRatio = body.aspectRatio || '16:9'
     const negativePrompt = body.negativePrompt?.trim() || undefined
 
+    const referenceImages = body.referenceImages?.map((img) => ({
+      image: {
+        imageBytes: img.base64,
+        mimeType: img.mimeType,
+      },
+      referenceType: VideoGenerationReferenceType.ASSET,
+    }))
+
+    const firstFrameImage = body.firstFrame ? {
+      imageBytes: body.firstFrame.base64,
+      mimeType: body.firstFrame.mimeType,
+    } : undefined
+
+    const lastFrameImage = body.lastFrame ? {
+      imageBytes: body.lastFrame.base64,
+      mimeType: body.lastFrame.mimeType,
+    } : undefined
+
     let operation = await ai.models.generateVideos({
-      model: 'veo-3.1-fast-generate-preview',
+      model: 'veo-3.1-generate-preview',
       prompt: body.prompt,
+      ...(firstFrameImage && { image: firstFrameImage }),
       config: {
         numberOfVideos: 1,
         aspectRatio: aspectRatio,
         ...(negativePrompt && { negativePrompt }),
+        ...(referenceImages && referenceImages.length > 0 && { referenceImages }),
+        ...(lastFrameImage && { lastFrame: lastFrameImage }),
       },
     })
 
