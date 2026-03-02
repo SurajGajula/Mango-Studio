@@ -8,6 +8,7 @@ interface ReferenceImageInput {
 
 interface GenerateImageRequest {
   prompt: string
+  aspectRatio?: '16:9' | '9:16'
   referenceImages?: ReferenceImageInput[]
 }
 
@@ -39,12 +40,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log('[generate-image] Calling generateContent with', contentParts.length, 'parts')
+    const aspectRatio = body.aspectRatio || '16:9'
+    
+    console.log('[generate-image] Calling generateContent with', contentParts.length, 'parts, aspect ratio:', aspectRatio)
     const response = await ai.models.generateContent({
       model: 'gemini-3.1-flash-image-preview',
       contents: contentParts,
       config: {
-        responseModalities: ['Text', 'Image'],
+        imageConfig: {
+          aspectRatio: aspectRatio,
+          imageSize: '2K',
+        },
       },
     })
     console.log('[generate-image] Got response')

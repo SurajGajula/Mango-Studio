@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
+import { ImageClass } from '@/app/models/ImageClass'
 import { exportVideo, downloadBlob, ExportProgress } from '@/app/lib/videoExporter'
 import styles from './Timeline.module.css'
 
@@ -9,10 +10,17 @@ type TrimHandle = 'start' | 'end' | null
 
 export default function Timeline() {
   const videos = useManifestStore((state) => state.videos)
+  const images = useManifestStore((state) => state.images)
   const selectedVideoId = useManifestStore((state) => state.selectedVideoId)
   const setSelectedVideoId = useManifestStore((state) => state.setSelectedVideoId)
+  const selectedImageId = useManifestStore((state) => state.selectedImageId)
+  const setSelectedImageId = useManifestStore((state) => state.setSelectedImageId)
+  const addImage = useManifestStore((state) => state.addImage)
+  const removeImage = useManifestStore((state) => state.removeImage)
+  const updateImage = useManifestStore((state) => state.updateImage)
   const replaceTargetId = useManifestStore((state) => state.replaceTargetId)
   const setReplaceTargetId = useManifestStore((state) => state.setReplaceTargetId)
+  const setPendingPrompt = useManifestStore((state) => state.setPendingPrompt)
   const playbackTime = useManifestStore((state) => state.playbackTime)
   const isPlaying = useManifestStore((state) => state.isPlaying)
   const setPlaybackTime = useManifestStore((state) => state.setPlaybackTime)
@@ -20,12 +28,13 @@ export default function Timeline() {
   const getTotalDuration = useManifestStore((state) => state.getTotalDuration)
   const trimVideo = useManifestStore((state) => state.trimVideo)
   const aspectRatio = useManifestStore((state) => state.aspectRatio)
-  const timelineRef = useRef<HTMLDivElement>(null)
   const timelineRowRef = useRef<HTMLDivElement>(null)
-  const [isDragging, setIsDragging] = useState(false)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const overlayInputRef = useRef<HTMLInputElement>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null)
   const [trimDragging, setTrimDragging] = useState<{ videoId: string; handle: TrimHandle } | null>(null)
+  const [imageDragging, setImageDragging] = useState<{ imageId: string; handle: 'move' | 'start' | 'end' } | null>(null)
   const trimStartRef = useRef<{
     trimStart: number
     trimEnd: number
@@ -33,8 +42,19 @@ export default function Timeline() {
     initialMouseX: number
     timelineWidth: number
   } | null>(null)
+  const imageDragRef = useRef<{
+    initialMouseX: number
+    initialStartTime: number
+    initialEndTime: number
+    timelineWidth: number
+  } | null>(null)
+  const isScrollingProgrammatically = useRef(false)
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   const totalDuration = getTotalDuration()
+  const VISIBLE_DURATION = 8
+  const PADDING_DURATION = 4
+  const totalTimelineWidth = totalDuration > 0 ? ((totalDuration + PADDING_DURATION * 2) / VISIBLE_DURATION) * 100 : 100
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
@@ -42,47 +62,54 @@ export default function Timeline() {
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
   }
 
-  const getPlayheadPosition = () => {
-    if (totalDuration === 0) return 0
-    return (playbackTime / totalDuration) * 100
+  const getContentPosition = (time: number) => {
+    const timeWithPadding = time + PADDING_DURATION
+    const totalWithPadding = totalDuration + PADDING_DURATION * 2
+    if (totalWithPadding === 0) return 0
+    return (timeWithPadding / totalWithPadding) * 100
   }
 
-  const seekToPosition = (clientX: number) => {
-    if (!timelineRef.current || totalDuration === 0) return
-    
-    const rect = timelineRef.current.getBoundingClientRect()
-    const x = clientX - rect.left
-    const percentage = Math.max(0, Math.min(1, x / rect.width))
-    const newTime = percentage * totalDuration
-    
+  const handleScroll = useCallback(() => {
+    if (isScrollingProgrammatically.current || isPlaying) return
+    if (!scrollContainerRef.current) return
+
+    const container = scrollContainerRef.current
+    const containerWidth = container.clientWidth
+    const scrollableWidth = container.scrollWidth
+    const scrollLeft = container.scrollLeft
+
+    const centerScrollPosition = scrollLeft + (containerWidth / 2)
+    const scrollPercent = scrollableWidth > 0 ? centerScrollPosition / scrollableWidth : 0
+    const totalWithPadding = totalDuration + PADDING_DURATION * 2
+    const timeWithPadding = scrollPercent * totalWithPadding
+    const newTime = Math.max(0, Math.min(totalDuration, timeWithPadding - PADDING_DURATION))
+
     setPlaybackTime(newTime)
+  }, [isPlaying, totalDuration, setPlaybackTime])
+
+  useEffect(() => {
+    if (!scrollContainerRef.current) return
     
-    const videoAtTime = videos.find((video) => {
-      if (!video.duration) return false
-      return newTime >= video.timestamp && newTime <= video.timestamp + video.duration
-    })
+    isScrollingProgrammatically.current = true
     
-    if (videoAtTime && videoAtTime.id !== selectedVideoId) {
-      setSelectedVideoId(videoAtTime.id)
+    const container = scrollContainerRef.current
+    const containerWidth = container.clientWidth
+    const scrollableWidth = container.scrollWidth
+    
+    const timeWithPadding = playbackTime + PADDING_DURATION
+    const totalWithPadding = totalDuration + PADDING_DURATION * 2
+    const targetScrollPercent = totalWithPadding > 0 ? timeWithPadding / totalWithPadding : 0
+    const targetScrollLeft = (scrollableWidth * targetScrollPercent) - (containerWidth / 2)
+    
+    container.scrollLeft = Math.max(0, targetScrollLeft)
+    
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current)
     }
-  }
-
-  const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    seekToPosition(e.clientX)
-  }
-
-  const handleMouseDown = () => {
-    setIsDragging(true)
-  }
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isDragging) return
-    seekToPosition(e.clientX)
-  }
-
-  const handleMouseUp = () => {
-    setIsDragging(false)
-  }
+    scrollTimeoutRef.current = setTimeout(() => {
+      isScrollingProgrammatically.current = false
+    }, 50)
+  }, [playbackTime, totalDuration, isPlaying])
 
   const handleExport = async () => {
     if (isExporting || videos.length === 0) return
@@ -92,7 +119,7 @@ export default function Timeline() {
     setExportProgress({ phase: 'preparing', progress: 0, message: 'Starting export...' })
 
     try {
-      const blob = await exportVideo(videos, aspectRatio, setExportProgress)
+      const blob = await exportVideo(videos, aspectRatio, setExportProgress, images)
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
       downloadBlob(blob, `mango-export-${timestamp}.mp4`)
     } catch (error) {
@@ -183,25 +210,103 @@ export default function Timeline() {
     trimStartRef.current = null
   }, [])
 
+  const handleImageFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+
+    Array.from(files).forEach((file) => {
+      if (!file.type.startsWith('image/')) return
+
+      const reader = new FileReader()
+      reader.onload = () => {
+        const url = URL.createObjectURL(file)
+        const image = new ImageClass(
+          `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          file.name,
+          url,
+          playbackTime,
+          Math.min(playbackTime + 5, totalDuration || 5),
+          50,
+          50,
+          200,
+          200,
+          1
+        )
+        addImage(image)
+      }
+      reader.readAsDataURL(file)
+    })
+
+    e.target.value = ''
+  }
+
+  const handleImageDragStart = (imageId: string, handle: 'move' | 'start' | 'end', e: React.MouseEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+
+    const image = images.find((o) => o.id === imageId)
+    if (!image || !timelineRowRef.current) return
+
+    setImageDragging({ imageId, handle })
+    imageDragRef.current = {
+      initialMouseX: e.clientX,
+      initialStartTime: image.startTime,
+      initialEndTime: image.endTime,
+      timelineWidth: timelineRowRef.current.getBoundingClientRect().width,
+    }
+  }
+
+  const handleImageDragMove = useCallback((e: MouseEvent) => {
+    if (!imageDragging || !imageDragRef.current) return
+
+    const { imageId, handle } = imageDragging
+    const { initialMouseX, initialStartTime, initialEndTime, timelineWidth } = imageDragRef.current
+
+    const mouseDelta = e.clientX - initialMouseX
+    const timeDelta = (mouseDelta / timelineWidth) * totalDuration
+
+    if (handle === 'move') {
+      let newStartTime = initialStartTime + timeDelta
+      let newEndTime = initialEndTime + timeDelta
+      const duration = initialEndTime - initialStartTime
+
+      if (newStartTime < 0) {
+        newStartTime = 0
+        newEndTime = duration
+      }
+      if (newEndTime > totalDuration) {
+        newEndTime = totalDuration
+        newStartTime = totalDuration - duration
+      }
+
+      updateImage(imageId, { startTime: newStartTime, endTime: newEndTime })
+    } else if (handle === 'start') {
+      let newStartTime = initialStartTime + timeDelta
+      newStartTime = Math.max(0, Math.min(newStartTime, initialEndTime - 0.5))
+      updateImage(imageId, { startTime: newStartTime })
+    } else if (handle === 'end') {
+      let newEndTime = initialEndTime + timeDelta
+      newEndTime = Math.max(initialStartTime + 0.5, Math.min(newEndTime, totalDuration))
+      updateImage(imageId, { endTime: newEndTime })
+    }
+  }, [imageDragging, totalDuration, updateImage])
+
+  const handleImageDragEnd = useCallback(() => {
+    setImageDragging(null)
+    imageDragRef.current = null
+  }, [])
+
   useEffect(() => {
-    if (!isDragging) return
+    if (!imageDragging) return
 
-    const handleGlobalMouseMove = (e: MouseEvent) => {
-      seekToPosition(e.clientX)
-    }
+    document.addEventListener('mousemove', handleImageDragMove)
+    document.addEventListener('mouseup', handleImageDragEnd)
 
-    const handleGlobalMouseUp = () => {
-      setIsDragging(false)
-    }
-
-    document.addEventListener('mousemove', handleGlobalMouseMove)
-    document.addEventListener('mouseup', handleGlobalMouseUp)
-    
     return () => {
-      document.removeEventListener('mousemove', handleGlobalMouseMove)
-      document.removeEventListener('mouseup', handleGlobalMouseUp)
+      document.removeEventListener('mousemove', handleImageDragMove)
+      document.removeEventListener('mouseup', handleImageDragEnd)
     }
-  }, [isDragging, totalDuration, videos, selectedVideoId])
+  }, [imageDragging, handleImageDragMove, handleImageDragEnd])
 
   useEffect(() => {
     if (!trimDragging) return
@@ -224,6 +329,14 @@ export default function Timeline() {
           </div>
         ) : (
           <div className={styles.timelineWrapper}>
+            <input
+              ref={overlayInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleImageFileSelect}
+              style={{ display: 'none' }}
+            />
             <div className={styles.playbackControls}>
               <button
                 className={styles.playButton}
@@ -235,6 +348,16 @@ export default function Timeline() {
               <span className={styles.timeDisplay}>
                 {formatTime(playbackTime)} / {formatTime(totalDuration)}
               </span>
+              <button
+                className={styles.addOverlayButton}
+                onClick={() => overlayInputRef.current?.click()}
+                title="Add overlay image"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+              </button>
               <button
                 className={styles.exportButton}
                 onClick={handleExport}
@@ -253,27 +376,85 @@ export default function Timeline() {
               </div>
             )}
             <div className={styles.timelineRowContainer}>
-              <div ref={timelineRowRef} className={styles.timelineRow}>
-                {videos.map((video) => {
-                  const leftPercent = totalDuration > 0 ? (video.timestamp / totalDuration) * 100 : 0
-                  const widthPercent = totalDuration > 0 && video.duration ? (video.duration / totalDuration) * 100 : 0
-                  const isSelected = selectedVideoId === video.id
-                  const isReplaceTarget = replaceTargetId === video.id
-                  const hasTrim = video.trimStart > 0 || video.trimEnd > 0
-                  return (
-                    <div
-                      key={video.id}
-                      className={`${styles.timelineItem} ${isSelected ? styles.selected : ''} ${hasTrim ? styles.trimmed : ''} ${isReplaceTarget ? styles.replaceTarget : ''}`}
-                      style={{
-                        left: `${leftPercent}%`,
-                        width: `${widthPercent}%`,
-                        position: 'absolute',
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setSelectedVideoId(video.id)
-                      }}
-                    >
+              <div className={styles.playheadLine} />
+              <div ref={scrollContainerRef} className={styles.scrollContainer} onScroll={handleScroll}>
+                <div className={styles.timelineContent} style={{ width: `${totalTimelineWidth}%` }}>
+                  <div className={styles.overlayRow}>
+                    {images.map((image) => {
+                      const leftPercent = getContentPosition(image.startTime)
+                      const widthPercent = totalDuration > 0 ? (image.duration / (totalDuration + PADDING_DURATION * 2)) * 100 : 0
+                      const isSelected = selectedImageId === image.id
+                      return (
+                        <div
+                          key={image.id}
+                          className={`${styles.overlayItem} ${isSelected ? styles.selected : ''}`}
+                          style={{
+                            left: `${leftPercent}%`,
+                            width: `${widthPercent}%`,
+                            position: 'absolute',
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setSelectedImageId(selectedImageId === image.id ? null : image.id)
+                            setSelectedVideoId(null)
+                          }}
+                          onMouseDown={(e) => handleImageDragStart(image.id, 'move', e)}
+                        >
+                          {isSelected && (
+                            <>
+                              <div
+                                className={styles.overlayHandleStart}
+                                onMouseDown={(e) => handleImageDragStart(image.id, 'start', e)}
+                              />
+                              <div
+                                className={styles.overlayHandleEnd}
+                                onMouseDown={(e) => handleImageDragStart(image.id, 'end', e)}
+                              />
+                              <button
+                                className={styles.removeOverlayButton}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  removeImage(image.id)
+                                }}
+                                title="Remove image"
+                              >
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <line x1="18" y1="6" x2="6" y2="18" />
+                                  <line x1="6" y1="6" x2="18" y2="18" />
+                                </svg>
+                              </button>
+                            </>
+                          )}
+                          <div className={styles.overlayBox}>
+                            <img src={image.url} alt={image.name} className={styles.overlayThumbnail} />
+                            <span className={styles.overlayName}>{image.name}</span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div ref={timelineRowRef} className={styles.timelineRow}>
+                    {videos.map((video) => {
+                      const leftPercent = getContentPosition(video.timestamp)
+                      const widthPercent = totalDuration > 0 && video.duration ? (video.duration / (totalDuration + PADDING_DURATION * 2)) * 100 : 0
+                      const isSelected = selectedVideoId === video.id
+                      const isReplaceTarget = replaceTargetId === video.id
+                      const hasTrim = video.trimStart > 0 || video.trimEnd > 0
+                      return (
+                        <div
+                          key={video.id}
+                          className={`${styles.timelineItem} ${isSelected ? styles.selected : ''} ${hasTrim ? styles.trimmed : ''} ${isReplaceTarget ? styles.replaceTarget : ''}`}
+                          style={{
+                            left: `${leftPercent}%`,
+                            width: `${widthPercent}%`,
+                            position: 'absolute',
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setSelectedVideoId(video.id)
+                            setSelectedImageId(null)
+                          }}
+                        >
                       {isSelected && (
                         <>
                           <div
@@ -296,6 +477,22 @@ export default function Timeline() {
                               <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
                             </svg>
                           </button>
+                          <button
+                            className={`${styles.copyPromptButton} ${!video.prompt ? styles.disabled : ''}`}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (video.prompt) {
+                                setPendingPrompt(video.prompt)
+                              }
+                            }}
+                            title={video.prompt ? 'Use this prompt' : 'No prompt available'}
+                            disabled={!video.prompt}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                            </svg>
+                          </button>
                         </>
                       )}
                       <div className={styles.videoBox}>
@@ -314,28 +511,9 @@ export default function Timeline() {
                     </div>
                   )
                 })}
+                  </div>
+                </div>
               </div>
-              {totalDuration > 0 && (
-                <>
-                  <div
-                    ref={timelineRef}
-                    className={styles.playbar}
-                    onClick={handleTimelineClick}
-                    onMouseDown={handleMouseDown}
-                    onMouseMove={handleMouseMove}
-                    onMouseUp={handleMouseUp}
-                  />
-                  <div
-                    className={styles.playbarLine}
-                    style={{ left: `${getPlayheadPosition()}%` }}
-                  />
-                  <div
-                    className={styles.playhead}
-                    style={{ left: `${getPlayheadPosition()}%` }}
-                    onMouseDown={handleMouseDown}
-                  />
-                </>
-              )}
             </div>
           </div>
         )}

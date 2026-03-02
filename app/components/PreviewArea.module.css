@@ -21,11 +21,100 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
 }
 
 .video {
   display: block;
   background-color: #000000;
+}
+
+.canvasWrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.overlayLayer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.imageOverlay {
+  position: absolute;
+  pointer-events: auto;
+  box-sizing: border-box;
+  border: 2px solid transparent;
+}
+
+.imageOverlay.selected {
+  border-color: #ffffff;
+  cursor: move;
+}
+
+.imageOverlay:not(.selected) {
+  cursor: pointer;
+}
+
+.resizeHandle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background-color: #ffffff;
+  border: 2px solid #000000;
+  border-radius: 2px;
+  pointer-events: auto;
+}
+
+.resizeHandle:hover {
+  background-color: #e0e0e0;
+}
+
+.resizeHandle.nw {
+  top: -6px;
+  left: -6px;
+  cursor: nw-resize;
+}
+
+.resizeHandle.ne {
+  top: -6px;
+  right: -6px;
+  cursor: ne-resize;
+}
+
+.resizeHandle.sw {
+  bottom: -6px;
+  left: -6px;
+  cursor: sw-resize;
+}
+
+.resizeHandle.se {
+  bottom: -6px;
+  right: -6px;
+  cursor: se-resize;
+}
+
+.snapLineVertical {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background-color: #ff4081;
+  pointer-events: none;
+  z-index: 100;
+}
+
+.snapLineHorizontal {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background-color: #ff4081;
+  pointer-events: none;
+  z-index: 100;
 }
 
 .previewContent {

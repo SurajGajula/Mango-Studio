@@ -13,17 +13,17 @@
 }
 
 .previewContainer {
-  height: 80%;
+  flex: 1;
   width: 100%;
   overflow: hidden;
   min-height: 0;
 }
 
 .timelineContainer {
-  height: 20%;
+  height: 180px;
   width: 100%;
   overflow: hidden;
-  min-height: 0;
+  flex-shrink: 0;
 }
 
 .rightSection {

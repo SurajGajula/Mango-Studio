@@ -1,12 +1,16 @@
 import { create } from 'zustand'
 import { VideoClass } from '@/app/models/VideoClass'
+import { ImageClass } from '@/app/models/ImageClass'
 
 export type AspectRatio = '16:9' | '9:16'
 
 interface ManifestStore {
   videos: VideoClass[]
+  images: ImageClass[]
   selectedVideoId: string | null
+  selectedImageId: string | null
   replaceTargetId: string | null
+  pendingPrompt: string | null
   playbackTime: number
   isPlaying: boolean
   aspectRatio: AspectRatio
@@ -22,16 +26,26 @@ interface ManifestStore {
   clearVideos: () => void
   setSelectedVideoId: (id: string | null) => void
   setReplaceTargetId: (id: string | null) => void
+  setPendingPrompt: (prompt: string | null) => void
   getSelectedVideo: () => VideoClass | undefined
   setPlaybackTime: (time: number) => void
   setIsPlaying: (playing: boolean) => void
   setAspectRatio: (ratio: AspectRatio) => void
+  addImage: (image: ImageClass) => void
+  removeImage: (id: string) => void
+  updateImage: (id: string, updates: Partial<ImageClass>) => void
+  setSelectedImageId: (id: string | null) => void
+  getImage: (id: string) => ImageClass | undefined
+  getImagesAtTime: (time: number) => ImageClass[]
 }
 
 export const useManifestStore = create<ManifestStore>((set, get) => ({
   videos: [],
+  images: [],
   selectedVideoId: null,
+  selectedImageId: null,
   replaceTargetId: null,
+  pendingPrompt: null,
   playbackTime: 0,
   isPlaying: false,
   aspectRatio: '16:9',
@@ -70,7 +84,11 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
         newVideo.duration,
         targetVideo.timestamp,
         newVideo.createdAt,
-        newVideo.updatedAt
+        newVideo.updatedAt,
+        undefined,
+        undefined,
+        undefined,
+        newVideo.prompt
       )
 
       const updatedVideos = [...state.videos]
@@ -225,6 +243,10 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
     set({ replaceTargetId: id })
   },
 
+  setPendingPrompt: (prompt: string | null) => {
+    set({ pendingPrompt: prompt })
+  },
+
   getSelectedVideo: () => {
     const state = get()
     if (!state.selectedVideoId) return undefined
@@ -244,5 +266,61 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
     if (state.videos.length === 0) {
       set({ aspectRatio: ratio })
     }
+  },
+
+  addImage: (image: ImageClass) => {
+    set((state) => ({
+      images: [...state.images, image],
+      selectedImageId: image.id,
+    }))
+  },
+
+  removeImage: (id: string) => {
+    set((state) => {
+      const image = state.images.find((o) => o.id === id)
+      if (image?.url?.startsWith('blob:')) {
+        URL.revokeObjectURL(image.url)
+      }
+      return {
+        images: state.images.filter((o) => o.id !== id),
+        selectedImageId: state.selectedImageId === id ? null : state.selectedImageId,
+      }
+    })
+  },
+
+  updateImage: (id: string, updates: Partial<ImageClass>) => {
+    set((state) => ({
+      images: state.images.map((image) =>
+        image.id === id
+          ? new ImageClass(
+              image.id,
+              updates.name ?? image.name,
+              updates.url ?? image.url,
+              updates.startTime ?? image.startTime,
+              updates.endTime ?? image.endTime,
+              updates.x ?? image.x,
+              updates.y ?? image.y,
+              updates.width ?? image.width,
+              updates.height ?? image.height,
+              updates.opacity ?? image.opacity,
+              image.createdAt
+            )
+          : image
+      ),
+    }))
+  },
+
+  setSelectedImageId: (id: string | null) => {
+    set({ selectedImageId: id })
+  },
+
+  getImage: (id: string) => {
+    return get().images.find((o) => o.id === id)
+  },
+
+  getImagesAtTime: (time: number) => {
+    return get().images.filter(
+      (image) => time >= image.startTime && time < image.endTime
+    )
   },
 }))

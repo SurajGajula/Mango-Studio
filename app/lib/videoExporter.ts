@@ -1,4 +1,5 @@
 import { VideoClass } from '@/app/models/VideoClass'
+import { ImageClass } from '@/app/models/ImageClass'
 import { FFmpeg } from '@ffmpeg/ffmpeg'
 import { fetchFile, toBlobURL } from '@ffmpeg/util'
 
@@ -44,10 +45,28 @@ export type ProgressCallback = (progress: ExportProgress) => void
 export async function exportVideo(
   videos: VideoClass[],
   aspectRatio: '16:9' | '9:16',
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  images?: ImageClass[]
 ): Promise<Blob> {
   const sortedVideos = [...videos].sort((a, b) => a.timestamp - b.timestamp)
   const totalDuration = sortedVideos.reduce((sum, v) => sum + (v.duration || 0), 0)
+  
+  const imageElements = new Map<string, HTMLImageElement>()
+  if (images && images.length > 0) {
+    await Promise.all(
+      images.map((image) => {
+        return new Promise<void>((resolve) => {
+          const img = new Image()
+          img.onload = () => {
+            imageElements.set(image.id, img)
+            resolve()
+          }
+          img.onerror = () => resolve()
+          img.src = image.url
+        })
+      })
+    )
+  }
 
   if (sortedVideos.length === 0 || totalDuration === 0) {
     throw new Error('No videos to export')
@@ -255,6 +274,31 @@ export async function exportVideo(
         const localTimeInTrimmed = video.currentTime - trimStart
 
         currentTime = clip.timestamp + localTimeInTrimmed
+
+        if (images && images.length > 0) {
+          const activeImages = images.filter(
+            (image) => currentTime >= image.startTime && currentTime < image.endTime
+          )
+          activeImages.forEach((image) => {
+            const img = imageElements.get(image.id)
+            if (!img || img.naturalWidth === 0) return
+
+            ctx.save()
+            ctx.globalAlpha = image.opacity
+
+            const scaleX = width / 1920
+            const scaleY = height / 1080
+            const scale = Math.min(scaleX, scaleY)
+
+            const x = image.x * scale
+            const y = image.y * scale
+            const imageWidth = image.width * scale
+            const imageHeight = image.height * scale
+
+            ctx.drawImage(img, x, y, imageWidth, imageHeight)
+            ctx.restore()
+          })
+        }
         const progress = 15 + (currentTime / totalDuration) * 80
         onProgress?.({
           phase: 'rendering',

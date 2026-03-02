@@ -7,6 +7,7 @@ export class VideoClass {
   trimStart: number
   trimEnd: number
   timestamp: number
+  prompt?: string
   createdAt: Date
   updatedAt: Date
 
@@ -20,7 +21,8 @@ export class VideoClass {
     updatedAt?: Date,
     originalDuration?: number,
     trimStart?: number,
-    trimEnd?: number
+    trimEnd?: number,
+    prompt?: string
   ) {
     this.id = id
     this.title = title
@@ -30,6 +32,7 @@ export class VideoClass {
     this.trimStart = trimStart ?? 0
     this.trimEnd = trimEnd ?? 0
     this.timestamp = timestamp ?? 0
+    this.prompt = prompt
     this.createdAt = createdAt || new Date()
     this.updatedAt = updatedAt || new Date()
   }
@@ -44,6 +47,7 @@ export class VideoClass {
       trimStart: this.trimStart,
       trimEnd: this.trimEnd,
       timestamp: this.timestamp,
+      prompt: this.prompt,
       createdAt: this.createdAt.toISOString(),
       updatedAt: this.updatedAt.toISOString(),
     }
@@ -58,6 +62,7 @@ export class VideoClass {
     trimStart?: number
     trimEnd?: number
     timestamp?: number
+    prompt?: string
     createdAt?: string
     updatedAt?: string
   }): VideoClass {
@@ -71,7 +76,8 @@ export class VideoClass {
       data.updatedAt ? new Date(data.updatedAt) : undefined,
       data.originalDuration,
       data.trimStart,
-      data.trimEnd
+      data.trimEnd,
+      data.prompt
     )
   }
 }

@@ -56,7 +56,17 @@ export default function ChatWindow() {
   const replaceVideo = useManifestStore((state) => state.replaceVideo)
   const replaceTargetId = useManifestStore((state) => state.replaceTargetId)
   const setReplaceTargetId = useManifestStore((state) => state.setReplaceTargetId)
+  const pendingPrompt = useManifestStore((state) => state.pendingPrompt)
+  const setPendingPrompt = useManifestStore((state) => state.setPendingPrompt)
   const aspectRatio = useManifestStore((state) => state.aspectRatio)
+
+  useEffect(() => {
+    if (pendingPrompt) {
+      setInputValue(pendingPrompt)
+      setPendingPrompt(null)
+      textareaRef.current?.focus()
+    }
+  }, [pendingPrompt, setPendingPrompt])
 
   const resolveVideoDuration = async (url: string): Promise<number | undefined> => {
     return new Promise((resolve) => {
@@ -120,6 +130,7 @@ export default function ChatWindow() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             prompt: fullPrompt,
+            aspectRatio,
             referenceImages: refImages.length > 0
               ? refImages.map((img) => ({ base64: img.base64, mimeType: img.mimeType }))
               : undefined,
@@ -209,7 +220,14 @@ export default function ChatWindow() {
             videoId,
             userPrompt.substring(0, 50) + (userPrompt.length > 50 ? '...' : ''),
             blobUrl,
-            duration
+            duration,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            userPrompt
           )
 
           if (replaceTargetId) {
