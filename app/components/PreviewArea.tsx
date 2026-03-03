@@ -58,7 +58,7 @@ export default function PreviewArea() {
     })
 
     sortedVideos.forEach((clip) => {
-      if (!videoElementsRef.current.has(clip.id)) {
+      if (!videoElementsRef.current.has(clip.id) && clip.url) {
         const video = document.createElement('video')
         video.preload = 'auto'
         video.playsInline = true
