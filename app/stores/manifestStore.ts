@@ -16,18 +16,13 @@ interface ManifestStore {
   aspectRatio: AspectRatio
   addVideo: (video: VideoClass) => void
   replaceVideo: (targetId: string, newVideo: VideoClass) => void
-  removeVideo: (id: string) => void
   updateVideo: (id: string, updates: Partial<VideoClass>) => void
   trimVideo: (id: string, trimStart: number, trimEnd: number) => void
-  resetVideoTrim: (id: string) => void
   recalculateTimestamps: () => void
   getTotalDuration: () => number
-  getVideo: (id: string) => VideoClass | undefined
-  clearVideos: () => void
   setSelectedVideoId: (id: string | null) => void
   setReplaceTargetId: (id: string | null) => void
   setPendingPrompt: (prompt: string | null) => void
-  getSelectedVideo: () => VideoClass | undefined
   setPlaybackTime: (time: number) => void
   setIsPlaying: (playing: boolean) => void
   setAspectRatio: (ratio: AspectRatio) => void
@@ -35,8 +30,6 @@ interface ManifestStore {
   removeImage: (id: string) => void
   updateImage: (id: string, updates: Partial<ImageClass>) => void
   setSelectedImageId: (id: string | null) => void
-  getImage: (id: string) => ImageClass | undefined
-  getImagesAtTime: (time: number) => ImageClass[]
 }
 
 export const useManifestStore = create<ManifestStore>((set, get) => ({
@@ -104,18 +97,6 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
     get().recalculateTimestamps()
   },
 
-  removeVideo: (id: string) => {
-    set((state) => {
-      const videoToRemove = state.videos.find((video) => video.id === id)
-      if (videoToRemove?.url?.startsWith('blob:')) {
-        URL.revokeObjectURL(videoToRemove.url)
-      }
-      return {
-        videos: state.videos.filter((video) => video.id !== id),
-      }
-    })
-  },
-
   updateVideo: (id: string, updates: Partial<VideoClass>) => {
     set((state) => ({
       videos: state.videos.map((video) => {
@@ -171,34 +152,6 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
     get().recalculateTimestamps()
   },
 
-  resetVideoTrim: (id: string) => {
-    const state = get()
-    const video = state.videos.find((v) => v.id === id)
-    if (!video) return
-
-    set((state) => ({
-      videos: state.videos.map((v) => {
-        if (v.id === id) {
-          return new VideoClass(
-            v.id,
-            v.title,
-            v.url,
-            v.originalDuration ?? v.duration,
-            v.timestamp,
-            v.createdAt,
-            new Date(),
-            v.originalDuration ?? v.duration,
-            0,
-            0
-          )
-        }
-        return v
-      }),
-    }))
-
-    get().recalculateTimestamps()
-  },
-
   recalculateTimestamps: () => {
     set((state) => {
       const sorted = [...state.videos].sort((a, b) => a.timestamp - b.timestamp)
@@ -227,14 +180,6 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
     return get().videos.reduce((sum, video) => sum + (video.duration || 0), 0)
   },
 
-  getVideo: (id: string) => {
-    return get().videos.find((video) => video.id === id)
-  },
-
-  clearVideos: () => {
-    set({ videos: [], selectedVideoId: null, playbackTime: 0, isPlaying: false })
-  },
-
   setSelectedVideoId: (id: string | null) => {
     set({ selectedVideoId: id })
   },
@@ -245,12 +190,6 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
 
   setPendingPrompt: (prompt: string | null) => {
     set({ pendingPrompt: prompt })
-  },
-
-  getSelectedVideo: () => {
-    const state = get()
-    if (!state.selectedVideoId) return undefined
-    return state.videos.find((video) => video.id === state.selectedVideoId)
   },
 
   setPlaybackTime: (time: number) => {
@@ -314,13 +253,4 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
     set({ selectedImageId: id })
   },
 
-  getImage: (id: string) => {
-    return get().images.find((o) => o.id === id)
-  },
-
-  getImagesAtTime: (time: number) => {
-    return get().images.filter(
-      (image) => time >= image.startTime && time < image.endTime
-    )
-  },
 }))
