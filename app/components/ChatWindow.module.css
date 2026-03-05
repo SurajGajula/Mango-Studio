@@ -448,3 +448,21 @@
 .imageActionButton:hover {
   background-color: rgba(255, 255, 255, 0.25);
 }
+
+.loadingBar {
+  height: 2px;
+  margin-top: 0.5rem;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent 0%, #ffffff 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: loadingSlide 1.4s ease-in-out infinite;
+}
+
+@keyframes loadingSlide {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}

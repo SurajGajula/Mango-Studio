@@ -9,6 +9,7 @@ interface Message {
   id: string
   text: string
   isUser: boolean
+  loading?: boolean
   timestamp: Date
 }
 
@@ -32,8 +33,6 @@ interface ReferenceImage {
   imageType: ImageType
 }
 
-type GenerationMode = 'video' | 'image'
-
 interface GeneratedImage {
   id: string
   base64: string
@@ -49,7 +48,6 @@ export default function ChatWindow() {
   const [negativePrompt, setNegativePrompt] = useState('')
   const [showSystemPromptModal, setShowSystemPromptModal] = useState(false)
   const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([])
-  const [generationMode, setGenerationMode] = useState<GenerationMode>('video')
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const addVideo = useManifestStore((state) => state.addVideo)
@@ -100,8 +98,7 @@ export default function ChatWindow() {
     if (!inputValue.trim() || isGenerating) return
 
     const userPrompt = inputValue.trim()
-    const fullPrompt = systemPrompt ? `${systemPrompt} ${userPrompt}` : userPrompt
-    
+
     const userMessage: Message = {
       id: Date.now().toString(),
       text: userPrompt,
@@ -113,24 +110,48 @@ export default function ChatWindow() {
     setInputValue('')
     setIsGenerating(true)
 
-    const loadingMessage: Message = {
-      id: `loading-${Date.now()}`,
-      text: generationMode === 'video' ? 'Generating video...' : 'Generating image...',
-      isUser: false,
-      timestamp: new Date(),
+    const statusId = `status-${Date.now()}`
+    const updateStatus = (text: string, loading: boolean) => {
+      setMessages((prev) =>
+        prev.map((msg) => (msg.id === statusId ? { ...msg, text, loading } : msg))
+      )
     }
-    setMessages((prev) => [...prev, loadingMessage])
+
+    setMessages((prev) => [
+      ...prev,
+      { id: statusId, text: 'Thinking...', isUser: false, loading: true, timestamp: new Date() },
+    ])
 
     try {
-      if (generationMode === 'image') {
+      const routeResponse = await fetch('/api/route-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: userPrompt, aspectRatio }),
+      })
+
+      const routeData = await routeResponse.json()
+
+      if (!routeResponse.ok || routeData.error) {
+        updateStatus(`Error: ${routeData.error || 'Failed to route prompt'}`, false)
+        return
+      }
+
+      if (routeData.action === 'no_op') {
+        updateStatus(routeData.message, false)
+        return
+      }
+
+      updateStatus(routeData.message, true)
+
+      if (routeData.action === 'generate_image') {
         const refImages = referenceImages.filter((img) => img.imageType === 'reference')
-        
+
         const response = await fetch('/api/generate-image', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            prompt: fullPrompt,
-            aspectRatio,
+            prompt: routeData.params.prompt,
+            aspectRatio: routeData.params.aspectRatio || aspectRatio,
             referenceImages: refImages.length > 0
               ? refImages.map((img) => ({ base64: img.base64, mimeType: img.mimeType }))
               : undefined,
@@ -138,81 +159,66 @@ export default function ChatWindow() {
         })
 
         const data = await response.json()
-        setMessages((prev) => prev.filter((msg) => msg.id !== loadingMessage.id))
 
         if (!response.ok || !data.success) {
-          const errorMessage: Message = {
-            id: `error-${Date.now()}`,
-            text: `Error: ${data.error || 'Failed to generate image'}`,
-            isUser: false,
-            timestamp: new Date(),
-          }
-          setMessages((prev) => [...prev, errorMessage])
+          updateStatus(`Error: ${data.error || 'Failed to generate image'}`, false)
           return
         }
 
         if (data.image_base64) {
-          const newImage: GeneratedImage = {
-            id: `img-${Date.now()}`,
-            base64: data.image_base64,
-            mimeType: data.image_mime_type || 'image/png',
-            prompt: userPrompt,
-          }
-          setGeneratedImages((prev) => [...prev, newImage])
-
-          const successMessage: Message = {
-            id: `success-${Date.now()}`,
-            text: 'Image generated! View it in the Generated Images section below.',
-            isUser: false,
-            timestamp: new Date(),
-          }
-          setMessages((prev) => [...prev, successMessage])
+          setGeneratedImages((prev) => [
+            ...prev,
+            {
+              id: `img-${Date.now()}`,
+              base64: data.image_base64,
+              mimeType: data.image_mime_type || 'image/png',
+              prompt: userPrompt,
+            },
+          ])
+          updateStatus('Image generated successfully! View it in the Generated Images section below.', false)
         }
-      } else {
+      } else if (routeData.action === 'generate_video') {
         const refImages = referenceImages.filter((img) => img.imageType === 'reference')
         const firstFrameImg = referenceImages.find((img) => img.imageType === 'firstFrame')
         const lastFrameImg = referenceImages.find((img) => img.imageType === 'lastFrame')
 
+        const videoPrompt = systemPrompt.trim()
+          ? `${systemPrompt.trim()} ${routeData.params.prompt}`
+          : routeData.params.prompt
+
         const response = await fetch('/api/generate-video', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            prompt: fullPrompt, 
-            aspectRatio, 
-            negativePrompt: negativePrompt.trim() || undefined,
-            referenceImages: refImages.length > 0 
+          body: JSON.stringify({
+            prompt: videoPrompt,
+            aspectRatio: routeData.params.aspectRatio || aspectRatio,
+            negativePrompt: routeData.params.negativePrompt || negativePrompt.trim() || undefined,
+            referenceImages: refImages.length > 0
               ? refImages.map((img) => ({ base64: img.base64, mimeType: img.mimeType }))
               : undefined,
-            firstFrame: firstFrameImg 
+            firstFrame: firstFrameImg
               ? { base64: firstFrameImg.base64, mimeType: firstFrameImg.mimeType }
               : undefined,
-            lastFrame: lastFrameImg 
+            lastFrame: lastFrameImg
               ? { base64: lastFrameImg.base64, mimeType: lastFrameImg.mimeType }
               : undefined,
           }),
         })
 
         const data = await response.json()
-        setMessages((prev) => prev.filter((msg) => msg.id !== loadingMessage.id))
 
         if (!response.ok || !data.success) {
-          const errorMessage: Message = {
-            id: `error-${Date.now()}`,
-            text: `Error: ${data.error || 'Failed to generate video'}`,
-            isUser: false,
-            timestamp: new Date(),
-          }
-          setMessages((prev) => [...prev, errorMessage])
+          updateStatus(`Error: ${data.error || 'Failed to generate video'}`, false)
           return
         }
 
         if (data.video_base64) {
           const videoId = `video-${Date.now()}`
           const mimeType = data.video_mime_type || 'video/mp4'
-          
+
           const blob = base64ToBlob(data.video_base64, mimeType)
           const blobUrl = URL.createObjectURL(blob)
-          
+
           const resolvedDuration = await resolveVideoDuration(blobUrl)
           const duration = resolvedDuration && resolvedDuration > 0 ? resolvedDuration : 8
 
@@ -237,25 +243,11 @@ export default function ChatWindow() {
             addVideo(video)
           }
 
-          const successMessage: Message = {
-            id: `success-${Date.now()}`,
-            text: replaceTargetId ? 'Video replaced successfully!' : 'Video generated successfully!',
-            isUser: false,
-            timestamp: new Date(),
-          }
-          setMessages((prev) => [...prev, successMessage])
+          updateStatus(replaceTargetId ? 'Video replaced successfully!' : 'Video generated successfully!', false)
         }
       }
     } catch (error) {
-      setMessages((prev) => prev.filter((msg) => msg.id !== loadingMessage.id))
-
-      const errorMessage: Message = {
-        id: `error-${Date.now()}`,
-        text: `Error: ${error instanceof Error ? error.message : 'Failed to generate'}`,
-        isUser: false,
-        timestamp: new Date(),
-      }
-      setMessages((prev) => [...prev, errorMessage])
+      updateStatus(`Error: ${error instanceof Error ? error.message : 'Failed to generate'}`, false)
     } finally {
       setIsGenerating(false)
     }
@@ -365,8 +357,6 @@ export default function ChatWindow() {
     }
   }
 
-  const hasSystemPrompt = systemPrompt.trim().length > 0 || negativePrompt.trim().length > 0
-
   return (
     <div className={styles.container}>
       <div className={styles.messages}>
@@ -376,6 +366,7 @@ export default function ChatWindow() {
             className={`${styles.message} ${message.isUser ? styles.userMessage : styles.botMessage}`}
           >
             <p>{message.text}</p>
+            {message.loading && <div className={styles.loadingBar} />}
           </div>
         ))}
       </div>
@@ -465,33 +456,12 @@ export default function ChatWindow() {
         />
         <div className={styles.buttonStack}>
           <button
-            className={`${styles.modeToggleButton} ${generationMode === 'image' ? styles.imageMode : ''}`}
-            onClick={() => setGenerationMode(generationMode === 'video' ? 'image' : 'video')}
-            title={generationMode === 'video' ? 'Switch to image generation' : 'Switch to video generation'}
-            disabled={isGenerating}
+            className={`${styles.systemPromptButton} ${systemPrompt.trim() || negativePrompt.trim() ? styles.active : ''}`}
+            onClick={() => setShowSystemPromptModal(true)}
+            title={systemPrompt.trim() ? `System prompt: ${systemPrompt}` : 'Add system prompt (video only)'}
           >
-            {generationMode === 'video' ? (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="23 7 16 12 23 17 23 7" />
-                <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-              </svg>
-            ) : (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                <circle cx="8.5" cy="8.5" r="1.5" />
-                <polyline points="21 15 16 10 5 21" />
-              </svg>
-            )}
+            ✦
           </button>
-          {generationMode === 'video' && (
-            <button
-              className={`${styles.systemPromptButton} ${hasSystemPrompt ? styles.active : ''}`}
-              onClick={() => setShowSystemPromptModal(true)}
-              title={hasSystemPrompt ? `System prompt: ${systemPrompt}` : 'Add system prompt'}
-            >
-              ✦
-            </button>
-          )}
           <button
             className={`${styles.attachButton} ${referenceImages.length > 0 ? styles.active : ''}`}
             onClick={() => fileInputRef.current?.click()}
