@@ -2,6 +2,8 @@
 
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
+import { useSelectionStore } from '@/app/stores/selectionStore'
+import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { exportVideo, downloadBlob, ExportProgress } from '@/app/lib/videoExporter'
 import styles from './Timeline.module.css'
@@ -11,10 +13,12 @@ type TrimHandle = 'start' | 'end' | null
 export default function Timeline() {
   const videos = useManifestStore((state) => state.videos)
   const images = useManifestStore((state) => state.images)
-  const selectedVideoId = useManifestStore((state) => state.selectedVideoId)
-  const setSelectedVideoId = useManifestStore((state) => state.setSelectedVideoId)
-  const selectedImageId = useManifestStore((state) => state.selectedImageId)
-  const setSelectedImageId = useManifestStore((state) => state.setSelectedImageId)
+  const selectedVideoId = useSelectionStore((state) => state.selectedVideoId)
+  const setSelectedVideoId = useSelectionStore((state) => state.setSelectedVideoId)
+  const selectedImageId = useSelectionStore((state) => state.selectedImageId)
+  const setSelectedImageId = useSelectionStore((state) => state.setSelectedImageId)
+  const addVideo = useManifestStore((state) => state.addVideo)
+  const removeVideo = useManifestStore((state) => state.removeVideo)
   const addImage = useManifestStore((state) => state.addImage)
   const removeImage = useManifestStore((state) => state.removeImage)
   const updateImage = useManifestStore((state) => state.updateImage)
@@ -27,11 +31,18 @@ export default function Timeline() {
   const setIsPlaying = useManifestStore((state) => state.setIsPlaying)
   const getTotalDuration = useManifestStore((state) => state.getTotalDuration)
   const trimVideo = useManifestStore((state) => state.trimVideo)
+  const splitVideo = useManifestStore((state) => state.splitVideo)
+  const pushHistory = useManifestStore((state) => state.pushHistory)
+  const undo = useManifestStore((state) => state.undo)
+  const redo = useManifestStore((state) => state.redo)
+  const historyIndex = useManifestStore((state) => state.historyIndex)
+  const historyLength = useManifestStore((state) => state.history.length)
   const aspectRatio = useManifestStore((state) => state.aspectRatio)
   const timelineRowRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const overlayInputRef = useRef<HTMLInputElement>(null)
+  const uploadInputRef = useRef<HTMLInputElement>(null)
   const [isExporting, setIsExporting] = useState(false)
+  const [videoThumbnails, setVideoThumbnails] = useState<Map<string, string[]>>(new Map())
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null)
   const [trimDragging, setTrimDragging] = useState<{ videoId: string; handle: TrimHandle } | null>(null)
   const [imageDragging, setImageDragging] = useState<{ imageId: string; handle: 'move' | 'start' | 'end' } | null>(null)
@@ -110,6 +121,123 @@ export default function Timeline() {
       isScrollingProgrammatically.current = false
     }, 50)
   }, [playbackTime, totalDuration, isPlaying])
+
+  useEffect(() => {
+    const generateThumbnailsForUrl = async (url: string) => {
+      const video = document.createElement('video')
+      video.src = url
+      video.crossOrigin = 'anonymous'
+      video.muted = true
+      
+      await new Promise<void>((resolve) => {
+        video.onloadeddata = () => resolve()
+        video.onerror = () => resolve()
+      })
+
+      if (video.duration === 0 || !video.videoWidth) {
+        video.src = ''
+        return null
+      }
+
+      const canvas = document.createElement('canvas')
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return null
+
+      const thumbHeight = 48
+      const thumbWidth = Math.round(thumbHeight * (video.videoWidth / video.videoHeight)) || 85
+      canvas.width = thumbWidth
+      canvas.height = thumbHeight
+
+      const thumbnails: string[] = []
+      const interval = 1
+      const numThumbs = Math.max(1, Math.ceil(video.duration / interval))
+
+      for (let i = 0; i < numThumbs; i++) {
+        const time = i * interval
+        video.currentTime = time
+
+        await new Promise<void>((resolve) => {
+          video.onseeked = () => resolve()
+          setTimeout(resolve, 200)
+        })
+
+        ctx.drawImage(video, 0, 0, thumbWidth, thumbHeight)
+        thumbnails.push(canvas.toDataURL('image/jpeg', 0.6))
+      }
+
+      video.src = ''
+      return thumbnails
+    }
+
+    const uniqueUrls = new Set(videos.map((v) => v.url).filter(Boolean) as string[])
+    
+    uniqueUrls.forEach(async (url) => {
+      if (videoThumbnails.has(url)) return
+
+      const thumbs = await generateThumbnailsForUrl(url)
+      if (thumbs && thumbs.length > 0) {
+        setVideoThumbnails((prev) => {
+          const next = new Map(prev)
+          next.set(url, thumbs)
+          return next
+        })
+      }
+    })
+  }, [videos, videoThumbnails])
+
+  const resolveVideoDuration = (url: string): Promise<number> =>
+    new Promise((resolve) => {
+      const probe = document.createElement('video')
+      const timeout = window.setTimeout(() => {
+        probe.src = ''
+        resolve(8)
+      }, 8000)
+      probe.preload = 'metadata'
+      probe.onloadedmetadata = () => {
+        window.clearTimeout(timeout)
+        const dur = Number.isFinite(probe.duration) && probe.duration > 0 ? probe.duration : 8
+        probe.src = ''
+        resolve(dur)
+      }
+      probe.onerror = () => {
+        window.clearTimeout(timeout)
+        probe.src = ''
+        resolve(8)
+      }
+      probe.src = url
+    })
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files) return
+
+    for (const file of Array.from(files)) {
+      if (file.type.startsWith('video/')) {
+        const blobUrl = URL.createObjectURL(file)
+        const duration = await resolveVideoDuration(blobUrl)
+        const id = `video-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+        const title = file.name.replace(/\.[^.]+$/, '').substring(0, 50)
+        addVideo(new VideoClass(id, title, blobUrl, duration))
+      } else if (file.type.startsWith('image/')) {
+        const url = URL.createObjectURL(file)
+        const totalDuration = getTotalDuration()
+        addImage(new ImageClass(
+          `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          file.name,
+          url,
+          0,
+          totalDuration,
+          760,
+          440,
+          400,
+          300,
+          1,
+        ))
+      }
+    }
+
+    e.target.value = ''
+  }
 
   const handleExport = async () => {
     if (isExporting || videos.length === 0) return
@@ -208,37 +336,8 @@ export default function Timeline() {
   const handleTrimEnd = useCallback(() => {
     setTrimDragging(null)
     trimStartRef.current = null
-  }, [])
-
-  const handleImageFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (!files || files.length === 0) return
-
-    Array.from(files).forEach((file) => {
-      if (!file.type.startsWith('image/')) return
-
-      const reader = new FileReader()
-      reader.onload = () => {
-        const url = URL.createObjectURL(file)
-        const image = new ImageClass(
-          `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          file.name,
-          url,
-          playbackTime,
-          Math.min(playbackTime + 5, totalDuration || 5),
-          50,
-          50,
-          200,
-          200,
-          1
-        )
-        addImage(image)
-      }
-      reader.readAsDataURL(file)
-    })
-
-    e.target.value = ''
-  }
+    pushHistory()
+  }, [pushHistory])
 
   const handleImageDragStart = (imageId: string, handle: 'move' | 'start' | 'end', e: React.MouseEvent) => {
     e.stopPropagation()
@@ -294,7 +393,8 @@ export default function Timeline() {
   const handleImageDragEnd = useCallback(() => {
     setImageDragging(null)
     imageDragRef.current = null
-  }, [])
+    pushHistory()
+  }, [pushHistory])
 
   useEffect(() => {
     if (!imageDragging) return
@@ -320,24 +420,74 @@ export default function Timeline() {
     }
   }, [trimDragging, handleTrimMove, handleTrimEnd])
 
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return
+      const tag = (e.target as HTMLElement).tagName
+      const isEditing = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable
+      if (e.key === 'z') { e.preventDefault(); undo() }
+      if (e.key === 'y') { e.preventDefault(); redo() }
+      if (e.key === 'd' && !isEditing) {
+        e.preventDefault()
+        const { selectedVideoId, selectedImageId } = useSelectionStore.getState()
+        if (selectedVideoId) removeVideo(selectedVideoId)
+        else if (selectedImageId) removeImage(selectedImageId)
+      }
+      if (e.key === 'u' && !isEditing) {
+        e.preventDefault()
+        uploadInputRef.current?.click()
+      }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [undo, redo, removeVideo, removeImage])
+
   return (
     <div className={styles.container}>
       <div className={styles.content}>
+        <input
+          ref={uploadInputRef}
+          type="file"
+          accept="video/*,image/*"
+          multiple
+          onChange={handleFileSelect}
+          style={{ display: 'none' }}
+        />
         {videos.length === 0 ? (
           <div className={styles.emptyState}>
-            <p>No videos yet. Generate a video in the chat to see it here.</p>
+            <p>No videos yet. Generate a video in the chat or</p>
+            <button
+              className={styles.uploadVideoButton}
+              onClick={() => uploadInputRef.current?.click()}
+            >
+              upload a file
+            </button>
           </div>
         ) : (
           <div className={styles.timelineWrapper}>
-            <input
-              ref={overlayInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={handleImageFileSelect}
-              style={{ display: 'none' }}
-            />
             <div className={styles.playbackControls}>
+              <button
+                className={styles.historyButton}
+                onClick={undo}
+                disabled={historyIndex <= 0}
+                title="Undo (Cmd+Z)"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 7v6h6" />
+                  <path d="M3 13C5 8 9 5 14 5a9 9 0 0 1 0 18c-4 0-7.5-2-9-5" />
+                </svg>
+              </button>
+              <button
+                className={styles.historyButton}
+                onClick={redo}
+                disabled={historyIndex >= historyLength - 1}
+                title="Redo (Cmd+Y)"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 7v6h-6" />
+                  <path d="M21 13c-2 5-6 8-11 8a9 9 0 0 1 0-18c4 0 7.5 2 9 5" />
+                </svg>
+              </button>
               <button
                 className={styles.playButton}
                 onClick={() => setIsPlaying(!isPlaying)}
@@ -350,12 +500,49 @@ export default function Timeline() {
               </span>
               <button
                 className={styles.addOverlayButton}
-                onClick={() => overlayInputRef.current?.click()}
-                title="Add overlay image"
+                onClick={() => uploadInputRef.current?.click()}
+                title="Upload video or image (Cmd+U)"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+              </button>
+              <button
+                className={styles.deleteButton}
+                onClick={() => {
+                  if (selectedVideoId) removeVideo(selectedVideoId)
+                  else if (selectedImageId) removeImage(selectedImageId)
+                }}
+                disabled={!selectedVideoId && !selectedImageId}
+                title="Delete selected (Cmd+D)"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                  <path d="M10 11v6M14 11v6" />
+                  <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                </svg>
+              </button>
+              <button
+                className={styles.splitButton}
+                onClick={() => {
+                  if (selectedVideoId) splitVideo(selectedVideoId, playbackTime)
+                }}
+                disabled={(() => {
+                  if (!selectedVideoId) return true
+                  const v = videos.find((v) => v.id === selectedVideoId)
+                  if (!v) return true
+                  const local = playbackTime - v.timestamp
+                  return local <= 0.05 || local >= (v.duration ?? 0) - 0.05
+                })()}
+                title="Split video at playhead"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M6 3L6 21" />
+                  <path d="M18 3L18 21" />
+                  <path d="M3 12L21 12" />
                 </svg>
               </button>
               <button
@@ -410,19 +597,6 @@ export default function Timeline() {
                                 className={styles.overlayHandleEnd}
                                 onMouseDown={(e) => handleImageDragStart(image.id, 'end', e)}
                               />
-                              <button
-                                className={styles.removeOverlayButton}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  removeImage(image.id)
-                                }}
-                                title="Remove image"
-                              >
-                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <line x1="18" y1="6" x2="6" y2="18" />
-                                  <line x1="6" y1="6" x2="18" y2="18" />
-                                </svg>
-                              </button>
                             </>
                           )}
                           <div className={styles.overlayBox}>
@@ -496,17 +670,49 @@ export default function Timeline() {
                         </>
                       )}
                       <div className={styles.videoBox}>
-                        <div className={styles.videoInfo}>
-                          <div className={styles.title}>{video.title}</div>
-                          {isReplaceTarget && (
-                            <div className={styles.replaceIndicator}>Will be replaced</div>
-                          )}
-                          {hasTrim && !isReplaceTarget && (
-                            <div className={styles.trimIndicator}>
-                              Trimmed: {video.trimStart.toFixed(1)}s / {video.trimEnd.toFixed(1)}s
-                            </div>
-                          )}
+                        <div className={styles.thumbnailStrip}>
+                          {(() => {
+                            if (!video.url) return null
+                            const allThumbs = videoThumbnails.get(video.url)
+                            if (!allThumbs || allThumbs.length === 0) return null
+                            
+                            const startIdx = Math.floor(video.trimStart)
+                            const origDuration = video.originalDuration ?? video.duration ?? allThumbs.length
+                            const endIdx = Math.ceil(origDuration - video.trimEnd)
+                            const thumbs = allThumbs.slice(startIdx, endIdx)
+                            
+                            if (thumbs.length === 0) return null
+                            
+                            const thumbWidth = 85
+                            const itemWidthPx = (widthPercent / 100) * (scrollContainerRef.current?.scrollWidth || 1000)
+                            const totalThumbsWidth = thumbs.length * thumbWidth
+                            const repeatCount = Math.max(1, Math.ceil(itemWidthPx / totalThumbsWidth))
+                            const repeatedThumbs: string[] = []
+                            for (let r = 0; r < repeatCount; r++) {
+                              repeatedThumbs.push(...thumbs)
+                            }
+                            return repeatedThumbs.map((thumb, idx) => (
+                              <img
+                                key={idx}
+                                src={thumb}
+                                alt=""
+                                className={styles.thumbnail}
+                                draggable={false}
+                              />
+                            ))
+                          })()}
                         </div>
+                        {(hasTrim || isReplaceTarget) && (
+                          <div className={styles.videoOverlayText}>
+                            {isReplaceTarget ? (
+                              <span className={styles.replaceIndicator}>Will be replaced</span>
+                            ) : (
+                              <span className={styles.trimBadge}>
+                                {video.trimStart.toFixed(1)}s / {video.trimEnd.toFixed(1)}s
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )

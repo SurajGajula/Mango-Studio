@@ -19,13 +19,30 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 0.35rem;
   width: 100%;
   height: 100%;
   color: #888888;
+  flex-wrap: wrap;
 }
 
 .emptyState p {
   margin: 0;
+}
+
+.uploadVideoButton {
+  background: none;
+  border: none;
+  color: #aaaaaa;
+  font-size: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.uploadVideoButton:hover {
+  color: #ffffff;
 }
 
 .timelineWrapper {
@@ -67,6 +84,78 @@
   color: #ffffff;
   font-family: monospace;
   flex: 1;
+}
+
+.historyButton {
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 4px;
+  background-color: #333333;
+  color: #888888;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.historyButton:hover:not(:disabled) {
+  background-color: #444444;
+  color: #ffffff;
+}
+
+.historyButton:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.deleteButton {
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 4px;
+  background-color: #333333;
+  color: #888888;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.deleteButton:hover:not(:disabled) {
+  background-color: #4a1a1a;
+  color: #ff6b6b;
+}
+
+.deleteButton:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.splitButton {
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 4px;
+  background-color: #333333;
+  color: #888888;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.splitButton:hover:not(:disabled) {
+  background-color: #444444;
+  color: #ffffff;
+}
+
+.splitButton:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .exportButton {
@@ -286,27 +375,6 @@
   border-radius: 1px;
 }
 
-.removeOverlayButton {
-  position: absolute;
-  top: 2px;
-  right: 10px;
-  width: 16px;
-  height: 16px;
-  border: none;
-  border-radius: 50%;
-  background-color: rgba(255, 100, 100, 0.8);
-  color: #ffffff;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 16;
-}
-
-.removeOverlayButton:hover {
-  background-color: #ff4444;
-}
-
 .timelineRow {
   position: relative;
   height: 40px;
@@ -390,29 +458,62 @@
   border-radius: 1px;
 }
 
-.trimIndicator {
-  font-size: 0.625rem;
-  color: #ffffff;
-  margin-top: 0.25rem;
-  user-select: none;
-}
-
 .videoBox {
   width: 100%;
   height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative;
+  overflow: hidden;
   background-color: #000000;
 }
 
-.videoInfo {
-  padding: 0.5rem 0.5rem 0.5rem 1rem;
+.thumbnailStrip {
   display: flex;
-  flex-direction: column;
-  width: 100%;
+  flex-wrap: nowrap;
   height: 100%;
-  justify-content: center;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+.thumbnail {
+  height: 100%;
+  width: auto;
+  object-fit: cover;
+  flex-shrink: 0;
+  flex-grow: 0;
+}
+
+.videoOverlayText {
+  position: absolute;
+  bottom: 2px;
+  left: 12px;
+  right: 12px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.trimBadge {
+  display: inline-block;
+  font-size: 0.625rem;
+  color: #ffffff;
+  user-select: none;
+  background-color: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.replaceIndicator {
+  display: inline-block;
+  font-size: 0.625rem;
+  color: #ff9800;
+  font-weight: 500;
+  user-select: none;
+  background-color: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 152, 0, 0.5);
+  border-radius: 4px;
+  padding: 2px 6px;
 }
 
 .title {
@@ -457,13 +558,6 @@
 .timelineItem.replaceTarget {
   outline: 2px solid #ff9800;
   outline-offset: -2px;
-}
-
-.replaceIndicator {
-  font-size: 0.65rem;
-  color: #ff9800;
-  font-weight: 500;
-  user-select: none;
 }
 
 .copyPromptButton {

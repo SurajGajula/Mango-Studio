@@ -184,12 +184,6 @@
   box-shadow: 0 0 20px 10px rgba(0, 0, 0, 0.5);
 }
 
-.modal h3 {
-  margin: 0 0 0.5rem 0;
-  color: #ffffff;
-  font-size: 1.2rem;
-}
-
 .promptSection {
   margin-bottom: 1rem;
 }
@@ -353,36 +347,6 @@
 
 .removeImageButton:hover {
   background-color: #ff4444;
-}
-
-.modeToggleButton {
-  width: 40px;
-  height: 40px;
-  border: 1px solid #333333;
-  border-radius: 6px;
-  background-color: #1f1f1f;
-  color: #666666;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
-}
-
-.modeToggleButton:hover:not(:disabled) {
-  border-color: #555555;
-  color: #888888;
-}
-
-.modeToggleButton:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.modeToggleButton.imageMode {
-  background-color: #2a2a2a;
-  border-color: #4a9eff;
-  color: #4a9eff;
 }
 
 .generatedImagesSection {

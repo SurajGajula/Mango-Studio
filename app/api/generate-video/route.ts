@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     } : undefined
 
     let operation = await ai.models.generateVideos({
-      model: 'veo-3.1-generate-preview',
+      model: 'veo-3.1-fast-generate-preview',
       prompt: body.prompt,
       ...(firstFrameImage && { image: firstFrameImage }),
       config: {
