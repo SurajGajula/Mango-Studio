@@ -306,13 +306,18 @@ export function useVideoPlayback(
           }
         }
 
-        rafRef.current = requestAnimationFrame(loop)
-        return
-      }
+      rafRef.current = requestAnimationFrame(loop)
+      return
+    }
 
-      lastTimestamp = null
+    lastTimestamp = null
 
-      const videoEl = videoElementsRef.current.get(activeClip.id)
+    if (!activeClip) {
+      rafRef.current = requestAnimationFrame(loop)
+      return
+    }
+
+    const videoEl = videoElementsRef.current.get(activeClip.id)
       if (!videoEl) {
         rafRef.current = requestAnimationFrame(loop)
         return

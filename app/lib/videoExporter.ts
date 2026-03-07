@@ -155,7 +155,7 @@ async function exportImageOnlyWithFFmpeg({
   }
 
   const mp4Data = await ff.readFile('output.mp4') as Uint8Array
-  const mp4Blob = new Blob([mp4Data], { type: 'video/mp4' })
+  const mp4Blob = new Blob([mp4Data.buffer as ArrayBuffer], { type: 'video/mp4' })
   try { await ff.deleteFile('output.mp4') } catch {}
 
   onProgress?.({ phase: 'complete', progress: 100, message: 'Export complete!' })
