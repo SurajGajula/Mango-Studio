@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { VideoClass } from '@/app/models/VideoClass'
+import { resolveVideoDuration } from '@/app/lib/mediaUtils'
 import styles from './ChatWindow.module.css'
 
 interface Message {
@@ -65,34 +66,6 @@ export default function ChatWindow() {
       textareaRef.current?.focus()
     }
   }, [pendingPrompt, setPendingPrompt])
-
-  const resolveVideoDuration = async (url: string): Promise<number | undefined> => {
-    return new Promise((resolve) => {
-      const probe = document.createElement('video')
-      const timeout = window.setTimeout(() => {
-        cleanup()
-        resolve(undefined)
-      }, 8000)
-
-      const cleanup = () => {
-        window.clearTimeout(timeout)
-        probe.removeAttribute('src')
-        probe.load()
-      }
-
-      probe.preload = 'metadata'
-      probe.onloadedmetadata = () => {
-        const duration = Number.isFinite(probe.duration) ? probe.duration : undefined
-        cleanup()
-        resolve(duration)
-      }
-      probe.onerror = () => {
-        cleanup()
-        resolve(undefined)
-      }
-      probe.src = url
-    })
-  }
 
   const handleSend = async () => {
     if (!inputValue.trim() || isGenerating) return
@@ -219,8 +192,7 @@ export default function ChatWindow() {
           const blob = base64ToBlob(data.video_base64, mimeType)
           const blobUrl = URL.createObjectURL(blob)
 
-          const resolvedDuration = await resolveVideoDuration(blobUrl)
-          const duration = resolvedDuration && resolvedDuration > 0 ? resolvedDuration : 8
+          const duration = await resolveVideoDuration(blobUrl)
 
           const video = new VideoClass(
             videoId,

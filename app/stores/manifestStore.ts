@@ -31,6 +31,7 @@ interface ManifestStore {
   removeVideo: (id: string) => void
   trimVideo: (id: string, trimStart: number, trimEnd: number) => void
   splitVideo: (id: string, playbackTime: number) => void
+  splitImage: (id: string, playbackTime: number) => void
   recalculateTimestamps: () => void
   getTotalDuration: () => number
   setReplaceTargetId: (id: string | null) => void
@@ -41,6 +42,11 @@ interface ManifestStore {
   addImage: (image: ImageClass) => void
   removeImage: (id: string) => void
   updateImage: (id: string, updates: Partial<ImageClass>) => void
+  replaceImageSource: (id: string, newUrl: string, newName: string) => void
+  bulkUpdateMainTrackItems: (
+    imagePatches: Array<{ id: string; startTime?: number; endTime?: number }>,
+    videoTimestampPatches: Array<{ id: string; timestamp: number }>
+  ) => void
 }
 
 function collectUrls(entries: HistoryEntry[]): Set<string> {
@@ -125,20 +131,33 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
 
   addVideo: (video: VideoClass) => {
     set((state) => {
-      const totalDuration = state.videos.reduce((sum, v) => sum + (v.duration || 0), 0)
+      const mainDuration = state.videos
+        .filter((v) => !v.isOverlay)
+        .reduce((sum, v) => sum + (v.duration || 0), 0)
+      const timestamp = video.isOverlay ? (video.timestamp ?? 0) : mainDuration
       const newVideo = new VideoClass(
         video.id,
         video.title,
         video.url,
         video.duration,
-        totalDuration,
+        timestamp,
         video.createdAt,
-        video.updatedAt
+        video.updatedAt,
+        video.originalDuration,
+        video.trimStart,
+        video.trimEnd,
+        video.prompt,
+        video.isOverlay,
+        video.x,
+        video.y,
+        video.width,
+        video.height,
+        video.opacity
       )
       useSelectionStore.getState().setSelectedVideoId(newVideo.id)
       return {
         videos: [...state.videos, newVideo],
-        playbackTime: newVideo.timestamp,
+        playbackTime: video.isOverlay ? state.playbackTime : newVideo.timestamp,
         isPlaying: false,
       }
     })
@@ -162,7 +181,13 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
         undefined,
         undefined,
         undefined,
-        newVideo.prompt
+        newVideo.prompt,
+        targetVideo.isOverlay,
+        targetVideo.x,
+        targetVideo.y,
+        targetVideo.width,
+        targetVideo.height,
+        targetVideo.opacity
       )
 
       const updatedVideos = [...state.videos]
@@ -201,21 +226,26 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
   updateVideo: (id: string, updates: Partial<VideoClass>) => {
     set((state) => ({
       videos: state.videos.map((video) => {
-        if (video.id === id) {
-          return new VideoClass(
-            video.id,
-            updates.title ?? video.title,
-            updates.url ?? video.url,
-            updates.duration ?? video.duration,
-            updates.timestamp ?? video.timestamp,
-            video.createdAt,
-            new Date(),
-            updates.originalDuration ?? video.originalDuration,
-            updates.trimStart ?? video.trimStart,
-            updates.trimEnd ?? video.trimEnd
-          )
-        }
-        return video
+        if (video.id !== id) return video
+        return new VideoClass(
+          video.id,
+          updates.title ?? video.title,
+          updates.url ?? video.url,
+          updates.duration ?? video.duration,
+          updates.timestamp ?? video.timestamp,
+          video.createdAt,
+          new Date(),
+          updates.originalDuration ?? video.originalDuration,
+          updates.trimStart ?? video.trimStart,
+          updates.trimEnd ?? video.trimEnd,
+          updates.prompt ?? video.prompt,
+          updates.isOverlay ?? video.isOverlay,
+          updates.x ?? video.x,
+          updates.y ?? video.y,
+          updates.width ?? video.width,
+          updates.height ?? video.height,
+          updates.opacity ?? video.opacity
+        )
       }),
     }))
   },
@@ -232,21 +262,26 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
 
     set((state) => ({
       videos: state.videos.map((v) => {
-        if (v.id === id) {
-          return new VideoClass(
-            v.id,
-            v.title,
-            v.url,
-            newDuration,
-            v.timestamp,
-            v.createdAt,
-            new Date(),
-            v.originalDuration ?? v.duration,
-            clampedTrimStart,
-            clampedTrimEnd
-          )
-        }
-        return v
+        if (v.id !== id) return v
+        return new VideoClass(
+          v.id,
+          v.title,
+          v.url,
+          newDuration,
+          v.timestamp,
+          v.createdAt,
+          new Date(),
+          v.originalDuration ?? v.duration,
+          clampedTrimStart,
+          clampedTrimEnd,
+          v.prompt,
+          v.isOverlay,
+          v.x,
+          v.y,
+          v.width,
+          v.height,
+          v.opacity
+        )
       }),
     }))
 
@@ -256,7 +291,7 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
   splitVideo: (id: string, playbackTime: number) => {
     const state = get()
     const video = state.videos.find((v) => v.id === id)
-    if (!video) return
+    if (!video || video.isOverlay) return
 
     const localTime = playbackTime - video.timestamp
     const duration = video.duration ?? 0
@@ -305,11 +340,59 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
     get().pushHistory()
   },
 
+  splitImage: (id: string, playbackTime: number) => {
+    const state = get()
+    const image = state.images.find((img) => img.id === id)
+    if (!image || !image.isMainTrack) return
+
+    if (playbackTime <= image.startTime + 0.05 || playbackTime >= image.endTime - 0.05) return
+
+    const firstHalf = new ImageClass(
+      image.id,
+      image.name,
+      image.url,
+      image.startTime,
+      playbackTime,
+      image.x,
+      image.y,
+      image.width,
+      image.height,
+      image.opacity,
+      image.createdAt,
+      true
+    )
+
+    const secondHalf = new ImageClass(
+      `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      image.name,
+      image.url,
+      playbackTime,
+      image.endTime,
+      image.x,
+      image.y,
+      image.width,
+      image.height,
+      image.opacity,
+      new Date(),
+      true
+    )
+
+    useSelectionStore.getState().setSelectedImageId(secondHalf.id)
+    set((state) => ({
+      images: state.images
+        .map((img) => (img.id === id ? firstHalf : img))
+        .concat([secondHalf]),
+    }))
+    set({ playbackTime })
+    get().pushHistory()
+  },
+
   recalculateTimestamps: () => {
     set((state) => {
-      const sorted = [...state.videos].sort((a, b) => a.timestamp - b.timestamp)
+      const mainVideos = state.videos.filter((v) => !v.isOverlay).sort((a, b) => a.timestamp - b.timestamp)
+      const overlayVideos = state.videos.filter((v) => v.isOverlay)
       let currentTime = 0
-      const updatedVideos = sorted.map((video) => {
+      const updatedMain = mainVideos.map((video) => {
         const newVideo = new VideoClass(
           video.id,
           video.title,
@@ -326,12 +409,18 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
         currentTime += video.duration ?? 0
         return newVideo
       })
-      return { videos: updatedVideos }
+      return { videos: [...updatedMain, ...overlayVideos] }
     })
   },
 
   getTotalDuration: () => {
-    return get().videos.reduce((sum, video) => sum + (video.duration || 0), 0)
+    const videoDuration = get().videos
+      .filter((v) => !v.isOverlay)
+      .reduce((sum, video) => sum + (video.duration || 0), 0)
+    const imageEnd = get().images
+      .filter((img) => img.isMainTrack)
+      .reduce((max, img) => Math.max(max, img.endTime), 0)
+    return Math.max(videoDuration, imageEnd)
   },
 
   setReplaceTargetId: (id: string | null) => {
@@ -397,11 +486,64 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
               updates.width ?? image.width,
               updates.height ?? image.height,
               updates.opacity ?? image.opacity,
-              image.createdAt
+              image.createdAt,
+              updates.isMainTrack ?? image.isMainTrack
             )
           : image
       ),
     }))
   },
+
+  replaceImageSource: (id, newUrl, newName) => {
+    const state = get()
+    const image = state.images.find((img) => img.id === id)
+    if (!image) return
+    const oldUrl = image.url
+    set((s) => ({
+      images: s.images.map((img) =>
+        img.id === id
+          ? new ImageClass(
+              img.id, newName, newUrl,
+              img.startTime, img.endTime,
+              img.x, img.y, img.width, img.height, img.opacity,
+              img.createdAt, img.isMainTrack
+            )
+          : img
+      ),
+    }))
+    const nextState = get()
+    const urlStillInUse = nextState.images.some((img) => img.url === oldUrl)
+    if (!urlStillInUse && oldUrl.startsWith('blob:')) URL.revokeObjectURL(oldUrl)
+    get().pushHistory()
+  },
+
+  bulkUpdateMainTrackItems: (imagePatches, videoTimestampPatches) => {
+    const imgMap = new Map(imagePatches.map((p) => [p.id, p]))
+    const vidMap = new Map(videoTimestampPatches.map((p) => [p.id, p]))
+    set((state) => ({
+      images: state.images.map((img) => {
+        const patch = imgMap.get(img.id)
+        if (!patch) return img
+        return new ImageClass(
+          img.id, img.name, img.url,
+          patch.startTime ?? img.startTime,
+          patch.endTime ?? img.endTime,
+          img.x, img.y, img.width, img.height, img.opacity,
+          img.createdAt, img.isMainTrack
+        )
+      }),
+      videos: state.videos.map((v) => {
+        const patch = vidMap.get(v.id)
+        if (!patch) return v
+        return new VideoClass(
+          v.id, v.title, v.url, v.duration, patch.timestamp,
+          v.createdAt, v.updatedAt, v.originalDuration,
+          v.trimStart, v.trimEnd, v.prompt,
+          v.isOverlay, v.x, v.y, v.width, v.height, v.opacity
+        )
+      }),
+    }))
+  },
+
 
 }))

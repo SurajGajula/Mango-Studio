@@ -12,12 +12,14 @@
     "@ffmpeg/ffmpeg": "^0.12.10",
     "@ffmpeg/util": "^0.12.1",
     "@google/genai": "^1.0.0",
+    "meyda": "^5.6.3",
     "next": "^16.1.6",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "zustand": "^4.5.2"
   },
   "devDependencies": {
+    "@types/meyda": "^4.3.8",
     "@types/node": "^20.14.10",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",

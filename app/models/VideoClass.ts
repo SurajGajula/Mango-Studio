@@ -10,6 +10,12 @@ export class VideoClass {
   prompt?: string
   createdAt: Date
   updatedAt: Date
+  isOverlay: boolean
+  x: number
+  y: number
+  width: number
+  height: number
+  opacity: number
 
   constructor(
     id: string,
@@ -22,7 +28,13 @@ export class VideoClass {
     originalDuration?: number,
     trimStart?: number,
     trimEnd?: number,
-    prompt?: string
+    prompt?: string,
+    isOverlay?: boolean,
+    x?: number,
+    y?: number,
+    width?: number,
+    height?: number,
+    opacity?: number
   ) {
     this.id = id
     this.title = title
@@ -35,6 +47,11 @@ export class VideoClass {
     this.prompt = prompt
     this.createdAt = createdAt || new Date()
     this.updatedAt = updatedAt || new Date()
+    this.isOverlay = isOverlay ?? false
+    this.x = x ?? 0
+    this.y = y ?? 0
+    this.width = width ?? 480
+    this.height = height ?? 270
+    this.opacity = opacity ?? 1
   }
-
 }

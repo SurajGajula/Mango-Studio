@@ -10,6 +10,7 @@ export class ImageClass {
   height: number
   opacity: number
   createdAt: Date
+  isMainTrack: boolean
 
   constructor(
     id: string,
@@ -22,7 +23,8 @@ export class ImageClass {
     width?: number,
     height?: number,
     opacity?: number,
-    createdAt?: Date
+    createdAt?: Date,
+    isMainTrack?: boolean
   ) {
     this.id = id
     this.name = name
@@ -35,10 +37,10 @@ export class ImageClass {
     this.height = height ?? 200
     this.opacity = opacity ?? 1
     this.createdAt = createdAt || new Date()
+    this.isMainTrack = isMainTrack ?? false
   }
 
   get duration(): number {
     return this.endTime - this.startTime
   }
-
 }

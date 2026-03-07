@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
+import { useAudioStore } from '@/app/stores/audioStore'
 
 export function useVideoPlayback(
   canvasRef: React.RefObject<HTMLCanvasElement>,
@@ -10,12 +11,14 @@ export function useVideoPlayback(
 ) {
   const videoElementsRef = useRef<Map<string, HTMLVideoElement>>(new Map())
   const imageElementsRef = useRef<Map<string, HTMLImageElement>>(new Map())
+  const audioElementRef = useRef<HTMLAudioElement | null>(null)
   const rafRef = useRef<number | null>(null)
   const [canvasDimensions, setCanvasDimensions] = useState({ width: 0, height: 0 })
 
   const videos = useManifestStore((state) => state.videos)
   const images = useManifestStore((state) => state.images)
   const aspectRatio = useManifestStore((state) => state.aspectRatio)
+  const audioUrl = useAudioStore((state) => state.audioUrl)
   const getState = useManifestStore.getState
   const getSelectionState = useSelectionStore.getState
 
@@ -64,13 +67,38 @@ export function useVideoPlayback(
     })
 
     images.forEach((image) => {
-      if (!imageElementsRef.current.has(image.id)) {
+      const existing = imageElementsRef.current.get(image.id)
+      if (existing) {
+        if (existing.src !== image.url) existing.src = image.url
+      } else {
         const img = new Image()
         img.src = image.url
         imageElementsRef.current.set(image.id, img)
       }
     })
   }, [images])
+
+  useEffect(() => {
+    if (audioElementRef.current) {
+      audioElementRef.current.pause()
+      audioElementRef.current.src = ''
+      audioElementRef.current = null
+    }
+    if (!audioUrl) return
+    const audio = new Audio(audioUrl)
+    audio.preload = 'auto'
+    audioElementRef.current = audio
+  }, [audioUrl])
+
+  useEffect(() => {
+    return () => {
+      if (audioElementRef.current) {
+        audioElementRef.current.pause()
+        audioElementRef.current.src = ''
+        audioElementRef.current = null
+      }
+    }
+  }, [])
 
   const drawVideoToCanvas = useCallback((video: HTMLVideoElement): boolean => {
     const canvas = canvasRef.current
@@ -111,29 +139,81 @@ export function useVideoPlayback(
       setCanvasDimensions({ width: canvasWidth, height: canvasHeight })
     }
 
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    ctx.fillStyle = '#000000'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+    const videoAspect = video.videoWidth / video.videoHeight
+    const canvasAspect = canvas.width / canvas.height
+    let drawWidth = canvas.width
+    let drawHeight = canvas.height
+    let drawX = 0
+    let drawY = 0
+
+    if (videoAspect > canvasAspect) {
+      drawHeight = canvas.width / videoAspect
+      drawY = (canvas.height - drawHeight) / 2
+    } else {
+      drawWidth = canvas.height * videoAspect
+      drawX = (canvas.width - drawWidth) / 2
+    }
+
+    ctx.drawImage(video, drawX, drawY, drawWidth, drawHeight)
 
     return true
   }, [aspectRatio, canvasRef, containerRef])
 
-  const drawImages = useCallback((ctx: CanvasRenderingContext2D, canvasWidth: number, canvasHeight: number, currentTime: number) => {
+  const drawImages = useCallback((ctx: CanvasRenderingContext2D, canvasWidth: number, canvasHeight: number, currentTime: number, mainTrackOnly: boolean) => {
     const state = getState()
-    const visibleImages = state.images.filter(
-      (image) => currentTime >= image.startTime && currentTime < image.endTime
+    let visibleImages = state.images.filter(
+      (image) =>
+        currentTime >= image.startTime &&
+        currentTime < image.endTime &&
+        image.isMainTrack === mainTrackOnly
     )
+
+    if (mainTrackOnly && visibleImages.length === 0) {
+      const mainImages = state.images.filter((img) => img.isMainTrack)
+      const lastEnded = mainImages
+        .filter((img) => img.endTime <= currentTime)
+        .sort((a, b) => b.endTime - a.endTime)[0]
+      if (lastEnded) visibleImages = [lastEnded]
+    }
+
+    const xScale = canvasWidth / 1920
+    const yScale = canvasHeight / 1080
 
     visibleImages.forEach((image) => {
       const img = imageElementsRef.current.get(image.id)
       if (!img || !img.complete || img.naturalWidth === 0) return
-
       ctx.save()
       ctx.globalAlpha = image.opacity
+      ctx.drawImage(img, image.x * xScale, image.y * yScale, image.width * xScale, image.height * yScale)
+      ctx.restore()
+    })
+  }, [getState])
 
-      const scaleX = canvasWidth / 1920
-      const scaleY = canvasHeight / 1080
-      const scale = Math.min(scaleX, scaleY)
+  const drawOverlayVideos = useCallback((ctx: CanvasRenderingContext2D, canvasWidth: number, canvasHeight: number, currentTime: number) => {
+    const state = getState()
+    const overlayVideos = state.videos.filter((v) => v.isOverlay)
 
-      ctx.drawImage(img, image.x * scale, image.y * scale, image.width * scale, image.height * scale)
+    const xScale = canvasWidth / 1920
+    const yScale = canvasHeight / 1080
+
+    overlayVideos.forEach((video) => {
+      const localTime = currentTime - video.timestamp
+      if (localTime < 0 || localTime >= (video.duration ?? 0)) return
+
+      const videoEl = videoElementsRef.current.get(video.id)
+      if (!videoEl || videoEl.readyState < 2) return
+
+      const targetTime = (video.trimStart ?? 0) + localTime
+      if (Math.abs(videoEl.currentTime - targetTime) > 0.1) {
+        videoEl.currentTime = targetTime
+      }
+
+      ctx.save()
+      ctx.globalAlpha = video.opacity
+      ctx.drawImage(videoEl, video.x * xScale, video.y * yScale, video.width * xScale, video.height * yScale)
       ctx.restore()
     })
   }, [getState])
@@ -141,21 +221,96 @@ export function useVideoPlayback(
   useEffect(() => {
     let currentVideoId: string | null = null
 
-    const loop = () => {
+    const drawOverlays = (ctx: CanvasRenderingContext2D, w: number, h: number, t: number) => {
+      drawImages(ctx, w, h, t, false)
+      drawOverlayVideos(ctx, w, h, t)
+    }
+
+    const setupCanvas = (canvas: HTMLCanvasElement, container: HTMLDivElement): CanvasRenderingContext2D | null => {
+      const targetAspect = aspectRatio === '16:9' ? 16 / 9 : 9 / 16
+      const rect = container.getBoundingClientRect()
+      if (rect.width === 0 || rect.height === 0) return null
+      const containerAspect = rect.width / rect.height
+      let cw: number, ch: number
+      if (targetAspect > containerAspect) { cw = rect.width; ch = rect.width / targetAspect }
+      else { ch = rect.height; cw = rect.height * targetAspect }
+      cw = Math.round(cw); ch = Math.round(ch)
+      if (canvas.width !== cw || canvas.height !== ch) {
+        canvas.width = cw; canvas.height = ch
+        canvas.style.width = `${cw}px`; canvas.style.height = `${ch}px`
+        setCanvasDimensions({ width: cw, height: ch })
+      }
+      return canvas.getContext('2d')
+    }
+
+    let lastTimestamp: number | null = null
+
+    const loop = (timestamp: number) => {
       const state = getState()
       const { playbackTime, isPlaying } = state
       const { selectedVideoId } = getSelectionState()
-      const sorted = [...state.videos].sort((a, b) => a.timestamp - b.timestamp)
+      const sorted = [...state.videos].filter((v) => !v.isOverlay).sort((a, b) => a.timestamp - b.timestamp)
 
-      const activeClip = sorted.find((v) => {
+      const timeRangeClip = sorted.find((v) => {
         if (!v.duration) return false
         return playbackTime >= v.timestamp && playbackTime < v.timestamp + v.duration
-      }) || (selectedVideoId ? sorted.find((v) => v.id === selectedVideoId) : sorted[0])
+      })
 
-      if (!activeClip) {
+      const activeClip = timeRangeClip || (selectedVideoId ? sorted.find((v) => v.id === selectedVideoId) : sorted[0])
+
+      const canvas = canvasRef.current
+      const container = containerRef.current
+
+      if (!timeRangeClip) {
+        if (canvas && container) {
+          const ctx = setupCanvas(canvas, container)
+          if (ctx) {
+            ctx.fillStyle = '#000000'
+            ctx.fillRect(0, 0, canvas.width, canvas.height)
+            drawImages(ctx, canvas.width, canvas.height, playbackTime, true)
+            drawOverlays(ctx, canvas.width, canvas.height, playbackTime)
+          }
+        }
+
+        const audioEl = audioElementRef.current
+
+        if (isPlaying) {
+          const delta = lastTimestamp !== null ? (timestamp - lastTimestamp) / 1000 : 0
+          lastTimestamp = timestamp
+          const totalDur = state.getTotalDuration()
+          const newTime = playbackTime + delta
+          if (newTime >= totalDur) {
+            state.setIsPlaying(false)
+            state.setPlaybackTime(0)
+            if (audioEl && !audioEl.paused) audioEl.pause()
+          } else {
+            state.setPlaybackTime(newTime)
+            if (audioEl) {
+              if (Math.abs(audioEl.currentTime - newTime) > 0.3) audioEl.currentTime = newTime
+              if (audioEl.paused && audioEl.readyState >= 2) audioEl.play().catch(() => {})
+            }
+          }
+        } else {
+          lastTimestamp = null
+          if (audioEl && !audioEl.paused) audioEl.pause()
+          if (audioEl && Math.abs(audioEl.currentTime - playbackTime) > 0.3) {
+            audioEl.currentTime = playbackTime
+          }
+          if (activeClip) {
+            const videoEl = videoElementsRef.current.get(activeClip.id)
+            if (videoEl) {
+              const localTimeInOriginal = (activeClip.trimStart ?? 0) + Math.max(0, playbackTime - activeClip.timestamp)
+              if (Math.abs(videoEl.currentTime - localTimeInOriginal) > 0.05) videoEl.currentTime = localTimeInOriginal
+              if (!videoEl.paused) videoEl.pause()
+            }
+          }
+        }
+
         rafRef.current = requestAnimationFrame(loop)
         return
       }
+
+      lastTimestamp = null
 
       const videoEl = videoElementsRef.current.get(activeClip.id)
       if (!videoEl) {
@@ -186,9 +341,18 @@ export function useVideoPlayback(
         videoEl.currentTime = localTimeInOriginal
       }
 
+      const audioEl = audioElementRef.current
+
       if (isPlaying) {
         if (videoEl.paused && videoEl.readyState >= 3) {
           videoEl.play().catch(() => {})
+        }
+
+        if (audioEl && audioEl.paused && audioEl.readyState >= 2) {
+          if (Math.abs(audioEl.currentTime - playbackTime) > 0.2) {
+            audioEl.currentTime = playbackTime
+          }
+          audioEl.play().catch(() => {})
         }
 
         if (!videoEl.paused) {
@@ -208,25 +372,26 @@ export function useVideoPlayback(
           } else {
             state.setIsPlaying(false)
             state.setPlaybackTime(0)
+            if (audioEl && !audioEl.paused) audioEl.pause()
           }
         }
       } else {
-        if (!videoEl.paused) {
-          videoEl.pause()
-        }
+        if (!videoEl.paused) videoEl.pause()
+        if (audioEl && !audioEl.paused) audioEl.pause()
 
         if (Math.abs(videoEl.currentTime - localTimeInOriginal) > 0.05) {
           videoEl.currentTime = localTimeInOriginal
         }
+
+        if (audioEl && Math.abs(audioEl.currentTime - playbackTime) > 0.3) {
+          audioEl.currentTime = playbackTime
+        }
       }
 
       const drawn = drawVideoToCanvas(videoEl)
-      if (drawn) {
-        const canvas = canvasRef.current
-        const ctx = canvas?.getContext('2d')
-        if (ctx && canvas) {
-          drawImages(ctx, canvas.width, canvas.height, playbackTime)
-        }
+      if (drawn && canvas) {
+        const ctx = canvas.getContext('2d')
+        if (ctx) drawOverlays(ctx, canvas.width, canvas.height, playbackTime)
       }
 
       rafRef.current = requestAnimationFrame(loop)
@@ -239,7 +404,7 @@ export function useVideoPlayback(
         cancelAnimationFrame(rafRef.current)
       }
     }
-  }, [getState, getSelectionState, drawVideoToCanvas, drawImages, canvasRef])
+  }, [getState, getSelectionState, drawVideoToCanvas, drawImages, drawOverlayVideos, canvasRef])
 
   useEffect(() => {
     return () => {
