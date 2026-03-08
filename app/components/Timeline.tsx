@@ -6,9 +6,12 @@ import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useAudioStore } from '@/app/stores/audioStore'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
+import { TextClass } from '@/app/models/TextClass'
+import { AudioClass } from '@/app/models/AudioClass'
 import { exportVideo, downloadBlob, ExportProgress } from '@/app/lib/videoExporter'
 import { snapToMarkers } from '@/app/lib/snapToMarkers'
 import { resolveVideoDuration, toMono, computeImageDimensions, generateVideoThumbnails } from '@/app/lib/mediaUtils'
+import { drawAudioGraph } from '@/app/lib/drawAudioGraph'
 import styles from './Timeline.module.css'
 
 type TrimHandle = 'start' | 'end' | null
@@ -16,16 +19,23 @@ type TrimHandle = 'start' | 'end' | null
 export default function Timeline() {
   const videos = useManifestStore((state) => state.videos)
   const images = useManifestStore((state) => state.images)
+  const texts = useManifestStore((state) => state.texts)
   const selectedVideoId = useSelectionStore((state) => state.selectedVideoId)
   const setSelectedVideoId = useSelectionStore((state) => state.setSelectedVideoId)
   const selectedImageId = useSelectionStore((state) => state.selectedImageId)
   const setSelectedImageId = useSelectionStore((state) => state.setSelectedImageId)
+  const selectedTextId = useSelectionStore((state) => state.selectedTextId)
+  const setSelectedTextId = useSelectionStore((state) => state.setSelectedTextId)
   const addVideo = useManifestStore((state) => state.addVideo)
   const removeVideo = useManifestStore((state) => state.removeVideo)
   const updateVideo = useManifestStore((state) => state.updateVideo)
   const addImage = useManifestStore((state) => state.addImage)
   const removeImage = useManifestStore((state) => state.removeImage)
   const updateImage = useManifestStore((state) => state.updateImage)
+  const addText = useManifestStore((state) => state.addText)
+  const updateText = useManifestStore((state) => state.updateText)
+  const removeText = useManifestStore((state) => state.removeText)
+  const splitText = useManifestStore((state) => state.splitText)
   const replaceTargetId = useManifestStore((state) => state.replaceTargetId)
   const setReplaceTargetId = useManifestStore((state) => state.setReplaceTargetId)
   const setPendingPrompt = useManifestStore((state) => state.setPendingPrompt)
@@ -51,8 +61,10 @@ export default function Timeline() {
   const cycleGraphMode = useAudioStore((state) => state.cycleGraphMode)
   const setAudioAnalysis = useAudioStore((state) => state.setAnalysis)
   const setIsAnalyzing = useAudioStore((state) => state.setIsAnalyzing)
-  const setAudioUrl = useAudioStore((state) => state.setAudioUrl)
+  const setAudio = useAudioStore((state) => state.setAudio)
+  const removeAudio = useAudioStore((state) => state.removeAudio)
   const audioUrl = useAudioStore((state) => state.audioUrl)
+  const activeDrops = audioAnalysis?.graphPeaks?.[graphMode] ?? audioAnalysis?.drops ?? []
   const audioCanvasRef = useRef<HTMLCanvasElement>(null)
   const timelineRowRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -73,6 +85,7 @@ export default function Timeline() {
   const [trimDragging, setTrimDragging] = useState<{ videoId: string; handle: TrimHandle } | null>(null)
   const [imageDragging, setImageDragging] = useState<{ imageId: string; handle: 'move' | 'start' | 'end' } | null>(null)
   const [overlayVideoDragging, setOverlayVideoDragging] = useState<{ videoId: string } | null>(null)
+  const [textDragging, setTextDragging] = useState<{ textId: string; handle: 'move' | 'start' | 'end' } | null>(null)
   const trimStartRef = useRef<{
     trimStart: number
     trimEnd: number
@@ -92,6 +105,12 @@ export default function Timeline() {
   const overlayVideoDragRef = useRef<{
     initialMouseX: number
     initialTimestamp: number
+    timelineWidth: number
+  } | null>(null)
+  const textDragRef = useRef<{
+    initialMouseX: number
+    initialStartTime: number
+    initialEndTime: number
     timelineWidth: number
   } | null>(null)
   const isScrollingProgrammatically = useRef(false)
@@ -140,7 +159,7 @@ export default function Timeline() {
       scrollGestureActiveRef.current = false
     }, 150)
 
-    if (isAudioSelected && audioAnalysis && audioAnalysis.drops.length > 0) {
+    if (isAudioSelected && audioAnalysis && activeDrops.length > 0) {
       if (snapStateRef.current) {
         if (isNewGesture) {
           lastReleasedDropRef.current = snapStateRef.current.dropTime
@@ -173,7 +192,7 @@ export default function Timeline() {
           const hi = Math.max(prev, rawTime) + (direction > 0 ? lookahead : 0)
           let crossed: number | null = null
           let crossedDist = Infinity
-          for (const drop of audioAnalysis.drops) {
+          for (const drop of activeDrops) {
             if (drop === lastReleasedDropRef.current) continue
             if (drop > lo && drop <= hi) {
               const d = Math.abs(drop - prev)
@@ -288,7 +307,8 @@ export default function Timeline() {
         ))
       } else if (file.type.startsWith('audio/')) {
         const blobUrl = URL.createObjectURL(file)
-        setAudioUrl(blobUrl)
+        const audioId = `audio-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        setAudio(new AudioClass(audioId, file.name, blobUrl))
         setIsAnalyzing(true)
         try {
           const arrayBuffer = await file.arrayBuffer()
@@ -322,12 +342,28 @@ export default function Timeline() {
     const files = e.target.files
     if (!files) return
     for (const file of Array.from(files)) {
-      if (!file.type.startsWith('video/')) continue
-      const blobUrl = URL.createObjectURL(file)
-      const duration = await resolveVideoDuration(blobUrl)
-      const id = `video-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
-      const title = file.name.replace(/\.[^.]+$/, '').substring(0, 50)
-      addVideo(new VideoClass(id, title, blobUrl, duration, 0, undefined, undefined, undefined, 0, 0, undefined, true))
+      if (file.type.startsWith('video/')) {
+        const blobUrl = URL.createObjectURL(file)
+        const duration = await resolveVideoDuration(blobUrl)
+        const id = `video-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+        const title = file.name.replace(/\.[^.]+$/, '').substring(0, 50)
+        addVideo(new VideoClass(id, title, blobUrl, duration, 0, undefined, undefined, undefined, 0, 0, undefined, true))
+      } else if (file.type.startsWith('image/')) {
+        const url = URL.createObjectURL(file)
+        const start = playbackTime
+        const end = start + 5
+        const { x, y, width, height } = await computeImageDimensions(url, aspectRatio, false)
+        addImage(new ImageClass(
+          `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          file.name,
+          url,
+          start,
+          end,
+          x, y, width, height, 1,
+          undefined,
+          false,
+        ))
+      }
     }
     e.target.value = ''
   }
@@ -351,7 +387,7 @@ export default function Timeline() {
     setExportProgress({ phase: 'preparing', progress: 0, message: 'Starting export...' })
 
     try {
-      const blob = await exportVideo(videos, aspectRatio, setExportProgress, images, audioUrl)
+      const blob = await exportVideo(videos, aspectRatio, setExportProgress, images, audioUrl, texts)
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
       downloadBlob(blob, `mango-export-${timestamp}.mp4`)
     } catch (error) {
@@ -614,6 +650,71 @@ export default function Timeline() {
     }
   }, [overlayVideoDragging, handleOverlayVideoDragMove, handleOverlayVideoDragEnd])
 
+  const handleAddText = () => {
+    const id = `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    const startTime = texts.reduce((max, t) => Math.max(max, t.endTime), playbackTime)
+    addText(new TextClass(id, 'Text', startTime, startTime + 5))
+  }
+
+  const handleTextDragStart = (textId: string, handle: 'move' | 'start' | 'end', e: React.MouseEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+    const text = texts.find((t) => t.id === textId)
+    if (!text || !timelineRowRef.current) return
+    setTextDragging({ textId, handle })
+    textDragRef.current = {
+      initialMouseX: e.clientX,
+      initialStartTime: text.startTime,
+      initialEndTime: text.endTime,
+      timelineWidth: timelineRowRef.current.getBoundingClientRect().width,
+    }
+  }
+
+  const handleTextDragMove = useCallback((e: MouseEvent) => {
+    if (!textDragging || !textDragRef.current) return
+    const { textId, handle } = textDragging
+    const { initialMouseX, initialStartTime, initialEndTime, timelineWidth } = textDragRef.current
+    const totalWithPadding = totalDuration + PADDING_DURATION * 2
+    const timeDelta = ((e.clientX - initialMouseX) / timelineWidth) * totalWithPadding
+
+    const others = texts.filter((t) => t.id !== textId).sort((a, b) => a.startTime - b.startTime)
+    const prevEnd = others.filter((t) => t.endTime <= initialStartTime).reduce((max, t) => Math.max(max, t.endTime), 0)
+    const nextStart = others.filter((t) => t.startTime >= initialEndTime).reduce((min, t) => Math.min(min, t.startTime), Infinity)
+
+    if (handle === 'move') {
+      const dur = initialEndTime - initialStartTime
+      let newStart = initialStartTime + timeDelta
+      let newEnd = newStart + dur
+      if (newStart < prevEnd) { newStart = prevEnd; newEnd = newStart + dur }
+      if (newEnd > nextStart) { newEnd = nextStart; newStart = newEnd - dur }
+      if (newStart < 0) { newStart = 0; newEnd = dur }
+      updateText(textId, { startTime: newStart, endTime: newEnd })
+    } else if (handle === 'start') {
+      const newStart = Math.max(prevEnd, Math.min(initialStartTime + timeDelta, initialEndTime - 0.1))
+      updateText(textId, { startTime: newStart })
+    } else if (handle === 'end') {
+      const currentStart = texts.find((t) => t.id === textId)?.startTime ?? initialStartTime
+      const newEnd = Math.min(nextStart, Math.max(currentStart + 0.1, initialEndTime + timeDelta))
+      updateText(textId, { endTime: newEnd })
+    }
+  }, [textDragging, totalDuration, updateText, texts])
+
+  const handleTextDragEnd = useCallback(() => {
+    setTextDragging(null)
+    textDragRef.current = null
+    pushHistory()
+  }, [pushHistory])
+
+  useEffect(() => {
+    if (!textDragging) return
+    document.addEventListener('mousemove', handleTextDragMove)
+    document.addEventListener('mouseup', handleTextDragEnd)
+    return () => {
+      document.removeEventListener('mousemove', handleTextDragMove)
+      document.removeEventListener('mouseup', handleTextDragEnd)
+    }
+  }, [textDragging, handleTextDragMove, handleTextDragEnd])
+
   useEffect(() => {
     if (!trimDragging) return
 
@@ -635,9 +736,11 @@ export default function Timeline() {
       if (e.key === 'y') { e.preventDefault(); redo() }
       if (e.key === 'd' && !isEditing) {
         e.preventDefault()
-        const { selectedVideoId, selectedImageId } = useSelectionStore.getState()
+        const { selectedVideoId, selectedImageId, selectedTextId } = useSelectionStore.getState()
         if (selectedVideoId) removeVideo(selectedVideoId)
         else if (selectedImageId) removeImage(selectedImageId)
+        else if (selectedTextId) removeText(selectedTextId)
+        else if (isAudioSelected) { removeAudio(); setIsAudioSelected(false) }
       }
       if (e.key === 'u' && !isEditing) {
         e.preventDefault()
@@ -651,39 +754,7 @@ export default function Timeline() {
   useEffect(() => {
     const canvas = audioCanvasRef.current
     if (!canvas || !audioAnalysis) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    const { width, height } = canvas.getBoundingClientRect()
-    canvas.width = width
-    canvas.height = height
-
-    const graphData = audioAnalysis.graphs[graphMode]
-    const n = graphData.length
-    const audioDuration = audioAnalysis.duration
-
-    ctx.clearRect(0, 0, width, height)
-    ctx.fillStyle = '#111111'
-    ctx.fillRect(0, 0, width, height)
-
-    const totalWithPadding = totalDuration + PADDING_DURATION * 2
-    if (totalWithPadding <= 0) return
-
-    const startX = (PADDING_DURATION / totalWithPadding) * width
-    const endX = ((PADDING_DURATION + audioDuration) / totalWithPadding) * width
-    const drawWidth = endX - startX
-    if (drawWidth <= 0) return
-
-    ctx.beginPath()
-    ctx.strokeStyle = '#4a9eff'
-    ctx.lineWidth = 1.5
-    for (let i = 0; i < n; i++) {
-      const x = startX + (i / (n - 1)) * drawWidth
-      const y = height - graphData[i] * height
-      if (i === 0) ctx.moveTo(x, y)
-      else ctx.lineTo(x, y)
-    }
-    ctx.stroke()
+    drawAudioGraph(canvas, audioAnalysis, graphMode, totalDuration, PADDING_DURATION)
   }, [audioAnalysis, graphMode, totalDuration])
 
   return (
@@ -700,7 +771,7 @@ export default function Timeline() {
         <input
           ref={overlayVideoInputRef}
           type="file"
-          accept="video/*"
+          accept="video/*,image/*"
           multiple
           onChange={handleOverlayVideoSelect}
           style={{ display: 'none' }}
@@ -785,8 +856,10 @@ export default function Timeline() {
                 onClick={() => {
                   if (selectedVideoId) removeVideo(selectedVideoId)
                   else if (selectedImageId) removeImage(selectedImageId)
+                  else if (selectedTextId) removeText(selectedTextId)
+                  else if (isAudioSelected) { removeAudio(); setIsAudioSelected(false) }
                 }}
-                disabled={!selectedVideoId && !selectedImageId}
+                disabled={!selectedVideoId && !selectedImageId && !selectedTextId && !isAudioSelected}
                 title="Delete selected (Cmd+D)"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -801,6 +874,7 @@ export default function Timeline() {
                 onClick={() => {
                   if (selectedVideoId) splitVideo(selectedVideoId, playbackTime)
                   else if (selectedImageId) splitImage(selectedImageId, playbackTime)
+                  else if (selectedTextId) splitText(selectedTextId, playbackTime)
                 }}
                 disabled={(() => {
                   if (selectedVideoId) {
@@ -814,6 +888,11 @@ export default function Timeline() {
                     if (!img) return true
                     return playbackTime <= img.startTime + 0.05 || playbackTime >= img.endTime - 0.05
                   }
+                  if (selectedTextId) {
+                    const t = texts.find((t) => t.id === selectedTextId)
+                    if (!t) return true
+                    return playbackTime <= t.startTime + 0.05 || playbackTime >= t.endTime - 0.05
+                  }
                   return true
                 })()}
                 title="Split at playhead"
@@ -824,13 +903,21 @@ export default function Timeline() {
                   <path d="M3 12L21 12" />
                 </svg>
               </button>
+              <button
+                className={styles.addTextButton}
+                onClick={handleAddText}
+                disabled={videos.filter((v) => !v.isOverlay).length === 0 && images.filter((img) => img.isMainTrack).length === 0}
+                title="Add text"
+              >
+                T
+              </button>
               {audioAnalysis && (
                 <button
                   className={styles.graphCycleButton}
                   onClick={cycleGraphMode}
                   title="Cycle graph view"
                 >
-                  {graphMode === 'waveform' ? '~' : graphMode === 'energy' ? 'E' : graphMode === 'spectralFlux' ? 'F' : 'B'}
+                  {graphMode === 'drums' ? 'D' : graphMode === 'bass' ? 'B' : 'M'}
                 </button>
               )}
               {isAnalyzing && (
@@ -887,7 +974,7 @@ export default function Timeline() {
                                 style={{ left: `${getContentPosition(t)}%` }}
                               />
                             ))}
-                          {audioAnalysis.drops
+                          {activeDrops
                             .filter((t) => t >= 0 && t <= audioAnalysis.duration)
                             .map((t, i) => (
                               <div
@@ -900,6 +987,7 @@ export default function Timeline() {
                       )}
                     </div>
                   )}
+                  {(images.some((img) => !img.isMainTrack) || videos.some((v) => v.isOverlay)) && (
                   <div className={styles.overlayRow}>
                     {images.filter((img) => !img.isMainTrack).map((image) => {
                       const leftPercent = getContentPosition(image.startTime)
@@ -993,6 +1081,44 @@ export default function Timeline() {
                       )
                     })}
                   </div>
+                  )}
+                  {texts.length > 0 && (
+                    <div className={styles.textRow}>
+                      {texts.map((text) => {
+                        const leftPercent = getContentPosition(text.startTime)
+                        const widthPercent = totalDuration > 0 ? (text.duration / (totalDuration + PADDING_DURATION * 2)) * 100 : 0
+                        const isSelected = selectedTextId === text.id
+                        return (
+                          <div
+                            key={text.id}
+                            className={`${styles.overlayItem} ${styles.textItem} ${isSelected ? styles.selected : ''}`}
+                            style={{ left: `${leftPercent}%`, width: `${widthPercent}%`, position: 'absolute' }}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setSelectedTextId(selectedTextId === text.id ? null : text.id)
+                              setSelectedVideoId(null)
+                              setSelectedImageId(null)
+                            }}
+                            onMouseDown={(e) => handleTextDragStart(text.id, 'move', e)}
+                          >
+                            <div
+                              className={styles.overlayHandleStart}
+                              onMouseDown={(e) => handleTextDragStart(text.id, 'start', e)}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                            <div
+                              className={styles.overlayHandleEnd}
+                              onMouseDown={(e) => handleTextDragStart(text.id, 'end', e)}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                            <div className={styles.overlayBox}>
+                              <span className={styles.overlayName}>{text.content || 'Text'}</span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                   <div ref={timelineRowRef} className={styles.timelineRow}>
                     {videos.filter((v) => !v.isOverlay).map((video) => {
                       const leftPercent = getContentPosition(video.timestamp)

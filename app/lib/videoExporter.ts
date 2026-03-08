@@ -1,7 +1,9 @@
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
+import { TextClass } from '@/app/models/TextClass'
 import { FFmpeg } from '@ffmpeg/ffmpeg'
 import { fetchFile, toBlobURL } from '@ffmpeg/util'
+import { wrapTextToLines } from '@/app/lib/textUtils'
 
 let ffmpegInstance: FFmpeg | null = null
 let ffmpegLoading: Promise<FFmpeg> | null = null
@@ -17,12 +19,13 @@ async function getFFmpeg(): Promise<FFmpeg> {
   
   ffmpegLoading = (async () => {
     ffmpegInstance = new FFmpeg()
-    
+
+    const BASE = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd'
     const [coreURL, wasmURL] = await Promise.all([
-      toBlobURL('/ffmpeg/ffmpeg-core.js', 'text/javascript'),
-      toBlobURL('/ffmpeg/ffmpeg-core.wasm', 'application/wasm'),
+      toBlobURL(`${BASE}/ffmpeg-core.js`, 'text/javascript'),
+      toBlobURL(`${BASE}/ffmpeg-core.wasm`, 'application/wasm'),
     ])
-    
+
     await ffmpegInstance.load({
       coreURL,
       wasmURL,
@@ -44,6 +47,7 @@ export type ProgressCallback = (progress: ExportProgress) => void
 
 interface ImageOnlyExportParams {
   images: ImageClass[]
+  texts: TextClass[]
   imageElements: Map<string, HTMLImageElement>
   overlayVideos: VideoClass[]
   videoElements: Map<string, HTMLVideoElement>
@@ -59,6 +63,7 @@ interface ImageOnlyExportParams {
 
 async function exportImageOnlyWithFFmpeg({
   images,
+  texts,
   canvas,
   totalDuration,
   audioUrl,
@@ -72,25 +77,28 @@ async function exportImageOnlyWithFFmpeg({
     try { await ff.deleteFile(f) } catch {}
   }
 
-  const breaks = new Set<number>([0])
-  images.forEach((img) => { breaks.add(img.startTime); breaks.add(img.endTime) })
-  breaks.add(totalDuration)
-  const sortedBreaks = [...breaks].filter((t) => t >= 0 && t <= totalDuration).sort((a, b) => a - b)
+  const breakSet = new Set<number>([0, totalDuration])
+  images.forEach((img) => { breakSet.add(img.startTime); breakSet.add(img.endTime) })
+  texts.forEach((text) => { breakSet.add(text.startTime); breakSet.add(text.endTime) })
+  const sortedBreaks = [...breakSet]
+    .filter((t) => t >= 0 && t <= totalDuration)
+    .sort((a, b) => a - b)
+    .filter((t, i, arr) => i === 0 || t - arr[i - 1] > 1e-9)
 
   const segments: Array<{ name: string; duration: number }> = []
-  let frameIdx = 0
 
   for (let i = 0; i < sortedBreaks.length - 1; i++) {
-    const t = sortedBreaks[i]
-    const dur = sortedBreaks[i + 1] - t
+    const segStart = sortedBreaks[i]
+    const segEnd = sortedBreaks[i + 1]
+    const dur = segEnd - segStart
     if (dur <= 0) continue
 
-    drawFrameToCanvas(t + Math.min(0.001, dur * 0.01))
+    drawFrameToCanvas(segStart + dur / 2)
 
     const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'))
     if (!blob) continue
 
-    const name = `eif${frameIdx++}.png`
+    const name = `eif${i}.png`
     await ff.writeFile(name, await fetchFile(blob))
     segments.push({ name, duration: dur })
 
@@ -106,10 +114,14 @@ async function exportImageOnlyWithFFmpeg({
   onProgress?.({ phase: 'converting', progress: 75, message: 'Encoding video...' })
 
   // Write ffconcat manifest — avoids per-input arg limits for large segment counts
+  // The last file must be duplicated without a duration so FFmpeg encodes the full final-frame duration
   const concatLines = ['ffconcat version 1.0']
   for (const seg of segments) {
     concatLines.push(`file ${seg.name}`)
     concatLines.push(`duration ${seg.duration}`)
+  }
+  if (segments.length > 0) {
+    concatLines.push(`file ${segments[segments.length - 1].name}`)
   }
   const concatText = new TextEncoder().encode(concatLines.join('\n'))
   try { await ff.deleteFile('concat.txt') } catch {}
@@ -167,7 +179,8 @@ export async function exportVideo(
   aspectRatio: '16:9' | '9:16',
   onProgress?: ProgressCallback,
   images?: ImageClass[],
-  audioUrl?: string | null
+  audioUrl?: string | null,
+  texts?: TextClass[]
 ): Promise<Blob> {
   const mainVideos = [...videos].filter((v) => !v.isOverlay).sort((a, b) => a.timestamp - b.timestamp)
   const overlayVideos = videos.filter((v) => v.isOverlay)
@@ -266,11 +279,51 @@ export async function exportVideo(
         ctx.drawImage(videoEl, video.x * xScale, video.y * yScale, video.width * xScale, video.height * yScale)
         ctx.restore()
       })
+    if (texts && texts.length > 0) {
+      const activeTexts = texts.filter((text) => t >= text.startTime && t < text.endTime)
+      for (const text of activeTexts) {
+        const fontPx = text.fontSize * xScale
+        const lineHeight = fontPx * 1.2
+        const shadowOffset = fontPx * 0.04
+        const shadowBlur = fontPx * 0.08
+
+        ctx.save()
+        ctx.font = `${text.fontWeight} ${fontPx}px ${text.fontFamily}`
+
+        const lines = wrapTextToLines(ctx, text.content, text.width * xScale)
+        const textX = text.textAlign === 'center'
+          ? text.x * xScale + (text.width * xScale) / 2
+          : text.textAlign === 'right'
+          ? text.x * xScale + text.width * xScale
+          : text.x * xScale
+        const baseY = text.y * yScale
+        ctx.textAlign = text.textAlign as CanvasTextAlign
+        ctx.textBaseline = 'top'
+        ctx.globalAlpha = text.opacity
+
+        ctx.fillStyle = 'rgba(0,0,0,0.8)'
+        for (const [ox, oy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as [number, number][]) {
+          ctx.shadowColor = 'rgba(0,0,0,0.8)'
+          ctx.shadowBlur = shadowBlur
+          ctx.shadowOffsetX = ox * shadowOffset
+          ctx.shadowOffsetY = oy * shadowOffset
+          lines.forEach((line, i) => ctx.fillText(line, textX, baseY + i * lineHeight))
+        }
+        ctx.shadowColor = 'transparent'
+        ctx.shadowBlur = 0
+        ctx.shadowOffsetX = 0
+        ctx.shadowOffsetY = 0
+        ctx.fillStyle = text.color
+        lines.forEach((line, i) => ctx.fillText(line, textX, baseY + i * lineHeight))
+        ctx.restore()
+      }
+    }
   }
 
   if (mainVideos.length === 0) {
     return exportImageOnlyWithFFmpeg({
       images: images || [],
+      texts: texts || [],
       imageElements,
       overlayVideos,
       videoElements,

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
+import { TextClass } from '@/app/models/TextClass'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 
 export type AspectRatio = '16:9' | '9:16'
@@ -8,6 +9,7 @@ export type AspectRatio = '16:9' | '9:16'
 interface HistoryEntry {
   videos: VideoClass[]
   images: ImageClass[]
+  texts: TextClass[]
 }
 
 const MAX_HISTORY = 50
@@ -15,6 +17,7 @@ const MAX_HISTORY = 50
 interface ManifestStore {
   videos: VideoClass[]
   images: ImageClass[]
+  texts: TextClass[]
   replaceTargetId: string | null
   pendingPrompt: string | null
   playbackTime: number
@@ -47,9 +50,15 @@ interface ManifestStore {
     imagePatches: Array<{ id: string; startTime?: number; endTime?: number }>,
     videoTimestampPatches: Array<{ id: string; timestamp: number }>
   ) => void
+  addText: (text: TextClass) => void
+  updateText: (id: string, updates: Partial<TextClass>) => void
+  removeText: (id: string) => void
+  splitText: (id: string, playbackTime: number) => void
 }
 
-function collectUrls(entries: HistoryEntry[]): Set<string> {
+type BlobEntry = { videos: VideoClass[]; images: ImageClass[] }
+
+function collectUrls(entries: BlobEntry[]): Set<string> {
   const urls = new Set<string>()
   for (const entry of entries) {
     for (const v of entry.videos) if (v.url) urls.add(v.url)
@@ -59,12 +68,12 @@ function collectUrls(entries: HistoryEntry[]): Set<string> {
 }
 
 function pruneUrls(
-  prevHistory: HistoryEntry[],
-  nextHistory: HistoryEntry[],
+  prevHistory: BlobEntry[],
+  nextHistory: BlobEntry[],
   liveVideos: VideoClass[],
   liveImages: ImageClass[]
 ) {
-  const live: HistoryEntry = { videos: liveVideos, images: liveImages }
+  const live: BlobEntry = { videos: liveVideos, images: liveImages }
   const kept = collectUrls([...nextHistory, live])
   const had = collectUrls(prevHistory)
   for (const url of had) {
@@ -77,12 +86,13 @@ function pruneUrls(
 export const useManifestStore = create<ManifestStore>((set, get) => ({
   videos: [],
   images: [],
+  texts: [],
   replaceTargetId: null,
   pendingPrompt: null,
   playbackTime: 0,
   isPlaying: false,
   aspectRatio: '16:9',
-  history: [{ videos: [], images: [] }],
+  history: [{ videos: [], images: [], texts: [] }],
   historyIndex: 0,
 
   pushHistory: () => {
@@ -90,6 +100,7 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
     const entry: HistoryEntry = {
       videos: [...state.videos],
       images: [...state.images],
+      texts: [...state.texts],
     }
     const current = state.history[state.historyIndex]
     if (current && JSON.stringify(current) === JSON.stringify(entry)) return
@@ -110,6 +121,7 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
     set({
       videos: [...target.videos],
       images: [...target.images],
+      texts: [...(target.texts ?? [])],
       historyIndex: state.historyIndex - 1,
       isPlaying: false,
     })
@@ -123,6 +135,7 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
     set({
       videos: [...target.videos],
       images: [...target.images],
+      texts: [...(target.texts ?? [])],
       historyIndex: state.historyIndex + 1,
       isPlaying: false,
     })
@@ -545,5 +558,71 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
     }))
   },
 
+  addText: (text: TextClass) => {
+    useSelectionStore.getState().setSelectedTextId(text.id)
+    set((state) => ({ texts: [...state.texts, text] }))
+    get().pushHistory()
+  },
+
+  updateText: (id: string, updates: Partial<TextClass>) => {
+    set((state) => ({
+      texts: state.texts.map((t) =>
+        t.id === id
+          ? new TextClass(
+              t.id,
+              updates.content ?? t.content,
+              updates.startTime ?? t.startTime,
+              updates.endTime ?? t.endTime,
+              updates.x ?? t.x,
+              updates.y ?? t.y,
+              updates.width ?? t.width,
+              updates.height ?? t.height,
+              updates.opacity ?? t.opacity,
+              updates.fontSize ?? t.fontSize,
+              updates.fontFamily ?? t.fontFamily,
+              updates.color ?? t.color,
+              updates.fontWeight ?? t.fontWeight,
+              updates.textAlign ?? t.textAlign,
+              t.createdAt
+            )
+          : t
+      ),
+    }))
+  },
+
+  removeText: (id: string) => {
+    const { selectedTextId, setSelectedTextId } = useSelectionStore.getState()
+    if (selectedTextId === id) setSelectedTextId(null)
+    set((s) => ({ texts: s.texts.filter((t) => t.id !== id) }))
+    get().pushHistory()
+  },
+
+  splitText: (id: string, playbackTime: number) => {
+    const state = get()
+    const text = state.texts.find((t) => t.id === id)
+    if (!text) return
+    if (playbackTime <= text.startTime + 0.05 || playbackTime >= text.endTime - 0.05) return
+
+    const firstHalf = new TextClass(
+      text.id, text.content, text.startTime, playbackTime,
+      text.x, text.y, text.width, text.height, text.opacity,
+      text.fontSize, text.fontFamily, text.color, text.fontWeight, text.textAlign,
+      text.createdAt
+    )
+    const secondHalf = new TextClass(
+      `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      text.content, playbackTime, text.endTime,
+      text.x, text.y, text.width, text.height, text.opacity,
+      text.fontSize, text.fontFamily, text.color, text.fontWeight, text.textAlign,
+      new Date()
+    )
+
+    useSelectionStore.getState().setSelectedTextId(secondHalf.id)
+    set((s) => ({
+      texts: s.texts.map((t) => (t.id === id ? firstHalf : t)).concat([secondHalf]),
+    }))
+    set({ playbackTime })
+    get().pushHistory()
+  },
 
 }))

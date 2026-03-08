@@ -117,6 +117,62 @@
   z-index: 100;
 }
 
+.textOverlay {
+  position: absolute;
+  pointer-events: auto;
+  cursor: move;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: none;
+  z-index: 50;
+  line-height: 1.2;
+  padding: 0;
+  border-radius: 2px;
+  border: 1px solid transparent;
+  transition: border-color 0.15s ease;
+  text-shadow:
+    -0.04em -0.04em 0.08em rgba(0,0,0,0.8),
+     0.04em -0.04em 0.08em rgba(0,0,0,0.8),
+    -0.04em  0.04em 0.08em rgba(0,0,0,0.8),
+     0.04em  0.04em 0.08em rgba(0,0,0,0.8);
+}
+
+.textOverlay:hover {
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.textOverlaySelected {
+  border-color: #ffffff;
+  border-style: dashed;
+}
+
+.textEditArea {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  field-sizing: content;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: inherit;
+  font-size: inherit;
+  font-family: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  text-align: inherit;
+  resize: none;
+  cursor: text;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  vertical-align: top;
+  text-shadow:
+    -0.04em -0.04em 0.08em rgba(0,0,0,0.8),
+     0.04em -0.04em 0.08em rgba(0,0,0,0.8),
+    -0.04em  0.04em 0.08em rgba(0,0,0,0.8),
+     0.04em  0.04em 0.08em rgba(0,0,0,0.8);
+}
+
 .previewContent {
   padding: 2rem;
   background-color: #1f1f1f;

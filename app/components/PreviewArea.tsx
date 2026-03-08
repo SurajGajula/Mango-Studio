@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useRef, useCallback, useState } from 'react'
+import { wrapTextToLines } from '@/app/lib/textUtils'
+import gsap from 'gsap'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useVideoPlayback } from '@/app/lib/useVideoPlayback'
@@ -20,24 +22,50 @@ interface OverlayDragState {
   initialHeight: number
 }
 
+interface TextDragState {
+  textId: string
+  startX: number
+  startY: number
+  initialX: number
+  initialY: number
+  initialWidth: number
+  initialHeight: number
+}
+
 export default function PreviewArea() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
   const [dragState, setDragState] = useState<OverlayDragState | null>(null)
+  const [textDragState, setTextDragState] = useState<TextDragState | null>(null)
   const [snapLines, setSnapLines] = useState<{ horizontal: number[], vertical: number[] }>({ horizontal: [], vertical: [] })
+  const [editingTextId, setEditingTextId] = useState<string | null>(null)
+  const [editingContent, setEditingContent] = useState('')
+  const editingContentRef = useRef('')
+  const textRefs = useRef<Map<string, HTMLDivElement | null>>(new Map())
+  const textTimelines = useRef<Map<string, gsap.core.Timeline>>(new Map())
+  const measureCanvas = useRef<HTMLCanvasElement | null>(null)
+
+  const getMeasureCtx = useCallback((): CanvasRenderingContext2D => {
+    if (!measureCanvas.current) measureCanvas.current = document.createElement('canvas')
+    return measureCanvas.current.getContext('2d')!
+  }, [])
 
   const { canvasDimensions } = useVideoPlayback(canvasRef, containerRef)
 
   const videos = useManifestStore((state) => state.videos)
   const images = useManifestStore((state) => state.images)
+  const texts = useManifestStore((state) => state.texts)
   const playbackTime = useManifestStore((state) => state.playbackTime)
   const selectedImageId = useSelectionStore((state) => state.selectedImageId)
   const setSelectedImageId = useSelectionStore((state) => state.setSelectedImageId)
   const selectedVideoId = useSelectionStore((state) => state.selectedVideoId)
   const setSelectedVideoId = useSelectionStore((state) => state.setSelectedVideoId)
+  const selectedTextId = useSelectionStore((state) => state.selectedTextId)
+  const setSelectedTextId = useSelectionStore((state) => state.setSelectedTextId)
   const updateImage = useManifestStore((state) => state.updateImage)
   const updateVideo = useManifestStore((state) => state.updateVideo)
+  const updateText = useManifestStore((state) => state.updateText)
   const pushHistory = useManifestStore((state) => state.pushHistory)
   const aspectRatio = useManifestStore((state) => state.aspectRatio)
   const setAspectRatio = useManifestStore((state) => state.setAspectRatio)
@@ -52,6 +80,10 @@ export default function PreviewArea() {
 
   const activeOverlayVideos = videos.filter(
     (v) => v.isOverlay && playbackTime >= v.timestamp && playbackTime < v.timestamp + (v.duration ?? 0)
+  )
+
+  const activeTexts = texts.filter(
+    (t) => playbackTime >= t.startTime && playbackTime < t.endTime
   )
 
   const xScale = canvasDimensions.width > 0 ? canvasDimensions.width / 1920 : 1
@@ -173,6 +205,97 @@ export default function PreviewArea() {
     }
   }, [dragState, xScale, yScale, applyUpdate, pushHistory])
 
+  const textAnimKey = texts.map((t) => `${t.id}:${t.startTime}:${t.endTime}:${t.opacity}`).join('|')
+
+  useEffect(() => {
+    const existingIds = new Set(textTimelines.current.keys())
+    const currentIds = new Set(texts.map((t) => t.id))
+
+    for (const id of existingIds) {
+      if (!currentIds.has(id)) {
+        textTimelines.current.get(id)?.kill()
+        textTimelines.current.delete(id)
+      }
+    }
+
+    for (const text of texts) {
+      const el = textRefs.current.get(text.id)
+      if (!el) continue
+      gsap.set(el, { opacity: text.opacity })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [textAnimKey])
+
+  const handleTextMouseDown = useCallback((textId: string, e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    const isSelected = selectedTextId === textId
+    if (!isSelected) {
+      setSelectedTextId(textId)
+      setSelectedVideoId(null)
+      setSelectedImageId(null)
+      return
+    }
+
+    const text = texts.find((t) => t.id === textId)
+    if (!text) return
+
+    setTextDragState({ textId, startX: e.clientX, startY: e.clientY, initialX: text.x, initialY: text.y, initialWidth: text.width, initialHeight: text.height })
+  }, [selectedTextId, texts, setSelectedTextId, setSelectedVideoId, setSelectedImageId])
+
+  useEffect(() => {
+    if (!textDragState) {
+      setSnapLines({ horizontal: [], vertical: [] })
+      return
+    }
+
+    const snapTargetsX = [0, 960, 1920]
+    const snapTargetsY = [0, 540, 1080]
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (xScale === 0 || yScale === 0) return
+      const deltaX = (e.clientX - textDragState.startX) / xScale
+      const deltaY = (e.clientY - textDragState.startY) / yScale
+
+      let newX = textDragState.initialX + deltaX
+      let newY = textDragState.initialY + deltaY
+      const width = textDragState.initialWidth
+      const height = textDragState.initialHeight
+
+      const activeSnapLinesV: number[] = []
+      const activeSnapLinesH: number[] = []
+
+      for (const target of snapTargetsX) {
+        if (Math.abs(newX - target) < SNAP_THRESHOLD) { newX = target; activeSnapLinesV.push(target) }
+        else if (Math.abs(newX + width - target) < SNAP_THRESHOLD) { newX = target - width; activeSnapLinesV.push(target) }
+        else if (Math.abs(newX + width / 2 - target) < SNAP_THRESHOLD) { newX = target - width / 2; activeSnapLinesV.push(target) }
+      }
+
+      for (const target of snapTargetsY) {
+        if (Math.abs(newY - target) < SNAP_THRESHOLD) { newY = target; activeSnapLinesH.push(target) }
+        else if (Math.abs(newY + height - target) < SNAP_THRESHOLD) { newY = target - height; activeSnapLinesH.push(target) }
+        else if (Math.abs(newY + height / 2 - target) < SNAP_THRESHOLD) { newY = target - height / 2; activeSnapLinesH.push(target) }
+      }
+
+      setSnapLines({ horizontal: activeSnapLinesH, vertical: activeSnapLinesV })
+      updateText(textDragState.textId, { x: newX, y: newY })
+    }
+
+    const handleMouseUp = () => {
+      setTextDragState(null)
+      setSnapLines({ horizontal: [], vertical: [] })
+      pushHistory()
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [textDragState, xScale, yScale, updateText, pushHistory])
+
   const renderOverlayItem = (
     itemId: string,
     itemType: 'image' | 'video',
@@ -214,7 +337,7 @@ export default function PreviewArea() {
               <canvas
                 ref={canvasRef}
                 className={styles.video}
-                onClick={() => { setSelectedImageId(null); setSelectedVideoId(null) }}
+                onClick={() => { setSelectedImageId(null); setSelectedVideoId(null); setSelectedTextId(null); setEditingTextId(null) }}
               />
               <div className={styles.overlayLayer}>
                 {activeImages.map((image) =>
@@ -233,6 +356,61 @@ export default function PreviewArea() {
                     null
                   )
                 )}
+                {activeTexts.map((text) => {
+                  const isSelected = selectedTextId === text.id
+                  const isEditing = editingTextId === text.id
+                  return (
+                    <div
+                      key={text.id}
+                      ref={(el) => { textRefs.current.set(text.id, el) }}
+                      className={`${styles.textOverlay} ${isSelected ? styles.textOverlaySelected : ''}`}
+                      style={{
+                        left: text.x * xScale,
+                        top: text.y * yScale,
+                        width: text.width * xScale,
+                        fontSize: text.fontSize * xScale,
+                        color: text.color,
+                        fontWeight: text.fontWeight,
+                        textAlign: text.textAlign as React.CSSProperties['textAlign'],
+                        fontFamily: text.fontFamily,
+                      }}
+                      onMouseDown={(e) => handleTextMouseDown(text.id, e)}
+                      onDoubleClick={(e) => { e.stopPropagation(); editingContentRef.current = text.content; setEditingContent(text.content); setEditingTextId(text.id) }}
+                    >
+                      {isEditing ? (
+                        <textarea
+                          value={editingContent}
+                          className={styles.textEditArea}
+                          onChange={(e) => { editingContentRef.current = e.target.value; setEditingContent(e.target.value) }}
+                          ref={(el) => {
+                            if (el) {
+                              setTimeout(() => {
+                                el.focus()
+                                const len = el.value.length
+                                el.setSelectionRange(len, len)
+                              }, 0)
+                            }
+                          }}
+                          onBlur={() => {
+                            updateText(text.id, { content: editingContentRef.current })
+                            pushHistory()
+                            setEditingTextId(null)
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') { setEditingTextId(null) }
+                            e.stopPropagation()
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      ) : (() => {
+                        const mCtx = getMeasureCtx()
+                        mCtx.font = `${text.fontWeight} ${text.fontSize * xScale}px ${text.fontFamily}`
+                        const lines = wrapTextToLines(mCtx, text.content || 'Text', text.width * xScale)
+                        return lines.join('\n')
+                      })()}
+                    </div>
+                  )
+                })}
                 {snapLines.vertical.map((x, i) => (
                   <div key={`v-${i}`} className={styles.snapLineVertical} style={{ left: x * xScale }} />
                 ))}
