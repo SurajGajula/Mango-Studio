@@ -690,6 +690,38 @@
   z-index: 10;
 }
 
+.userMarkMarker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background-color: #facc15;
+  pointer-events: none;
+  z-index: 11;
+  box-shadow: 0 0 4px rgba(250, 204, 21, 0.6);
+}
+
+.clearMarksButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.5rem;
+  height: 2rem;
+  background: rgba(250, 204, 21, 0.12);
+  border: 1px solid rgba(250, 204, 21, 0.4);
+  border-radius: 4px;
+  color: #facc15;
+  font-size: 0.75rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.clearMarksButton:hover {
+  background: rgba(250, 204, 21, 0.22);
+}
+
 .chorusRegion {
   position: absolute;
   top: 0;

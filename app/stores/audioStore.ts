@@ -1,51 +1,24 @@
 import { create } from 'zustand'
 import { AudioClass } from '@/app/models/AudioClass'
-
-export interface AnalysisParams {
-  melodyFreqMin: number
-  melodyFreqMax: number
-  melodyFloorPct: number
-  melodyStdMult: number
-  melodyMinGap: number
-  melodyPercGate: number
-  smoothWin: number
-}
-
+import { useManifestStore } from '@/app/stores/manifestStore'
 
 export interface AudioAnalysisResult {
-  bpm: number
   duration: number
-  beats: number[]
-  quarterBeats: number[]
-  drops: number[]
-  choruses: { start: number; end: number }[]
-  graphPeaks: {
-    drums: number[]
-    bass: number[]
-    melody: number[]
-  }
-  graphs: {
-    drums: number[]
-    bass: number[]
-    melody: number[]
-  }
+  waveform: number[]
 }
-
-export type GraphMode = 'drums' | 'bass' | 'melody'
-
-const GRAPH_MODE_CYCLE: GraphMode[] = ['drums', 'bass', 'melody']
 
 interface AudioStore {
   isAnalyzing: boolean
   analysis: AudioAnalysisResult | null
   audio: AudioClass | null
   audioUrl: string | null
-  graphMode: GraphMode
+  userMarks: number[]
   setIsAnalyzing: (v: boolean) => void
   setAnalysis: (result: AudioAnalysisResult) => void
   setAudio: (audio: AudioClass) => void
   removeAudio: () => void
-  cycleGraphMode: () => void
+  addUserMark: (time: number) => void
+  clearUserMarks: () => void
 }
 
 export const useAudioStore = create<AudioStore>((set, get) => ({
@@ -53,7 +26,7 @@ export const useAudioStore = create<AudioStore>((set, get) => ({
   analysis: null,
   audio: null,
   audioUrl: null,
-  graphMode: 'drums',
+  userMarks: [],
 
   setIsAnalyzing: (v) => set({ isAnalyzing: v }),
 
@@ -68,13 +41,21 @@ export const useAudioStore = create<AudioStore>((set, get) => ({
   removeAudio: () => {
     const prev = get().audioUrl
     if (prev) URL.revokeObjectURL(prev)
-    set({ audio: null, audioUrl: null, analysis: null, isAnalyzing: false })
+    set({ audio: null, audioUrl: null, analysis: null, isAnalyzing: false, userMarks: [] })
   },
 
-  cycleGraphMode: () => {
-    const current = get().graphMode
-    const idx = GRAPH_MODE_CYCLE.indexOf(current)
-    const next = GRAPH_MODE_CYCLE[(idx + 1) % GRAPH_MODE_CYCLE.length]
-    set({ graphMode: next })
+  addUserMark: (time) => {
+    const marks = get().userMarks
+    if (marks.some((m) => Math.abs(m - time) < 0.05)) return
+    const newMarks = [...marks, time].sort((a, b) => a - b)
+    set({ userMarks: newMarks })
+    const audioId = get().audio?.id
+    if (audioId) useManifestStore.getState().updateAudio(audioId, { marks: newMarks })
+  },
+
+  clearUserMarks: () => {
+    set({ userMarks: [] })
+    const audioId = get().audio?.id
+    if (audioId) useManifestStore.getState().updateAudio(audioId, { marks: [] })
   },
 }))

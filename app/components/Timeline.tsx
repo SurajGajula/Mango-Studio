@@ -57,14 +57,17 @@ export default function Timeline() {
   const aspectRatio = useManifestStore((state) => state.aspectRatio)
   const audioAnalysis = useAudioStore((state) => state.analysis)
   const isAnalyzing = useAudioStore((state) => state.isAnalyzing)
-  const graphMode = useAudioStore((state) => state.graphMode)
-  const cycleGraphMode = useAudioStore((state) => state.cycleGraphMode)
   const setAudioAnalysis = useAudioStore((state) => state.setAnalysis)
   const setIsAnalyzing = useAudioStore((state) => state.setIsAnalyzing)
+  const audio = useAudioStore((state) => state.audio)
   const setAudio = useAudioStore((state) => state.setAudio)
   const removeAudio = useAudioStore((state) => state.removeAudio)
+  const addAudioToManifest = useManifestStore((state) => state.addAudio)
+  const removeAudioFromManifest = useManifestStore((state) => state.removeAudio)
   const audioUrl = useAudioStore((state) => state.audioUrl)
-  const activeDrops = audioAnalysis?.graphPeaks?.[graphMode] ?? audioAnalysis?.drops ?? []
+  const userMarks = useAudioStore((state) => state.userMarks)
+  const addUserMark = useAudioStore((state) => state.addUserMark)
+  const clearUserMarks = useAudioStore((state) => state.clearUserMarks)
   const audioCanvasRef = useRef<HTMLCanvasElement>(null)
   const timelineRowRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -159,7 +162,7 @@ export default function Timeline() {
       scrollGestureActiveRef.current = false
     }, 150)
 
-    if (isAudioSelected && audioAnalysis && activeDrops.length > 0) {
+    if (isAudioSelected && audioAnalysis && userMarks.length > 0) {
       if (snapStateRef.current) {
         if (isNewGesture) {
           lastReleasedDropRef.current = snapStateRef.current.dropTime
@@ -192,7 +195,7 @@ export default function Timeline() {
           const hi = Math.max(prev, rawTime) + (direction > 0 ? lookahead : 0)
           let crossed: number | null = null
           let crossedDist = Infinity
-          for (const drop of activeDrops) {
+          for (const drop of userMarks) {
             if (drop === lastReleasedDropRef.current) continue
             if (drop > lo && drop <= hi) {
               const d = Math.abs(drop - prev)
@@ -224,7 +227,7 @@ export default function Timeline() {
     }
 
     setPlaybackTime(newTime)
-  }, [isPlaying, totalDuration, setPlaybackTime, isAudioSelected, audioAnalysis])
+  }, [isPlaying, totalDuration, setPlaybackTime, isAudioSelected, audioAnalysis, userMarks])
 
   useEffect(() => {
     if (isAudioSelected) {
@@ -308,13 +311,15 @@ export default function Timeline() {
       } else if (file.type.startsWith('audio/')) {
         const blobUrl = URL.createObjectURL(file)
         const audioId = `audio-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-        setAudio(new AudioClass(audioId, file.name, blobUrl))
         setIsAnalyzing(true)
         try {
           const arrayBuffer = await file.arrayBuffer()
           const audioCtx = new AudioContext()
           const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer)
           await audioCtx.close()
+          const audioInstance = new AudioClass(audioId, file.name, blobUrl, 0, audioBuffer.duration)
+          setAudio(audioInstance)
+          addAudioToManifest(audioInstance)
           const mono = toMono(audioBuffer)
           const worker = new Worker(
             new URL('../workers/audioAnalysis.worker.ts', import.meta.url)
@@ -438,16 +443,15 @@ export default function Timeline() {
 
     const currentPlaybackTime = useManifestStore.getState().playbackTime
     const localPlaybackInVideo = currentPlaybackTime - video.timestamp + video.trimStart
-    const analysis = useAudioStore.getState().analysis
 
     if (trimDragging.handle === 'start') {
       let newTrimStart = initialTrimStart + mouseDeltaTime
       
       if (Math.abs(newTrimStart - localPlaybackInVideo) < snapThreshold) {
         newTrimStart = localPlaybackInVideo
-      } else if (analysis) {
+      } else {
         const globalLeftEdge = video.timestamp + (newTrimStart - initialTrimStart)
-        const snapped = snapToMarkers(globalLeftEdge, analysis, snapThreshold)
+        const snapped = snapToMarkers(globalLeftEdge, useAudioStore.getState().userMarks, snapThreshold)
         if (snapped !== globalLeftEdge) {
           newTrimStart = initialTrimStart + (snapped - video.timestamp)
         }
@@ -471,9 +475,9 @@ export default function Timeline() {
       const playbackEndInOriginal = originalDuration - newTrimEnd
       if (Math.abs(playbackEndInOriginal - localPlaybackInVideo) < snapThreshold) {
         newTrimEnd = originalDuration - localPlaybackInVideo
-      } else if (analysis) {
+      } else {
         const globalRightEdge = video.timestamp + originalDuration - initialTrimStart - newTrimEnd
-        const snapped = snapToMarkers(globalRightEdge, analysis, snapThreshold)
+        const snapped = snapToMarkers(globalRightEdge, useAudioStore.getState().userMarks, snapThreshold)
         if (snapped !== globalRightEdge) {
           newTrimEnd = originalDuration - initialTrimStart - (snapped - video.timestamp)
         }
@@ -729,9 +733,15 @@ export default function Timeline() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return
       const tag = (e.target as HTMLElement).tagName
       const isEditing = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable
+      if (e.key === 'm' && !isEditing && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault()
+        if (useAudioStore.getState().analysis) {
+          useAudioStore.getState().addUserMark(useManifestStore.getState().playbackTime)
+        }
+      }
+      if (!(e.metaKey || e.ctrlKey)) return
       if (e.key === 'z') { e.preventDefault(); undo() }
       if (e.key === 'y') { e.preventDefault(); redo() }
       if (e.key === 'd' && !isEditing) {
@@ -740,7 +750,7 @@ export default function Timeline() {
         if (selectedVideoId) removeVideo(selectedVideoId)
         else if (selectedImageId) removeImage(selectedImageId)
         else if (selectedTextId) removeText(selectedTextId)
-        else if (isAudioSelected) { removeAudio(); setIsAudioSelected(false) }
+        else if (isAudioSelected) { if (audio) removeAudioFromManifest(audio.id); removeAudio(); setIsAudioSelected(false) }
       }
       if (e.key === 'u' && !isEditing) {
         e.preventDefault()
@@ -754,8 +764,8 @@ export default function Timeline() {
   useEffect(() => {
     const canvas = audioCanvasRef.current
     if (!canvas || !audioAnalysis) return
-    drawAudioGraph(canvas, audioAnalysis, graphMode, totalDuration, PADDING_DURATION)
-  }, [audioAnalysis, graphMode, totalDuration])
+    drawAudioGraph(canvas, audioAnalysis, totalDuration, PADDING_DURATION)
+  }, [audioAnalysis, totalDuration])
 
   return (
     <div className={styles.container}>
@@ -857,7 +867,7 @@ export default function Timeline() {
                   if (selectedVideoId) removeVideo(selectedVideoId)
                   else if (selectedImageId) removeImage(selectedImageId)
                   else if (selectedTextId) removeText(selectedTextId)
-                  else if (isAudioSelected) { removeAudio(); setIsAudioSelected(false) }
+                  else if (isAudioSelected) { if (audio) removeAudioFromManifest(audio.id); removeAudio(); setIsAudioSelected(false) }
                 }}
                 disabled={!selectedVideoId && !selectedImageId && !selectedTextId && !isAudioSelected}
                 title="Delete selected (Cmd+D)"
@@ -911,13 +921,13 @@ export default function Timeline() {
               >
                 T
               </button>
-              {audioAnalysis && (
+              {audioAnalysis && userMarks.length > 0 && (
                 <button
-                  className={styles.graphCycleButton}
-                  onClick={cycleGraphMode}
-                  title="Cycle graph view"
+                  className={styles.clearMarksButton}
+                  onClick={clearUserMarks}
+                  title="Clear all manual marks"
                 >
-                  {graphMode === 'drums' ? 'D' : graphMode === 'bass' ? 'B' : 'M'}
+                  ✕ {userMarks.length}
                 </button>
               )}
               {isAnalyzing && (
@@ -956,31 +966,14 @@ export default function Timeline() {
                       {audioAnalysis && (
                         <>
                           <canvas ref={audioCanvasRef} className={styles.audioCanvas} />
-                          {audioAnalysis.quarterBeats
+                          {userMarks
                             .filter((t) => t >= 0 && t <= audioAnalysis.duration)
                             .map((t, i) => (
                               <div
-                                key={`qb-${i}`}
-                                className={styles.quarterBeatMarker}
+                                key={`um-${i}`}
+                                className={styles.userMarkMarker}
                                 style={{ left: `${getContentPosition(t)}%` }}
-                              />
-                            ))}
-                          {audioAnalysis.beats
-                            .filter((t) => t >= 0 && t <= audioAnalysis.duration)
-                            .map((t, i) => (
-                              <div
-                                key={`b-${i}`}
-                                className={styles.beatMarker}
-                                style={{ left: `${getContentPosition(t)}%` }}
-                              />
-                            ))}
-                          {activeDrops
-                            .filter((t) => t >= 0 && t <= audioAnalysis.duration)
-                            .map((t, i) => (
-                              <div
-                                key={`d-${i}`}
-                                className={styles.dropMarker}
-                                style={{ left: `${getContentPosition(t)}%` }}
+                                title={`Mark at ${t.toFixed(2)}s`}
                               />
                             ))}
                         </>

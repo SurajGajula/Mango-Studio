@@ -2,8 +2,8 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
-import { VideoClass } from '@/app/models/VideoClass'
-import { resolveVideoDuration } from '@/app/lib/mediaUtils'
+import type { ManifestMutation, SplitInstruction, ReplaceInstruction, AddTextInstruction } from '@/app/api/route-prompt/route'
+import { TextClass } from '@/app/models/TextClass'
 import styles from './ChatWindow.module.css'
 
 interface Message {
@@ -14,50 +14,31 @@ interface Message {
   timestamp: Date
 }
 
-function base64ToBlob(base64: string, mimeType: string): Blob {
-  const byteCharacters = atob(base64)
-  const byteNumbers = new Array(byteCharacters.length)
-  for (let i = 0; i < byteCharacters.length; i++) {
-    byteNumbers[i] = byteCharacters.charCodeAt(i)
-  }
-  const byteArray = new Uint8Array(byteNumbers)
-  return new Blob([byteArray], { type: mimeType })
-}
-
-type ImageType = 'reference' | 'firstFrame' | 'lastFrame'
-
-interface ReferenceImage {
+interface UploadedFile {
   id: string
   name: string
   base64: string
   mimeType: string
-  imageType: ImageType
-}
-
-interface GeneratedImage {
-  id: string
-  base64: string
-  mimeType: string
-  prompt: string
 }
 
 export default function ChatWindow() {
   const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState('')
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [systemPrompt, setSystemPrompt] = useState('')
-  const [negativePrompt, setNegativePrompt] = useState('')
-  const [showSystemPromptModal, setShowSystemPromptModal] = useState(false)
-  const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([])
-  const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([])
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const addVideo = useManifestStore((state) => state.addVideo)
-  const replaceVideo = useManifestStore((state) => state.replaceVideo)
-  const replaceTargetId = useManifestStore((state) => state.replaceTargetId)
-  const setReplaceTargetId = useManifestStore((state) => state.setReplaceTargetId)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const updateImage = useManifestStore((state) => state.updateImage)
+  const updateVideo = useManifestStore((state) => state.updateVideo)
+  const updateText = useManifestStore((state) => state.updateText)
+  const updateAudio = useManifestStore((state) => state.updateAudio)
+  const splitVideoAtTimes = useManifestStore((state) => state.splitVideoAtTimes)
+  const splitImageAtTimes = useManifestStore((state) => state.splitImageAtTimes)
+  const replaceImageSource = useManifestStore((state) => state.replaceImageSource)
+  const addText = useManifestStore((state) => state.addText)
   const pendingPrompt = useManifestStore((state) => state.pendingPrompt)
   const setPendingPrompt = useManifestStore((state) => state.setPendingPrompt)
-  const aspectRatio = useManifestStore((state) => state.aspectRatio)
 
   useEffect(() => {
     if (pendingPrompt) {
@@ -67,11 +48,50 @@ export default function ChatWindow() {
     }
   }, [pendingPrompt, setPendingPrompt])
 
+  const applyMutations = (mutations: ManifestMutation[]) => {
+    for (const m of mutations) {
+      if (m.type === 'updateImage') updateImage(m.id, { startTime: m.startTime, endTime: m.endTime })
+      else if (m.type === 'updateVideo') updateVideo(m.id, { timestamp: m.timestamp, duration: m.duration })
+      else if (m.type === 'updateText') updateText(m.id, { startTime: m.startTime, endTime: m.endTime })
+      else if (m.type === 'updateAudio') updateAudio(m.id, { startTime: m.startTime, endTime: m.endTime })
+    }
+  }
+
+  const applySplits = (splits: SplitInstruction[]) => {
+    for (const s of splits) {
+      if (s.type === 'image') splitImageAtTimes(s.id, s.times)
+      else if (s.type === 'video') splitVideoAtTimes(s.id, s.times)
+    }
+  }
+
+  const applyNewTexts = (newTexts: AddTextInstruction[]) => {
+    for (const t of newTexts) {
+      addText(new TextClass(
+        `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        t.content,
+        t.startTime,
+        t.endTime,
+      ))
+    }
+  }
+
+  const applyReplacements = (replacements: ReplaceInstruction[], files: UploadedFile[]) => {
+    for (const r of replacements) {
+      const file = files[r.fileIndex]
+      if (!file) continue
+      const blob = new Blob(
+        [Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0))],
+        { type: file.mimeType }
+      )
+      const url = URL.createObjectURL(blob)
+      replaceImageSource(r.targetId, url, file.name)
+    }
+  }
+
   const handleSend = async () => {
-    if (!inputValue.trim() || isGenerating) return
+    if (!inputValue.trim() || isProcessing) return
 
     const userPrompt = inputValue.trim()
-
     const userMessage: Message = {
       id: Date.now().toString(),
       text: userPrompt,
@@ -81,7 +101,7 @@ export default function ChatWindow() {
 
     setMessages((prev) => [...prev, userMessage])
     setInputValue('')
-    setIsGenerating(true)
+    setIsProcessing(true)
 
     const statusId = `status-${Date.now()}`
     const updateStatus = (text: string, loading: boolean) => {
@@ -96,144 +116,54 @@ export default function ChatWindow() {
     ])
 
     try {
-      const routeResponse = await fetch('/api/route-prompt', {
+      const { videos, images, texts, audios } = useManifestStore.getState()
+      const manifest = {
+        images: images.map((i) => ({ id: i.id, name: i.name, startTime: i.startTime, endTime: i.endTime })),
+        videos: videos.map((v) => ({ id: v.id, title: v.title, timestamp: v.timestamp, duration: v.duration, isOverlay: v.isOverlay })),
+        texts: texts.map((t) => ({ id: t.id, content: t.content, startTime: t.startTime, endTime: t.endTime })),
+        audios: audios.map((a) => ({ id: a.id, name: a.name, startTime: a.startTime, endTime: a.endTime, marks: a.marks })),
+      }
+
+      const filesSnapshot = uploadedFiles
+      const uploadedFilesMeta = filesSnapshot.map((f, i) => ({ index: i, name: f.name }))
+
+      const response = await fetch('/api/route-prompt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: userPrompt, aspectRatio }),
+        body: JSON.stringify({ prompt: userPrompt, manifest, uploadedFiles: uploadedFilesMeta }),
       })
 
-      const routeData = await routeResponse.json()
+      const data = await response.json()
 
-      if (!routeResponse.ok || routeData.error) {
-        updateStatus(`Error: ${routeData.error || 'Failed to route prompt'}`, false)
+      if (!response.ok || data.error) {
+        updateStatus(`Error: ${data.error || 'Failed to process request'}`, false)
         return
       }
 
-      if (routeData.action === 'no_op') {
-        updateStatus(routeData.message, false)
-        return
+      if (data.action === 'edit_manifest') {
+        applyMutations(data.mutations || [])
+      } else if (data.action === 'split_at_marks') {
+        applySplits(data.splits || [])
+      } else if (data.action === 'add_text') {
+        applyNewTexts(data.newTexts || [])
+      } else if (data.action === 'replace_images') {
+        applyReplacements(data.replacements || [], filesSnapshot)
+        setUploadedFiles([])
       }
 
-      updateStatus(routeData.message, true)
-
-      if (routeData.action === 'generate_image') {
-        const refImages = referenceImages.filter((img) => img.imageType === 'reference')
-
-        const response = await fetch('/api/generate-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prompt: routeData.params.prompt,
-            aspectRatio: routeData.params.aspectRatio || aspectRatio,
-            referenceImages: refImages.length > 0
-              ? refImages.map((img) => ({ base64: img.base64, mimeType: img.mimeType }))
-              : undefined,
-          }),
-        })
-
-        const data = await response.json()
-
-        if (!response.ok || !data.success) {
-          updateStatus(`Error: ${data.error || 'Failed to generate image'}`, false)
-          return
-        }
-
-        if (data.image_base64) {
-          setGeneratedImages((prev) => [
-            ...prev,
-            {
-              id: `img-${Date.now()}`,
-              base64: data.image_base64,
-              mimeType: data.image_mime_type || 'image/png',
-              prompt: userPrompt,
-            },
-          ])
-          updateStatus('Image generated successfully! View it in the Generated Images section below.', false)
-        }
-      } else if (routeData.action === 'generate_video') {
-        const refImages = referenceImages.filter((img) => img.imageType === 'reference')
-        const firstFrameImg = referenceImages.find((img) => img.imageType === 'firstFrame')
-        const lastFrameImg = referenceImages.find((img) => img.imageType === 'lastFrame')
-
-        const videoPrompt = systemPrompt.trim()
-          ? `${systemPrompt.trim()} ${routeData.params.prompt}`
-          : routeData.params.prompt
-
-        const response = await fetch('/api/generate-video', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prompt: videoPrompt,
-            aspectRatio: routeData.params.aspectRatio || aspectRatio,
-            negativePrompt: routeData.params.negativePrompt || negativePrompt.trim() || undefined,
-            referenceImages: refImages.length > 0
-              ? refImages.map((img) => ({ base64: img.base64, mimeType: img.mimeType }))
-              : undefined,
-            firstFrame: firstFrameImg
-              ? { base64: firstFrameImg.base64, mimeType: firstFrameImg.mimeType }
-              : undefined,
-            lastFrame: lastFrameImg
-              ? { base64: lastFrameImg.base64, mimeType: lastFrameImg.mimeType }
-              : undefined,
-          }),
-        })
-
-        const data = await response.json()
-
-        if (!response.ok || !data.success) {
-          updateStatus(`Error: ${data.error || 'Failed to generate video'}`, false)
-          return
-        }
-
-        if (data.video_base64) {
-          const videoId = `video-${Date.now()}`
-          const mimeType = data.video_mime_type || 'video/mp4'
-
-          const blob = base64ToBlob(data.video_base64, mimeType)
-          const blobUrl = URL.createObjectURL(blob)
-
-          const duration = await resolveVideoDuration(blobUrl)
-
-          const video = new VideoClass(
-            videoId,
-            userPrompt.substring(0, 50) + (userPrompt.length > 50 ? '...' : ''),
-            blobUrl,
-            duration,
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            userPrompt
-          )
-
-          if (replaceTargetId) {
-            replaceVideo(replaceTargetId, video)
-            setReplaceTargetId(null)
-          } else {
-            addVideo(video)
-          }
-
-          updateStatus(replaceTargetId ? 'Video replaced successfully!' : 'Video generated successfully!', false)
-        }
-      }
+      updateStatus(data.message, false)
     } catch (error) {
-      updateStatus(`Error: ${error instanceof Error ? error.message : 'Failed to generate'}`, false)
+      updateStatus(`Error: ${error instanceof Error ? error.message : 'Failed to process'}`, false)
     } finally {
-      setIsGenerating(false)
+      setIsProcessing(false)
     }
   }
-
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const adjustTextareaHeight = () => {
     const textarea = textareaRef.current
     if (textarea) {
       textarea.style.height = '0px'
-      const minHeight = 70
-      const maxHeight = 150
-      const newHeight = Math.max(minHeight, Math.min(textarea.scrollHeight, maxHeight))
+      const newHeight = Math.max(70, Math.min(textarea.scrollHeight, 150))
       textarea.style.height = `${newHeight}px`
     }
   }
@@ -253,80 +183,28 @@ export default function ChatWindow() {
     const files = e.target.files
     if (!files) return
 
-    const newImages: ReferenceImage[] = []
-    
+    const newFiles: UploadedFile[] = []
     for (const file of Array.from(files)) {
       if (!file.type.startsWith('image/')) continue
-      
       const base64 = await new Promise<string>((resolve) => {
         const reader = new FileReader()
-        reader.onload = () => {
-          const result = reader.result as string
-          const base64Data = result.split(',')[1]
-          resolve(base64Data)
-        }
+        reader.onload = () => resolve((reader.result as string).split(',')[1])
         reader.readAsDataURL(file)
       })
-      
-      newImages.push({
+      newFiles.push({
         id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         name: file.name,
         base64,
         mimeType: file.type,
-        imageType: 'reference',
       })
     }
-    
-    setReferenceImages((prev) => [...prev, ...newImages])
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''
-    }
+
+    setUploadedFiles((prev) => [...prev, ...newFiles])
+    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
-  const removeReferenceImage = (id: string) => {
-    setReferenceImages((prev) => prev.filter((img) => img.id !== id))
-  }
-
-  const downloadGeneratedImage = (img: GeneratedImage) => {
-    const link = document.createElement('a')
-    link.href = `data:${img.mimeType};base64,${img.base64}`
-    link.download = `generated-${img.id}.png`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-  }
-
-  const useAsReference = (img: GeneratedImage, type: ImageType = 'reference') => {
-    const newRef: ReferenceImage = {
-      id: `ref-${Date.now()}`,
-      name: `Generated: ${img.prompt.substring(0, 20)}...`,
-      base64: img.base64,
-      mimeType: img.mimeType,
-      imageType: type,
-    }
-    setReferenceImages((prev) => [...prev, newRef])
-  }
-
-  const removeGeneratedImage = (id: string) => {
-    setGeneratedImages((prev) => prev.filter((img) => img.id !== id))
-  }
-
-  const cycleImageType = (id: string) => {
-    setReferenceImages((prev) => prev.map((img) => {
-      if (img.id !== id) return img
-      const typeOrder: ImageType[] = ['reference', 'firstFrame', 'lastFrame']
-      const currentIndex = typeOrder.indexOf(img.imageType)
-      const nextType = typeOrder[(currentIndex + 1) % typeOrder.length]
-      return { ...img, imageType: nextType }
-    }))
-  }
-
-  const getImageTypeLabel = (type: ImageType): string => {
-    switch (type) {
-      case 'reference': return 'Ref'
-      case 'firstFrame': return '1st'
-      case 'lastFrame': return 'Last'
-    }
+  const removeUploadedFile = (id: string) => {
+    setUploadedFiles((prev) => prev.filter((f) => f.id !== id))
   }
 
   return (
@@ -342,74 +220,20 @@ export default function ChatWindow() {
           </div>
         ))}
       </div>
-      {generatedImages.length > 0 && (
-        <div className={styles.generatedImagesSection}>
-          <div className={styles.sectionHeader}>Generated Images</div>
-          <div className={styles.generatedImagesGrid}>
-            {generatedImages.map((img) => (
-              <div key={img.id} className={styles.generatedImageItem}>
-                <img
-                  src={`data:${img.mimeType};base64,${img.base64}`}
-                  alt={img.prompt}
-                  className={styles.generatedImagePreview}
-                />
-                <div className={styles.generatedImageActions}>
-                  <button
-                    onClick={() => downloadGeneratedImage(img)}
-                    title="Download image"
-                    className={styles.imageActionButton}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <polyline points="7 10 12 15 17 10" />
-                      <line x1="12" y1="15" x2="12" y2="3" />
-                    </svg>
-                  </button>
-                  <button
-                    onClick={() => useAsReference(img)}
-                    title="Use as reference"
-                    className={styles.imageActionButton}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M12 5v14M5 12h14" />
-                    </svg>
-                  </button>
-                  <button
-                    onClick={() => removeGeneratedImage(img.id)}
-                    title="Remove"
-                    className={styles.imageActionButton}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <line x1="18" y1="6" x2="6" y2="18" />
-                      <line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-      {referenceImages.length > 0 && (
+
+      {uploadedFiles.length > 0 && (
         <div className={styles.referenceImagesContainer}>
-          {referenceImages.map((img) => (
-            <div key={img.id} className={styles.referenceImageItem}>
+          {uploadedFiles.map((file) => (
+            <div key={file.id} className={styles.referenceImageItem}>
               <img
-                src={`data:${img.mimeType};base64,${img.base64}`}
-                alt={img.name}
+                src={`data:${file.mimeType};base64,${file.base64}`}
+                alt={file.name}
                 className={styles.referenceImagePreview}
               />
               <button
-                className={styles.imageTypeButton}
-                onClick={() => cycleImageType(img.id)}
-                title="Click to change type: Reference → First Frame → Last Frame"
-              >
-                {getImageTypeLabel(img.imageType)}
-              </button>
-              <button
                 className={styles.removeImageButton}
-                onClick={() => removeReferenceImage(img.id)}
-                title="Remove image"
+                onClick={() => removeUploadedFile(file.id)}
+                title="Remove"
               >
                 ×
               </button>
@@ -417,6 +241,7 @@ export default function ChatWindow() {
           ))}
         </div>
       )}
+
       <div className={styles.inputContainer}>
         <input
           ref={fileInputRef}
@@ -426,44 +251,35 @@ export default function ChatWindow() {
           onChange={handleFileSelect}
           style={{ display: 'none' }}
         />
-        <div className={styles.buttonStack}>
-          <button
-            className={`${styles.systemPromptButton} ${systemPrompt.trim() || negativePrompt.trim() ? styles.active : ''}`}
-            onClick={() => setShowSystemPromptModal(true)}
-            title={systemPrompt.trim() ? `System prompt: ${systemPrompt}` : 'Add system prompt (video only)'}
-          >
-            ✦
-          </button>
-          <button
-            className={`${styles.attachButton} ${referenceImages.length > 0 ? styles.active : ''}`}
-            onClick={() => fileInputRef.current?.click()}
-            title="Attach reference images"
-            disabled={isGenerating}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-              <circle cx="8.5" cy="8.5" r="1.5" />
-              <polyline points="21 15 16 10 5 21" />
-            </svg>
-          </button>
-        </div>
+        <button
+          className={styles.attachButton}
+          onClick={() => fileInputRef.current?.click()}
+          title="Attach images"
+          disabled={isProcessing}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+            <circle cx="8.5" cy="8.5" r="1.5" />
+            <polyline points="21 15 16 10 5 21" />
+          </svg>
+        </button>
         <textarea
           ref={textareaRef}
-          placeholder="Type a message..."
+          placeholder="Edit the timeline..."
           className={styles.input}
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={handleKeyDown}
-          disabled={isGenerating}
+          disabled={isProcessing}
           rows={2}
         />
         <button
           className={styles.sendButton}
           onClick={handleSend}
-          disabled={isGenerating || !inputValue.trim()}
-          title={isGenerating ? 'Generating...' : 'Send'}
+          disabled={isProcessing || !inputValue.trim()}
+          title={isProcessing ? 'Processing...' : 'Send'}
         >
-          {isGenerating ? (
+          {isProcessing ? (
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={styles.spinnerIcon}>
               <circle cx="12" cy="12" r="10" strokeDasharray="32" strokeDashoffset="12" />
             </svg>
@@ -475,50 +291,6 @@ export default function ChatWindow() {
           )}
         </button>
       </div>
-
-      {showSystemPromptModal && (
-        <div className={styles.modalOverlay} onClick={() => setShowSystemPromptModal(false)}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.promptSection}>
-              <label className={styles.promptLabel}>System Prompt</label>
-              <textarea
-                className={styles.systemPromptInput}
-                value={systemPrompt}
-                onChange={(e) => setSystemPrompt(e.target.value)}
-                placeholder="e.g., 'A cinematic shot of...', 'In the style of...'"
-                rows={3}
-              />
-            </div>
-            <div className={styles.promptSection}>
-              <label className={styles.promptLabel}>Negative Prompt</label>
-              <textarea
-                className={styles.systemPromptInput}
-                value={negativePrompt}
-                onChange={(e) => setNegativePrompt(e.target.value)}
-                placeholder="e.g., 'blurry, low quality, distorted faces...'"
-                rows={3}
-              />
-            </div>
-            <div className={styles.modalButtons}>
-              <button
-                className={styles.modalButtonClear}
-                onClick={() => {
-                  setSystemPrompt('')
-                  setNegativePrompt('')
-                }}
-              >
-                Clear All
-              </button>
-              <button
-                className={styles.modalButtonSave}
-                onClick={() => setShowSystemPromptModal(false)}
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

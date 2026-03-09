@@ -48,13 +48,7 @@ export type ProgressCallback = (progress: ExportProgress) => void
 interface ImageOnlyExportParams {
   images: ImageClass[]
   texts: TextClass[]
-  imageElements: Map<string, HTMLImageElement>
-  overlayVideos: VideoClass[]
-  videoElements: Map<string, HTMLVideoElement>
   canvas: HTMLCanvasElement
-  ctx: CanvasRenderingContext2D
-  width: number
-  height: number
   totalDuration: number
   audioUrl: string | null
   drawFrameToCanvas: (t: number) => void
@@ -324,13 +318,7 @@ export async function exportVideo(
     return exportImageOnlyWithFFmpeg({
       images: images || [],
       texts: texts || [],
-      imageElements,
-      overlayVideos,
-      videoElements,
       canvas,
-      ctx,
-      width,
-      height,
       totalDuration,
       audioUrl: audioUrl ?? null,
       drawFrameToCanvas,

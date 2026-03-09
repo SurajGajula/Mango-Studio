@@ -49,14 +49,6 @@
   align-items: flex-start;
 }
 
-.buttonStack {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  height: 70px;
-  justify-content: space-between;
-}
-
 .input {
   flex: 1;
   padding: 0.75rem;
@@ -76,6 +68,11 @@
 .input:focus {
   outline: none;
   border-color: #ffffff;
+}
+
+.input:disabled {
+  background-color: #1a1a1a;
+  cursor: not-allowed;
 }
 
 .sendButton {
@@ -112,147 +109,8 @@
 }
 
 @keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.input:disabled {
-  background-color: #1a1a1a;
-  cursor: not-allowed;
-}
-
-.systemPromptButton {
-  width: 40px;
-  height: 40px;
-  border: 1px solid #333333;
-  border-radius: 6px;
-  background-color: #1f1f1f;
-  color: #666666;
-  font-size: 1.2rem;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
-}
-
-.systemPromptButton:hover {
-  border-color: #555555;
-  color: #888888;
-}
-
-.systemPromptButton.active {
-  background-color: #2a2a2a;
-  border-color: #ffffff;
-  color: #ffffff;
-  box-shadow: 0 0 12px 2px rgba(255, 255, 255, 0.3);
-  animation: glow 2s ease-in-out infinite alternate;
-}
-
-@keyframes glow {
-  from {
-    box-shadow: 0 0 8px 2px rgba(255, 255, 255, 0.2);
-  }
-  to {
-    box-shadow: 0 0 16px 4px rgba(255, 255, 255, 0.4);
-  }
-}
-
-.modalOverlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.modal {
-  background-color: #1f1f1f;
-  border-radius: 12px;
-  padding: 1.5rem;
-  width: 90%;
-  max-width: 400px;
-  box-shadow: 0 0 20px 10px rgba(0, 0, 0, 0.5);
-}
-
-.promptSection {
-  margin-bottom: 1rem;
-}
-
-.promptLabel {
-  display: block;
-  color: #ffffff;
-  font-size: 0.875rem;
-  font-weight: 500;
-  margin-bottom: 0.25rem;
-}
-
-.systemPromptInput {
-  width: 100%;
-  padding: 0.75rem;
-  border: 1px solid #333333;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  background-color: #0f0f0f;
-  color: #ffffff;
-  resize: vertical;
-  font-family: inherit;
-  box-sizing: border-box;
-}
-
-.systemPromptInput:focus {
-  outline: none;
-  border-color: #ffffff;
-}
-
-.systemPromptInput::placeholder {
-  color: #555555;
-}
-
-.modalButtons {
-  display: flex;
-  gap: 0.75rem;
-  margin-top: 1rem;
-  justify-content: flex-end;
-}
-
-.modalButtonClear {
-  padding: 0.5rem 1rem;
-  background-color: transparent;
-  border: 1px solid #333333;
-  border-radius: 6px;
-  color: #888888;
-  font-size: 0.9rem;
-  cursor: pointer;
-}
-
-.modalButtonClear:hover {
-  border-color: #555555;
-  color: #aaaaaa;
-}
-
-.modalButtonSave {
-  padding: 0.5rem 1rem;
-  background-color: #ffffff;
-  border: none;
-  border-radius: 6px;
-  color: #0f0f0f;
-  font-size: 0.9rem;
-  cursor: pointer;
-  font-weight: 500;
-}
-
-.modalButtonSave:hover {
-  background-color: #e0e0e0;
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .attachButton {
@@ -267,17 +125,12 @@
   align-items: center;
   justify-content: center;
   transition: all 0.2s ease;
+  flex-shrink: 0;
 }
 
 .attachButton:hover:not(:disabled) {
   border-color: #555555;
   color: #888888;
-}
-
-.attachButton.active {
-  background-color: #2a2a2a;
-  border-color: #ffffff;
-  color: #ffffff;
 }
 
 .attachButton:disabled {
@@ -308,25 +161,6 @@
   object-fit: cover;
 }
 
-.imageTypeButton {
-  position: absolute;
-  bottom: 2px;
-  left: 2px;
-  padding: 2px 4px;
-  border: none;
-  border-radius: 3px;
-  background-color: rgba(0, 0, 0, 0.8);
-  color: #ffffff;
-  font-size: 9px;
-  font-weight: 600;
-  cursor: pointer;
-  text-transform: uppercase;
-}
-
-.imageTypeButton:hover {
-  background-color: rgba(80, 80, 80, 0.9);
-}
-
 .removeImageButton {
   position: absolute;
   top: 2px;
@@ -349,70 +183,6 @@
   background-color: #ff4444;
 }
 
-.generatedImagesSection {
-  border-top: 1px solid #222222;
-  padding: 0.5rem 1rem;
-}
-
-.sectionHeader {
-  font-size: 0.75rem;
-  color: #666666;
-  margin-bottom: 0.5rem;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.generatedImagesGrid {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.generatedImageItem {
-  position: relative;
-  width: 80px;
-  height: 80px;
-  border-radius: 6px;
-  overflow: hidden;
-  border: 1px solid #333333;
-}
-
-.generatedImagePreview {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.generatedImageActions {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  display: flex;
-  justify-content: center;
-  gap: 2px;
-  padding: 3px;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
-}
-
-.imageActionButton {
-  width: 22px;
-  height: 22px;
-  border: none;
-  border-radius: 4px;
-  background-color: rgba(255, 255, 255, 0.1);
-  color: #ffffff;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background-color 0.15s;
-}
-
-.imageActionButton:hover {
-  background-color: rgba(255, 255, 255, 0.25);
-}
-
 .loadingBar {
   height: 2px;
   margin-top: 0.5rem;
@@ -423,10 +193,6 @@
 }
 
 @keyframes loadingSlide {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }

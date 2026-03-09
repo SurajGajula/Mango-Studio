@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { TextClass } from '@/app/models/TextClass'
+import { AudioClass } from '@/app/models/AudioClass'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 
 export type AspectRatio = '16:9' | '9:16'
@@ -18,6 +19,7 @@ interface ManifestStore {
   videos: VideoClass[]
   images: ImageClass[]
   texts: TextClass[]
+  audios: AudioClass[]
   replaceTargetId: string | null
   pendingPrompt: string | null
   playbackTime: number
@@ -54,6 +56,11 @@ interface ManifestStore {
   updateText: (id: string, updates: Partial<TextClass>) => void
   removeText: (id: string) => void
   splitText: (id: string, playbackTime: number) => void
+  addAudio: (audio: AudioClass) => void
+  updateAudio: (id: string, updates: Partial<AudioClass>) => void
+  removeAudio: (id: string) => void
+  splitVideoAtTimes: (id: string, times: number[]) => void
+  splitImageAtTimes: (id: string, times: number[]) => void
 }
 
 type BlobEntry = { videos: VideoClass[]; images: ImageClass[] }
@@ -87,6 +94,7 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
   videos: [],
   images: [],
   texts: [],
+  audios: [],
   replaceTargetId: null,
   pendingPrompt: null,
   playbackTime: 0,
@@ -622,6 +630,112 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
       texts: s.texts.map((t) => (t.id === id ? firstHalf : t)).concat([secondHalf]),
     }))
     set({ playbackTime })
+    get().pushHistory()
+  },
+
+  addAudio: (audio: AudioClass) => {
+    set((state) => ({ audios: [...state.audios, audio] }))
+  },
+
+  updateAudio: (id: string, updates: Partial<AudioClass>) => {
+    set((state) => ({
+      audios: state.audios.map((a) =>
+        a.id === id
+          ? new AudioClass(
+              a.id,
+              updates.name ?? a.name,
+              updates.url ?? a.url,
+              updates.startTime ?? a.startTime,
+              updates.endTime ?? a.endTime,
+              updates.marks ?? a.marks,
+              a.createdAt
+            )
+          : a
+      ),
+    }))
+  },
+
+  removeAudio: (id: string) => {
+    set((state) => {
+      const audio = state.audios.find((a) => a.id === id)
+      if (audio?.url.startsWith('blob:')) URL.revokeObjectURL(audio.url)
+      return { audios: state.audios.filter((a) => a.id !== id) }
+    })
+  },
+
+  splitVideoAtTimes: (id: string, times: number[]) => {
+    const state = get()
+    const video = state.videos.find((v) => v.id === id)
+    if (!video || video.isOverlay) return
+
+    const duration = video.duration ?? 0
+    const origDuration = video.originalDuration ?? duration
+
+    const relTimes = times
+      .map((t) => t - video.timestamp)
+      .filter((t) => t > 0.05 && t < duration - 0.05)
+      .sort((a, b) => a - b)
+
+    if (relTimes.length === 0) return
+
+    const boundaries = [0, ...relTimes, duration]
+    const newClips: VideoClass[] = boundaries.slice(0, -1).map((segStart, i) => {
+      const segEnd = boundaries[i + 1]
+      return new VideoClass(
+        i === 0 ? video.id : `video-${Date.now()}-${i}`,
+        video.title,
+        video.url,
+        segEnd - segStart,
+        video.timestamp + segStart,
+        i === 0 ? video.createdAt : new Date(),
+        new Date(),
+        origDuration,
+        video.trimStart + segStart,
+        Math.max(0, origDuration - (video.trimStart + segEnd)),
+        video.prompt
+      )
+    })
+
+    set((s) => ({
+      videos: s.videos.filter((v) => v.id !== id).concat(newClips),
+    }))
+    get().recalculateTimestamps()
+    get().pushHistory()
+  },
+
+  splitImageAtTimes: (id: string, times: number[]) => {
+    const state = get()
+    const image = state.images.find((img) => img.id === id)
+    if (!image) return
+
+    const validTimes = times
+      .filter((t) => t > image.startTime + 0.05 && t < image.endTime - 0.05)
+      .sort((a, b) => a - b)
+
+    if (validTimes.length === 0) return
+
+    const boundaries = [image.startTime, ...validTimes, image.endTime]
+    const newSegments: ImageClass[] = boundaries.slice(0, -1).map((segStart, i) => {
+      const segEnd = boundaries[i + 1]
+      return new ImageClass(
+        i === 0 ? image.id : `image-${Date.now()}-${i}`,
+        image.name,
+        image.url,
+        segStart,
+        segEnd,
+        image.x,
+        image.y,
+        image.width,
+        image.height,
+        image.opacity,
+        i === 0 ? image.createdAt : new Date(),
+        image.isMainTrack
+      )
+    })
+
+    set((s) => ({
+      images: s.images.filter((img) => img.id !== id).concat(newSegments),
+    }))
     get().pushHistory()
   },
 
