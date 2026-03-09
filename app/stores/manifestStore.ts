@@ -41,8 +41,10 @@ interface ManifestStore {
   getTotalDuration: () => number
   setReplaceTargetId: (id: string | null) => void
   setPendingPrompt: (prompt: string | null) => void
+  playbackRate: number
   setPlaybackTime: (time: number) => void
   setIsPlaying: (playing: boolean) => void
+  setPlaybackRate: (rate: number) => void
   setAspectRatio: (ratio: AspectRatio) => void
   addImage: (image: ImageClass) => void
   removeImage: (id: string) => void
@@ -99,6 +101,7 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
   pendingPrompt: null,
   playbackTime: 0,
   isPlaying: false,
+  playbackRate: 1,
   aspectRatio: '16:9',
   history: [{ videos: [], images: [], texts: [] }],
   historyIndex: 0,
@@ -458,6 +461,10 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
 
   setIsPlaying: (playing: boolean) => {
     set({ isPlaying: playing })
+  },
+
+  setPlaybackRate: (rate: number) => {
+    set({ playbackRate: rate })
   },
 
   setAspectRatio: (ratio: AspectRatio) => {

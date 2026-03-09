@@ -275,10 +275,11 @@ export function useVideoPlayback(
         const audioEl = audioElementRef.current
 
         if (isPlaying) {
+          const rate = state.playbackRate ?? 1
           const delta = lastTimestamp !== null ? (timestamp - lastTimestamp) / 1000 : 0
           lastTimestamp = timestamp
           const totalDur = state.getTotalDuration()
-          const newTime = playbackTime + delta
+          const newTime = playbackTime + delta * rate
           if (newTime >= totalDur) {
             state.setIsPlaying(false)
             state.setPlaybackTime(0)
@@ -286,6 +287,7 @@ export function useVideoPlayback(
           } else {
             state.setPlaybackTime(newTime)
             if (audioEl) {
+              if (audioEl.playbackRate !== rate) audioEl.playbackRate = rate
               if (Math.abs(audioEl.currentTime - newTime) > 0.3) audioEl.currentTime = newTime
               if (audioEl.paused && audioEl.readyState >= 2) audioEl.play().catch(() => {})
             }
@@ -349,15 +351,21 @@ export function useVideoPlayback(
       const audioEl = audioElementRef.current
 
       if (isPlaying) {
+        const rate = state.playbackRate ?? 1
+        if (videoEl.playbackRate !== rate) videoEl.playbackRate = rate
+
         if (videoEl.paused && videoEl.readyState >= 3) {
           videoEl.play().catch(() => {})
         }
 
-        if (audioEl && audioEl.paused && audioEl.readyState >= 2) {
-          if (Math.abs(audioEl.currentTime - playbackTime) > 0.2) {
-            audioEl.currentTime = playbackTime
+        if (audioEl) {
+          if (audioEl.playbackRate !== rate) audioEl.playbackRate = rate
+          if (audioEl.paused && audioEl.readyState >= 2) {
+            if (Math.abs(audioEl.currentTime - playbackTime) > 0.2) {
+              audioEl.currentTime = playbackTime
+            }
+            audioEl.play().catch(() => {})
           }
-          audioEl.play().catch(() => {})
         }
 
         if (!videoEl.paused) {

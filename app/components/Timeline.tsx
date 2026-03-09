@@ -41,8 +41,10 @@ export default function Timeline() {
   const setPendingPrompt = useManifestStore((state) => state.setPendingPrompt)
   const playbackTime = useManifestStore((state) => state.playbackTime)
   const isPlaying = useManifestStore((state) => state.isPlaying)
+  const playbackRate = useManifestStore((state) => state.playbackRate)
   const setPlaybackTime = useManifestStore((state) => state.setPlaybackTime)
   const setIsPlaying = useManifestStore((state) => state.setIsPlaying)
+  const setPlaybackRate = useManifestStore((state) => state.setPlaybackRate)
   const getTotalDuration = useManifestStore((state) => state.getTotalDuration)
   const trimVideo = useManifestStore((state) => state.trimVideo)
   const splitVideo = useManifestStore((state) => state.splitVideo)
@@ -121,9 +123,12 @@ export default function Timeline() {
 
   const totalDuration = getTotalDuration()
 
-  const VISIBLE_DURATION = 8
-  const PADDING_DURATION = 4
-  const totalTimelineWidth = totalDuration > 0 ? ((totalDuration + PADDING_DURATION * 2) / VISIBLE_DURATION) * 100 : 100
+  const MIN_VISIBLE = 0.5
+  const MAX_VISIBLE = 120
+  const [visibleDuration, setVisibleDuration] = useState(8)
+  const effectivePadding = visibleDuration / 2
+  const visibleDurationRef = useRef(8)
+  const totalTimelineWidth = totalDuration > 0 ? ((totalDuration + effectivePadding * 2) / visibleDuration) * 100 : 100
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
@@ -132,8 +137,8 @@ export default function Timeline() {
   }
 
   const getContentPosition = (time: number) => {
-    const timeWithPadding = time + PADDING_DURATION
-    const totalWithPadding = totalDuration + PADDING_DURATION * 2
+    const timeWithPadding = time + effectivePadding
+    const totalWithPadding = totalDuration + effectivePadding * 2
     if (totalWithPadding === 0) return 0
     return (timeWithPadding / totalWithPadding) * 100
   }
@@ -149,9 +154,9 @@ export default function Timeline() {
 
     const centerScrollPosition = scrollLeft + (containerWidth / 2)
     const scrollPercent = scrollableWidth > 0 ? centerScrollPosition / scrollableWidth : 0
-    const totalWithPadding = totalDuration + PADDING_DURATION * 2
+    const totalWithPadding = totalDuration + effectivePadding * 2
     const timeWithPadding = scrollPercent * totalWithPadding
-    let newTime = Math.max(0, Math.min(totalDuration, timeWithPadding - PADDING_DURATION))
+    let newTime = Math.max(0, Math.min(totalDuration, timeWithPadding - effectivePadding))
 
     const rawTime = newTime
 
@@ -169,7 +174,7 @@ export default function Timeline() {
           snapStateRef.current = null
         } else {
           newTime = snapStateRef.current.dropTime
-          const snapTimeWithPadding = snapStateRef.current.dropTime + PADDING_DURATION
+          const snapTimeWithPadding = snapStateRef.current.dropTime + effectivePadding
           const targetSnapLeft = totalWithPadding > 0
             ? (scrollableWidth * (snapTimeWithPadding / totalWithPadding)) - (containerWidth / 2)
             : 0
@@ -206,7 +211,7 @@ export default function Timeline() {
             snapStateRef.current = { dropTime: crossed }
             newTime = crossed
             prevRawTimeRef.current = crossed
-            const snapTimeWithPadding = crossed + PADDING_DURATION
+            const snapTimeWithPadding = crossed + effectivePadding
             const targetSnapLeft = totalWithPadding > 0
               ? (scrollableWidth * (snapTimeWithPadding / totalWithPadding)) - (containerWidth / 2)
               : 0
@@ -227,7 +232,7 @@ export default function Timeline() {
     }
 
     setPlaybackTime(newTime)
-  }, [isPlaying, totalDuration, setPlaybackTime, isAudioSelected, audioAnalysis, userMarks])
+  }, [isPlaying, totalDuration, effectivePadding, setPlaybackTime, isAudioSelected, audioAnalysis, userMarks])
 
   useEffect(() => {
     if (isAudioSelected) {
@@ -250,8 +255,8 @@ export default function Timeline() {
     const containerWidth = container.clientWidth
     const scrollableWidth = container.scrollWidth
     
-    const timeWithPadding = playbackTime + PADDING_DURATION
-    const totalWithPadding = totalDuration + PADDING_DURATION * 2
+    const timeWithPadding = playbackTime + effectivePadding
+    const totalWithPadding = totalDuration + effectivePadding * 2
     const targetScrollPercent = totalWithPadding > 0 ? timeWithPadding / totalWithPadding : 0
     const targetScrollLeft = (scrollableWidth * targetScrollPercent) - (containerWidth / 2)
     
@@ -263,7 +268,7 @@ export default function Timeline() {
     scrollTimeoutRef.current = setTimeout(() => {
       isScrollingProgrammatically.current = false
     }, 50)
-  }, [playbackTime, totalDuration, isPlaying])
+  }, [playbackTime, totalDuration, effectivePadding])
 
   useEffect(() => {
     const uniqueUrls = new Set(videos.map((v) => v.url).filter(Boolean) as string[])
@@ -532,7 +537,7 @@ export default function Timeline() {
     const image = images.find((img) => img.id === imageId)
     const isMainTrack = image?.isMainTrack ?? false
 
-    const totalWithPadding = initialTotalDuration + PADDING_DURATION * 2
+    const totalWithPadding = initialTotalDuration + effectivePadding * 2
     const mouseDelta = e.clientX - initialMouseX
     const timeDelta = (mouseDelta / timelineWidth) * totalWithPadding
 
@@ -678,7 +683,7 @@ export default function Timeline() {
     if (!textDragging || !textDragRef.current) return
     const { textId, handle } = textDragging
     const { initialMouseX, initialStartTime, initialEndTime, timelineWidth } = textDragRef.current
-    const totalWithPadding = totalDuration + PADDING_DURATION * 2
+    const totalWithPadding = totalDuration + effectivePadding * 2
     const timeDelta = ((e.clientX - initialMouseX) / timelineWidth) * totalWithPadding
 
     const others = texts.filter((t) => t.id !== textId).sort((a, b) => a.startTime - b.startTime)
@@ -742,6 +747,8 @@ export default function Timeline() {
         }
       }
       if (!(e.metaKey || e.ctrlKey)) return
+      if (e.key === '=' || e.key === '+') { e.preventDefault(); applyZoom(Math.max(MIN_VISIBLE, visibleDurationRef.current * 0.7)) }
+      if (e.key === '-') { e.preventDefault(); applyZoom(Math.min(MAX_VISIBLE, visibleDurationRef.current * 1.4)) }
       if (e.key === 'z') { e.preventDefault(); undo() }
       if (e.key === 'y') { e.preventDefault(); redo() }
       if (e.key === 'd' && !isEditing) {
@@ -761,10 +768,46 @@ export default function Timeline() {
     return () => document.removeEventListener('keydown', handler)
   }, [undo, redo, removeVideo, removeImage])
 
+  useEffect(() => { visibleDurationRef.current = visibleDuration }, [visibleDuration])
+
+  const applyZoom = useCallback((newVisible: number) => {
+    visibleDurationRef.current = newVisible
+    isScrollingProgrammatically.current = true
+    setVisibleDuration(newVisible)
+    requestAnimationFrame(() => {
+      const container = scrollContainerRef.current
+      if (!container) return
+      const newPadding = newVisible / 2
+      const playTime = useManifestStore.getState().playbackTime
+      const dur = getTotalDuration()
+      const totalWithPadding = dur + newPadding * 2
+      const pct = totalWithPadding > 0 ? (playTime + newPadding) / totalWithPadding : 0
+      container.scrollLeft = Math.max(0, pct * container.scrollWidth - container.clientWidth / 2)
+      setTimeout(() => { isScrollingProgrammatically.current = false }, 50)
+    })
+  }, [getTotalDuration])
+
+  useEffect(() => {
+    const handler = (e: WheelEvent) => {
+      const container = scrollContainerRef.current
+      if (!container || !container.contains(e.target as Node)) return
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault()
+        const factor = Math.exp(e.deltaY * 0.005)
+        const next = Math.max(MIN_VISIBLE, Math.min(MAX_VISIBLE, visibleDurationRef.current * factor))
+        applyZoom(next)
+      } else if (useManifestStore.getState().isPlaying) {
+        e.preventDefault()
+      }
+    }
+    document.addEventListener('wheel', handler, { passive: false })
+    return () => document.removeEventListener('wheel', handler)
+  }, [applyZoom])
+
   useEffect(() => {
     const canvas = audioCanvasRef.current
     if (!canvas || !audioAnalysis) return
-    drawAudioGraph(canvas, audioAnalysis, totalDuration, PADDING_DURATION)
+    drawAudioGraph(canvas, audioAnalysis, totalDuration, effectivePadding)
   }, [audioAnalysis, totalDuration])
 
   return (
@@ -834,6 +877,17 @@ export default function Timeline() {
                 disabled={isExporting}
               >
                 {isPlaying ? '⏸' : '▶'}
+              </button>
+              <button
+                className={styles.speedButton}
+                onClick={() => {
+                  const steps = [0.25, 0.5, 1, 1.5, 2]
+                  const idx = steps.indexOf(playbackRate)
+                  setPlaybackRate(steps[(idx + 1) % steps.length])
+                }}
+                title="Playback speed"
+              >
+                {playbackRate === 1 ? '1×' : `${playbackRate}×`}
               </button>
               <span className={styles.timeDisplay}>
                 {formatTime(playbackTime)} / {formatTime(totalDuration)}
@@ -958,7 +1012,6 @@ export default function Timeline() {
                     <div
                       className={`${styles.audioRow} ${isAudioSelected ? styles.audioRowSelected : ''}`}
                       onClick={() => setIsAudioSelected((s) => !s)}
-                      title={isAudioSelected ? 'Click to deselect (snap off)' : 'Click to select (snaps playhead to drops)'}
                     >
                       {isAnalyzing && (
                         <span className={styles.analyzingBadge}>Analyzing audio…</span>
@@ -984,7 +1037,7 @@ export default function Timeline() {
                   <div className={styles.overlayRow}>
                     {images.filter((img) => !img.isMainTrack).map((image) => {
                       const leftPercent = getContentPosition(image.startTime)
-                      const widthPercent = totalDuration > 0 ? (image.duration / (totalDuration + PADDING_DURATION * 2)) * 100 : 0
+                      const widthPercent = totalDuration > 0 ? (image.duration / (totalDuration + effectivePadding * 2)) * 100 : 0
                       const isSelected = selectedImageId === image.id
                       return (
                         <div
@@ -1040,7 +1093,7 @@ export default function Timeline() {
                     })}
                     {videos.filter((v) => v.isOverlay).map((video) => {
                       const leftPercent = getContentPosition(video.timestamp)
-                      const widthPercent = totalDuration > 0 && video.duration ? (video.duration / (totalDuration + PADDING_DURATION * 2)) * 100 : 0
+                      const widthPercent = totalDuration > 0 && video.duration ? (video.duration / (totalDuration + effectivePadding * 2)) * 100 : 0
                       const isSelected = selectedVideoId === video.id
                       return (
                         <div
@@ -1079,7 +1132,7 @@ export default function Timeline() {
                     <div className={styles.textRow}>
                       {texts.map((text) => {
                         const leftPercent = getContentPosition(text.startTime)
-                        const widthPercent = totalDuration > 0 ? (text.duration / (totalDuration + PADDING_DURATION * 2)) * 100 : 0
+                        const widthPercent = totalDuration > 0 ? (text.duration / (totalDuration + effectivePadding * 2)) * 100 : 0
                         const isSelected = selectedTextId === text.id
                         return (
                           <div
@@ -1115,7 +1168,7 @@ export default function Timeline() {
                   <div ref={timelineRowRef} className={styles.timelineRow}>
                     {videos.filter((v) => !v.isOverlay).map((video) => {
                       const leftPercent = getContentPosition(video.timestamp)
-                      const widthPercent = totalDuration > 0 && video.duration ? (video.duration / (totalDuration + PADDING_DURATION * 2)) * 100 : 0
+                      const widthPercent = totalDuration > 0 && video.duration ? (video.duration / (totalDuration + effectivePadding * 2)) * 100 : 0
                       const isSelected = selectedVideoId === video.id
                       const isReplaceTarget = replaceTargetId === video.id
                       const hasTrim = video.trimStart > 0 || video.trimEnd > 0
@@ -1224,7 +1277,7 @@ export default function Timeline() {
                 })}
                     {images.filter((img) => img.isMainTrack).map((image) => {
                       const leftPercent = getContentPosition(image.startTime)
-                      const widthPercent = totalDuration > 0 ? (image.duration / (totalDuration + PADDING_DURATION * 2)) * 100 : 0
+                      const widthPercent = totalDuration > 0 ? (image.duration / (totalDuration + effectivePadding * 2)) * 100 : 0
                       const isSelected = selectedImageId === image.id
                       const isReplaceTarget = replaceImageTargetId === image.id
                       return (
