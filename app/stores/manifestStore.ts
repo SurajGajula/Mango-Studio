@@ -268,7 +268,9 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
           updates.y ?? video.y,
           updates.width ?? video.width,
           updates.height ?? video.height,
-          updates.opacity ?? video.opacity
+          updates.opacity ?? video.opacity,
+          updates.zoom ?? video.zoom,
+          updates.zoomIntensity ?? video.zoomIntensity
         )
       }),
     }))
@@ -335,7 +337,15 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
       origDuration,
       video.trimStart,
       origDuration - originalSplitPoint,
-      video.prompt
+      video.prompt,
+      video.isOverlay,
+      video.x,
+      video.y,
+      video.width,
+      video.height,
+      video.opacity,
+      video.zoom,
+      video.zoomIntensity
     )
 
     const secondHalf = new VideoClass(
@@ -349,7 +359,15 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
       origDuration,
       originalSplitPoint,
       video.trimEnd,
-      video.prompt
+      video.prompt,
+      video.isOverlay,
+      video.x,
+      video.y,
+      video.width,
+      video.height,
+      video.opacity,
+      video.zoom,
+      video.zoomIntensity
     )
 
     useSelectionStore.getState().setSelectedVideoId(secondHalf.id)
@@ -383,7 +401,14 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
       image.height,
       image.opacity,
       image.createdAt,
-      true
+      true,
+      image.zoom,
+      image.cropAspect,
+      image.cropSx,
+      image.cropSy,
+      image.cropSw,
+      image.cropSh,
+      image.zoomIntensity
     )
 
     const secondHalf = new ImageClass(
@@ -398,7 +423,14 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
       image.height,
       image.opacity,
       new Date(),
-      true
+      true,
+      image.zoom,
+      image.cropAspect,
+      image.cropSx,
+      image.cropSy,
+      image.cropSw,
+      image.cropSh,
+      image.zoomIntensity
     )
 
     useSelectionStore.getState().setSelectedImageId(secondHalf.id)
@@ -515,7 +547,14 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
               updates.height ?? image.height,
               updates.opacity ?? image.opacity,
               image.createdAt,
-              updates.isMainTrack ?? image.isMainTrack
+              updates.isMainTrack ?? image.isMainTrack,
+              updates.zoom ?? image.zoom,
+              'cropAspect' in updates ? updates.cropAspect : image.cropAspect,
+              updates.cropSx ?? image.cropSx,
+              updates.cropSy ?? image.cropSy,
+              updates.cropSw ?? image.cropSw,
+              updates.cropSh ?? image.cropSh,
+              updates.zoomIntensity ?? image.zoomIntensity
             )
           : image
       ),
@@ -534,7 +573,9 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
               img.id, newName, newUrl,
               img.startTime, img.endTime,
               img.x, img.y, img.width, img.height, img.opacity,
-              img.createdAt, img.isMainTrack
+              img.createdAt, img.isMainTrack,
+              img.zoom, img.cropAspect, img.cropSx, img.cropSy, img.cropSw, img.cropSh,
+              img.zoomIntensity
             )
           : img
       ),
@@ -557,7 +598,9 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
           patch.startTime ?? img.startTime,
           patch.endTime ?? img.endTime,
           img.x, img.y, img.width, img.height, img.opacity,
-          img.createdAt, img.isMainTrack
+          img.createdAt, img.isMainTrack,
+          img.zoom, img.cropAspect, img.cropSx, img.cropSy, img.cropSw, img.cropSh,
+          img.zoomIntensity
         )
       }),
       videos: state.videos.map((v) => {
@@ -567,7 +610,8 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
           v.id, v.title, v.url, v.duration, patch.timestamp,
           v.createdAt, v.updatedAt, v.originalDuration,
           v.trimStart, v.trimEnd, v.prompt,
-          v.isOverlay, v.x, v.y, v.width, v.height, v.opacity
+          v.isOverlay, v.x, v.y, v.width, v.height, v.opacity,
+          v.zoom, v.zoomIntensity
         )
       }),
     }))
@@ -699,7 +743,15 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
         origDuration,
         video.trimStart + segStart,
         Math.max(0, origDuration - (video.trimStart + segEnd)),
-        video.prompt
+        video.prompt,
+        video.isOverlay,
+        video.x,
+        video.y,
+        video.width,
+        video.height,
+        video.opacity,
+        video.zoom,
+        video.zoomIntensity
       )
     })
 
@@ -736,7 +788,14 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
         image.height,
         image.opacity,
         i === 0 ? image.createdAt : new Date(),
-        image.isMainTrack
+        image.isMainTrack,
+        image.zoom,
+        image.cropAspect,
+        image.cropSx,
+        image.cropSy,
+        image.cropSw,
+        image.cropSh,
+        image.zoomIntensity
       )
     })
 

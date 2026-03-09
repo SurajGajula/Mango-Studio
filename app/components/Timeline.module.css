@@ -137,6 +137,104 @@
   cursor: not-allowed;
 }
 
+.transitionsButton {
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 4px;
+  background-color: #333333;
+  color: #888888;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.transitionsButton:hover:not(:disabled) {
+  background-color: #444444;
+  color: #ffffff;
+}
+
+.transitionsButton:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.cropMenuWrapper {
+  position: relative;
+}
+
+.cropButton {
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 4px;
+  background-color: #333333;
+  color: #888888;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.cropButton:hover:not(:disabled) {
+  background-color: #444444;
+  color: #ffffff;
+}
+
+.cropButton:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.cropMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 100;
+  background-color: #1e1e1e;
+  border: 1px solid #333333;
+  border-radius: 6px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 5rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
+.cropMenuItem {
+  padding: 0.35rem 0.65rem;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: #cccccc;
+  font-size: 0.75rem;
+  font-weight: 500;
+  font-family: monospace;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.12s ease, color 0.12s ease;
+  white-space: nowrap;
+}
+
+.cropMenuItem:hover {
+  background-color: #2e2e2e;
+  color: #ffffff;
+}
+
+.cropMenuItemActive {
+  background-color: #0d1f35;
+  color: #4a9eff;
+}
+
+.cropMenuItemActive:hover {
+  background-color: #0d2a4a;
+  color: #6ab4ff;
+}
+
 .deleteButton {
   width: 2rem;
   height: 2rem;

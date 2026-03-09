@@ -1,3 +1,5 @@
+import type { ZoomMode } from './ImageClass'
+
 export class VideoClass {
   id: string
   title: string
@@ -16,6 +18,8 @@ export class VideoClass {
   width: number
   height: number
   opacity: number
+  zoom: ZoomMode
+  zoomIntensity: number
 
   constructor(
     id: string,
@@ -34,7 +38,9 @@ export class VideoClass {
     y?: number,
     width?: number,
     height?: number,
-    opacity?: number
+    opacity?: number,
+    zoom?: ZoomMode,
+    zoomIntensity?: number
   ) {
     this.id = id
     this.title = title
@@ -53,5 +59,7 @@ export class VideoClass {
     this.width = width ?? 480
     this.height = height ?? 270
     this.opacity = opacity ?? 1
+    this.zoom = zoom ?? 'none'
+    this.zoomIntensity = zoomIntensity ?? 0.15
   }
 }

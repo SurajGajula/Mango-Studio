@@ -1,3 +1,5 @@
+export type ZoomMode = 'none' | 'in' | 'out'
+
 export class ImageClass {
   id: string
   name: string
@@ -11,6 +13,13 @@ export class ImageClass {
   opacity: number
   createdAt: Date
   isMainTrack: boolean
+  zoom: ZoomMode
+  zoomIntensity: number
+  cropAspect?: string
+  cropSx: number
+  cropSy: number
+  cropSw: number
+  cropSh: number
 
   constructor(
     id: string,
@@ -24,7 +33,14 @@ export class ImageClass {
     height?: number,
     opacity?: number,
     createdAt?: Date,
-    isMainTrack?: boolean
+    isMainTrack?: boolean,
+    zoom?: ZoomMode,
+    cropAspect?: string,
+    cropSx?: number,
+    cropSy?: number,
+    cropSw?: number,
+    cropSh?: number,
+    zoomIntensity?: number
   ) {
     this.id = id
     this.name = name
@@ -38,6 +54,13 @@ export class ImageClass {
     this.opacity = opacity ?? 1
     this.createdAt = createdAt || new Date()
     this.isMainTrack = isMainTrack ?? false
+    this.zoom = zoom ?? 'none'
+    this.zoomIntensity = zoomIntensity ?? 0.15
+    this.cropAspect = cropAspect
+    this.cropSx = cropSx ?? 0
+    this.cropSy = cropSy ?? 0
+    this.cropSw = cropSw ?? 1
+    this.cropSh = cropSh ?? 1
   }
 
   get duration(): number {

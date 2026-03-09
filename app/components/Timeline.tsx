@@ -10,13 +10,17 @@ import { TextClass } from '@/app/models/TextClass'
 import { AudioClass } from '@/app/models/AudioClass'
 import { exportVideo, downloadBlob, ExportProgress } from '@/app/lib/videoExporter'
 import { snapToMarkers } from '@/app/lib/snapToMarkers'
-import { resolveVideoDuration, toMono, computeImageDimensions, generateVideoThumbnails } from '@/app/lib/mediaUtils'
+import { resolveVideoDuration, toMono, computeImageDimensions, computeCropForAspect, generateVideoThumbnails } from '@/app/lib/mediaUtils'
 import { drawAudioGraph } from '@/app/lib/drawAudioGraph'
 import styles from './Timeline.module.css'
 
 type TrimHandle = 'start' | 'end' | null
 
-export default function Timeline() {
+interface TimelineProps {
+  onOpenTransitions?: () => void
+}
+
+export default function Timeline({ onOpenTransitions }: TimelineProps) {
   const videos = useManifestStore((state) => state.videos)
   const images = useManifestStore((state) => state.images)
   const texts = useManifestStore((state) => state.texts)
@@ -120,6 +124,9 @@ export default function Timeline() {
   } | null>(null)
   const isScrollingProgrammatically = useRef(false)
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const [showCropMenu, setShowCropMenu] = useState(false)
+  const cropMenuRef = useRef<HTMLDivElement>(null)
+  const cropButtonRef = useRef<HTMLButtonElement>(null)
 
   const totalDuration = getTotalDuration()
 
@@ -796,8 +803,11 @@ export default function Timeline() {
         const factor = Math.exp(e.deltaY * 0.005)
         const next = Math.max(MIN_VISIBLE, Math.min(MAX_VISIBLE, visibleDurationRef.current * factor))
         applyZoom(next)
-      } else if (useManifestStore.getState().isPlaying) {
+      } else {
         e.preventDefault()
+        if (!useManifestStore.getState().isPlaying) {
+          container.scrollLeft += e.deltaX + e.deltaY
+        }
       }
     }
     document.addEventListener('wheel', handler, { passive: false })
@@ -813,6 +823,20 @@ export default function Timeline() {
     ro.observe(canvas)
     return () => ro.disconnect()
   }, [audioAnalysis, totalDuration, effectivePadding])
+
+  useEffect(() => {
+    if (!showCropMenu) return
+    const handler = (e: MouseEvent) => {
+      if (
+        cropMenuRef.current && !cropMenuRef.current.contains(e.target as Node) &&
+        cropButtonRef.current && !cropButtonRef.current.contains(e.target as Node)
+      ) {
+        setShowCropMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showCropMenu])
 
   return (
     <div className={styles.container}>
@@ -979,6 +1003,60 @@ export default function Timeline() {
               >
                 T
               </button>
+              <button
+                className={styles.transitionsButton}
+                onClick={onOpenTransitions}
+                disabled={!selectedImageId && !selectedVideoId}
+                title="Transitions"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="8" cy="12" r="5" />
+                  <circle cx="16" cy="12" r="5" />
+                </svg>
+              </button>
+              <div className={styles.cropMenuWrapper}>
+                <button
+                  ref={cropButtonRef}
+                  className={styles.cropButton}
+                  onClick={() => setShowCropMenu((v) => !v)}
+                  disabled={!selectedImageId}
+                  title="Crop aspect ratio"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M6 2v14a2 2 0 0 0 2 2h14" />
+                    <path d="M18 22V8a2 2 0 0 0-2-2H2" />
+                  </svg>
+                </button>
+                {showCropMenu && selectedImageId && (() => {
+                  const img = images.find((i) => i.id === selectedImageId)
+                  const RATIOS = [
+                    { label: '16:9', w: 16, h: 9 },
+                    { label: '4:3', w: 4, h: 3 },
+                    { label: '1:1', w: 1, h: 1 },
+                    { label: '3:4', w: 3, h: 4 },
+                    { label: '9:16', w: 9, h: 16 },
+                  ]
+                  return (
+                    <div ref={cropMenuRef} className={styles.cropMenu}>
+                      {RATIOS.map((r) => (
+                        <button
+                          key={r.label}
+                          className={`${styles.cropMenuItem} ${img?.cropAspect === r.label ? styles.cropMenuItemActive : ''}`}
+                          onClick={async () => {
+                            setShowCropMenu(false)
+                            if (!img) return
+                            pushHistory()
+                            const updates = await computeCropForAspect(img, aspectRatio, r.w, r.h, r.label)
+                            updateImage(selectedImageId, updates)
+                          }}
+                        >
+                          {r.label}
+                        </button>
+                      ))}
+                    </div>
+                  )
+                })()}
+              </div>
               {audioAnalysis && userMarks.length > 0 && (
                 <button
                   className={styles.clearMarksButton}

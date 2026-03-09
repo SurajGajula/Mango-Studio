@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useAudioStore } from '@/app/stores/audioStore'
+import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
 
 export function useVideoPlayback(
   canvasRef: React.RefObject<HTMLCanvasElement>,
@@ -13,11 +14,13 @@ export function useVideoPlayback(
   const imageElementsRef = useRef<Map<string, HTMLImageElement>>(new Map())
   const audioElementRef = useRef<HTMLAudioElement | null>(null)
   const rafRef = useRef<number | null>(null)
-  const [canvasDimensions, setCanvasDimensions] = useState({ width: 0, height: 0 })
+  const [contentRect, setContentRect] = useState({ x: 0, y: 0, width: 0, height: 0 })
+  const contentRectRef = useRef({ x: 0, y: 0, width: 0, height: 0 })
 
   const videos = useManifestStore((state) => state.videos)
   const images = useManifestStore((state) => state.images)
   const aspectRatio = useManifestStore((state) => state.aspectRatio)
+
   const audioUrl = useAudioStore((state) => state.audioUrl)
   const getState = useManifestStore.getState
   const getSelectionState = useSelectionStore.getState
@@ -100,6 +103,40 @@ export function useVideoPlayback(
     }
   }, [])
 
+  const computeContentRect = useCallback((cw: number, ch: number) => {
+    const targetAspect = aspectRatio === '16:9' ? 16 / 9 : 9 / 16
+    const canvasAspect = cw / ch
+    let x: number, y: number, width: number, height: number
+    if (Math.abs(canvasAspect - targetAspect) < 0.001) {
+      x = 0; y = 0; width = cw; height = ch
+    } else if (canvasAspect > targetAspect) {
+      height = ch
+      width = Math.round(ch * targetAspect)
+      x = Math.round((cw - width) / 2)
+      y = 0
+    } else {
+      width = cw
+      height = Math.round(cw / targetAspect)
+      x = 0
+      y = Math.round((ch - height) / 2)
+    }
+    return { x, y, width, height }
+  }, [aspectRatio])
+
+  const applyCanvasSize = useCallback((canvas: HTMLCanvasElement, cw: number, ch: number) => {
+    if (canvas.width !== cw || canvas.height !== ch) {
+      canvas.width = cw; canvas.height = ch
+      canvas.style.width = `${cw}px`; canvas.style.height = `${ch}px`
+    }
+    const cr = computeContentRect(cw, ch)
+    const prev = contentRectRef.current
+    if (cr.x !== prev.x || cr.y !== prev.y || cr.width !== prev.width || cr.height !== prev.height) {
+      contentRectRef.current = cr
+      setContentRect(cr)
+    }
+    return cr
+  }, [computeContentRect])
+
   const drawVideoToCanvas = useCallback((video: HTMLVideoElement): boolean => {
     const canvas = canvasRef.current
     const container = containerRef.current
@@ -112,32 +149,10 @@ export function useVideoPlayback(
     const ctx = canvas.getContext('2d')
     if (!ctx) return false
 
-    const targetAspect = aspectRatio === '16:9' ? 16 / 9 : 9 / 16
-
     const rect = container.getBoundingClientRect()
-    const containerAspect = rect.width / rect.height
-
-    let canvasWidth: number
-    let canvasHeight: number
-
-    if (targetAspect > containerAspect) {
-      canvasWidth = rect.width
-      canvasHeight = rect.width / targetAspect
-    } else {
-      canvasHeight = rect.height
-      canvasWidth = rect.height * targetAspect
-    }
-
-    canvasWidth = Math.round(canvasWidth)
-    canvasHeight = Math.round(canvasHeight)
-
-    if (canvas.width !== canvasWidth || canvas.height !== canvasHeight) {
-      canvas.width = canvasWidth
-      canvas.height = canvasHeight
-      canvas.style.width = `${canvasWidth}px`
-      canvas.style.height = `${canvasHeight}px`
-      setCanvasDimensions({ width: canvasWidth, height: canvasHeight })
-    }
+    const cw = Math.round(rect.width)
+    const ch = Math.round(rect.height)
+    applyCanvasSize(canvas, cw, ch)
 
     ctx.fillStyle = '#000000'
     ctx.fillRect(0, 0, canvas.width, canvas.height)
@@ -160,9 +175,10 @@ export function useVideoPlayback(
     ctx.drawImage(video, drawX, drawY, drawWidth, drawHeight)
 
     return true
-  }, [aspectRatio, canvasRef, containerRef])
+  }, [canvasRef, containerRef])
 
-  const drawImages = useCallback((ctx: CanvasRenderingContext2D, canvasWidth: number, canvasHeight: number, currentTime: number, mainTrackOnly: boolean) => {
+  const drawImages = useCallback((ctx: CanvasRenderingContext2D, cr: {x:number,y:number,width:number,height:number}, currentTime: number, mainTrackOnly: boolean) => {
+    const { x: cx, y: cy, width: canvasWidth, height: canvasHeight } = cr
     const state = getState()
     let visibleImages = state.images.filter(
       (image) =>
@@ -185,19 +201,21 @@ export function useVideoPlayback(
     visibleImages.forEach((image) => {
       const img = imageElementsRef.current.get(image.id)
       if (!img || !img.complete || img.naturalWidth === 0) return
+      const progress = image.duration > 0 ? (currentTime - image.startTime) / image.duration : 0
       ctx.save()
       ctx.globalAlpha = image.opacity
-      ctx.drawImage(img, image.x * xScale, image.y * yScale, image.width * xScale, image.height * yScale)
+      applyZoomTransform(ctx, image.zoom, progress, img, cx + image.x * xScale, cy + image.y * yScale, image.width * xScale, image.height * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity)
       ctx.restore()
     })
   }, [getState])
 
-  const drawOverlayVideos = useCallback((ctx: CanvasRenderingContext2D, canvasWidth: number, canvasHeight: number, currentTime: number) => {
+  const drawOverlayVideos = useCallback((ctx: CanvasRenderingContext2D, cr: {x:number,y:number,width:number,height:number}, currentTime: number) => {
     const state = getState()
     const overlayVideos = state.videos.filter((v) => v.isOverlay)
+    const { x: cx, y: cy, width: cw, height: ch } = cr
 
-    const xScale = canvasWidth / 1920
-    const yScale = canvasHeight / 1080
+    const xScale = cw / 1920
+    const yScale = ch / 1080
 
     overlayVideos.forEach((video) => {
       const localTime = currentTime - video.timestamp
@@ -211,9 +229,11 @@ export function useVideoPlayback(
         videoEl.currentTime = targetTime
       }
 
+      const duration = video.duration ?? 0
+      const progress = duration > 0 ? localTime / duration : 0
       ctx.save()
       ctx.globalAlpha = video.opacity
-      ctx.drawImage(videoEl, video.x * xScale, video.y * yScale, video.width * xScale, video.height * yScale)
+      applyZoomTransform(ctx, video.zoom, progress, videoEl, cx + video.x * xScale, cy + video.y * yScale, video.width * xScale, video.height * yScale, 0, 0, 1, 1, video.zoomIntensity)
       ctx.restore()
     })
   }, [getState])
@@ -221,26 +241,19 @@ export function useVideoPlayback(
   useEffect(() => {
     let currentVideoId: string | null = null
 
-    const drawOverlays = (ctx: CanvasRenderingContext2D, w: number, h: number, t: number) => {
-      drawImages(ctx, w, h, t, false)
-      drawOverlayVideos(ctx, w, h, t)
+    const drawOverlays = (ctx: CanvasRenderingContext2D, cr: {x:number,y:number,width:number,height:number}, t: number) => {
+      drawImages(ctx, cr, t, false)
+      drawOverlayVideos(ctx, cr, t)
     }
 
-    const setupCanvas = (canvas: HTMLCanvasElement, container: HTMLDivElement): CanvasRenderingContext2D | null => {
-      const targetAspect = aspectRatio === '16:9' ? 16 / 9 : 9 / 16
+    const setupCanvas = (canvas: HTMLCanvasElement, container: HTMLDivElement) => {
       const rect = container.getBoundingClientRect()
       if (rect.width === 0 || rect.height === 0) return null
-      const containerAspect = rect.width / rect.height
-      let cw: number, ch: number
-      if (targetAspect > containerAspect) { cw = rect.width; ch = rect.width / targetAspect }
-      else { ch = rect.height; cw = rect.height * targetAspect }
-      cw = Math.round(cw); ch = Math.round(ch)
-      if (canvas.width !== cw || canvas.height !== ch) {
-        canvas.width = cw; canvas.height = ch
-        canvas.style.width = `${cw}px`; canvas.style.height = `${ch}px`
-        setCanvasDimensions({ width: cw, height: ch })
-      }
-      return canvas.getContext('2d')
+      const cw = Math.round(rect.width)
+      const ch = Math.round(rect.height)
+      const cr = applyCanvasSize(canvas, cw, ch)
+      const ctx = canvas.getContext('2d')
+      return ctx ? { ctx, cr } : null
     }
 
     let lastTimestamp: number | null = null
@@ -263,12 +276,13 @@ export function useVideoPlayback(
 
       if (!timeRangeClip) {
         if (canvas && container) {
-          const ctx = setupCanvas(canvas, container)
-          if (ctx) {
+          const result = setupCanvas(canvas, container)
+          if (result) {
+            const { ctx, cr } = result
             ctx.fillStyle = '#000000'
             ctx.fillRect(0, 0, canvas.width, canvas.height)
-            drawImages(ctx, canvas.width, canvas.height, playbackTime, true)
-            drawOverlays(ctx, canvas.width, canvas.height, playbackTime)
+            drawImages(ctx, cr, playbackTime, true)
+            drawOverlays(ctx, cr, playbackTime)
           }
         }
 
@@ -404,7 +418,7 @@ export function useVideoPlayback(
       const drawn = drawVideoToCanvas(videoEl)
       if (drawn && canvas) {
         const ctx = canvas.getContext('2d')
-        if (ctx) drawOverlays(ctx, canvas.width, canvas.height, playbackTime)
+        if (ctx) drawOverlays(ctx, contentRectRef.current, playbackTime)
       }
 
       rafRef.current = requestAnimationFrame(loop)
@@ -417,7 +431,7 @@ export function useVideoPlayback(
         cancelAnimationFrame(rafRef.current)
       }
     }
-  }, [getState, getSelectionState, drawVideoToCanvas, drawImages, drawOverlayVideos, canvasRef])
+  }, [getState, getSelectionState, drawVideoToCanvas, drawImages, drawOverlayVideos, canvasRef, applyCanvasSize])
 
   useEffect(() => {
     return () => {
@@ -430,5 +444,5 @@ export function useVideoPlayback(
     }
   }, [])
 
-  return { canvasDimensions }
+  return { contentRect }
 }

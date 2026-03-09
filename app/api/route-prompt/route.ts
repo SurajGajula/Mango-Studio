@@ -13,6 +13,8 @@ interface ManifestItem {
   duration?: number
   isOverlay?: boolean
   marks?: number[]
+  zoom?: string
+  cropAspect?: string
 }
 
 interface SerializedManifest {
@@ -59,7 +61,19 @@ export interface AddTextInstruction {
   endTime: number
 }
 
-type RoutedAction = 'no_op' | 'edit_manifest' | 'split_at_marks' | 'replace_images' | 'add_text'
+export interface TransitionInstruction {
+  type: 'image' | 'video'
+  id: string
+  zoom: 'none' | 'in' | 'out'
+  zoomIntensity?: number
+}
+
+export interface CropInstruction {
+  id: string
+  cropAspect: '16:9' | '4:3' | '1:1' | '3:4' | '9:16' | 'none'
+}
+
+type RoutedAction = 'no_op' | 'edit_manifest' | 'split_at_marks' | 'replace_images' | 'add_text' | 'set_transitions' | 'set_crop'
 
 interface RoutePromptResponse {
   action: RoutedAction
@@ -67,6 +81,8 @@ interface RoutePromptResponse {
   splits?: SplitInstruction[]
   replacements?: ReplaceInstruction[]
   newTexts?: AddTextInstruction[]
+  transitions?: TransitionInstruction[]
+  crops?: CropInstruction[]
   message: string
 }
 
@@ -85,13 +101,13 @@ function buildManifestContext(manifest: SerializedManifest): string {
   if (manifest.images?.length) {
     lines.push(`Images (${manifest.images.length}):`)
     for (const img of manifest.images) {
-      lines.push(`  - id="${img.id}" name="${img.name}" startTime=${img.startTime}s endTime=${img.endTime}s`)
+      lines.push(`  - id="${img.id}" name="${img.name}" startTime=${img.startTime}s endTime=${img.endTime}s zoom=${img.zoom ?? 'none'} cropAspect=${img.cropAspect ?? 'none'}`)
     }
   }
   if (manifest.videos?.length) {
     lines.push(`Videos (${manifest.videos.length}):`)
     for (const vid of manifest.videos) {
-      lines.push(`  - id="${vid.id}" title="${vid.title}" timestamp=${vid.timestamp}s duration=${vid.duration}s isOverlay=${vid.isOverlay}`)
+      lines.push(`  - id="${vid.id}" title="${vid.title}" timestamp=${vid.timestamp}s duration=${vid.duration}s isOverlay=${vid.isOverlay} zoom=${vid.zoom ?? 'none'}`)
     }
   }
   if (manifest.texts?.length) {
@@ -139,7 +155,7 @@ export async function POST(request: NextRequest) {
         toolConfig: {
           functionCallingConfig: {
             mode: FunctionCallingConfigMode.ANY,
-            allowedFunctionNames: ['no_op', 'edit_manifest', 'split_at_marks', 'replace_images', 'add_text'],
+            allowedFunctionNames: ['no_op', 'edit_manifest', 'split_at_marks', 'replace_images', 'add_text', 'set_transitions', 'set_crop'],
           },
         },
       },
@@ -185,6 +201,18 @@ export async function POST(request: NextRequest) {
         action: 'replace_images',
         replacements: (args?.replacements as ReplaceInstruction[]) || [],
         message: (args?.message as string) || 'Images replaced.',
+      }
+    } else if (action === 'set_transitions') {
+      result = {
+        action: 'set_transitions',
+        transitions: (args?.transitions as TransitionInstruction[]) || [],
+        message: (args?.message as string) || 'Transitions updated.',
+      }
+    } else if (action === 'set_crop') {
+      result = {
+        action: 'set_crop',
+        crops: (args?.crops as CropInstruction[]) || [],
+        message: (args?.message as string) || 'Aspect ratios updated.',
       }
     } else {
       result = {

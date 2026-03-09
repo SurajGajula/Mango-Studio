@@ -4,6 +4,7 @@ import { TextClass } from '@/app/models/TextClass'
 import { FFmpeg } from '@ffmpeg/ffmpeg'
 import { fetchFile, toBlobURL } from '@ffmpeg/util'
 import { wrapTextToLines } from '@/app/lib/textUtils'
+import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
 
 let ffmpegInstance: FFmpeg | null = null
 let ffmpegLoading: Promise<FFmpeg> | null = null
@@ -71,8 +72,21 @@ async function exportImageOnlyWithFFmpeg({
     try { await ff.deleteFile(f) } catch {}
   }
 
+  const ANIM_FPS = 30
+  const MAX_ZOOM_FRAMES = 60
+
   const breakSet = new Set<number>([0, totalDuration])
-  images.forEach((img) => { breakSet.add(img.startTime); breakSet.add(img.endTime) })
+  images.forEach((img) => {
+    breakSet.add(img.startTime)
+    breakSet.add(img.endTime)
+    if ((img.zoom ?? 'none') !== 'none') {
+      const imgDur = img.endTime - img.startTime
+      const frameCount = Math.min(Math.round(imgDur * ANIM_FPS), MAX_ZOOM_FRAMES)
+      for (let k = 1; k < frameCount; k++) {
+        breakSet.add(img.startTime + (k / frameCount) * imgDur)
+      }
+    }
+  })
   texts.forEach((text) => { breakSet.add(text.startTime); breakSet.add(text.endTime) })
   const sortedBreaks = [...breakSet]
     .filter((t) => t >= 0 && t <= totalDuration)
@@ -89,10 +103,10 @@ async function exportImageOnlyWithFFmpeg({
 
     drawFrameToCanvas(segStart + dur / 2)
 
-    const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'))
+    const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.92))
     if (!blob) continue
 
-    const name = `eif${i}.png`
+    const name = `eif${i}.jpg`
     await ff.writeFile(name, await fetchFile(blob))
     segments.push({ name, duration: dur })
 
@@ -255,9 +269,10 @@ export async function exportVideo(
         .forEach((image) => {
           const img = imageElements.get(image.id)
           if (!img || img.naturalWidth === 0) return
+          const progress = image.duration > 0 ? (t - image.startTime) / image.duration : 0
           ctx.save()
           ctx.globalAlpha = image.opacity
-          ctx.drawImage(img, image.x * xScale, image.y * yScale, image.width * xScale, image.height * yScale)
+          applyZoomTransform(ctx, image.zoom, progress, img, image.x * xScale, image.y * yScale, image.width * xScale, image.height * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity)
           ctx.restore()
         })
     }
@@ -268,9 +283,11 @@ export async function exportVideo(
         if (!videoEl || videoEl.readyState < 2) return
         const localTime = (video.trimStart ?? 0) + (t - video.timestamp)
         if (Math.abs(videoEl.currentTime - localTime) > 0.1) videoEl.currentTime = localTime
+        const vDuration = video.duration ?? 0
+        const vProgress = vDuration > 0 ? (t - video.timestamp) / vDuration : 0
         ctx.save()
         ctx.globalAlpha = video.opacity
-        ctx.drawImage(videoEl, video.x * xScale, video.y * yScale, video.width * xScale, video.height * yScale)
+        applyZoomTransform(ctx, video.zoom, vProgress, videoEl, video.x * xScale, video.y * yScale, video.width * xScale, video.height * yScale, 0, 0, 1, 1, video.zoomIntensity)
         ctx.restore()
       })
     if (texts && texts.length > 0) {

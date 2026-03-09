@@ -1,4 +1,13 @@
 import type { AspectRatio } from '@/app/stores/manifestStore'
+import type { ImageClass } from '@/app/models/ImageClass'
+
+export const ASPECT_RATIOS: Record<string, [number, number]> = {
+  '16:9': [16, 9],
+  '4:3': [4, 3],
+  '1:1': [1, 1],
+  '3:4': [3, 4],
+  '9:16': [9, 16],
+}
 
 export function resolveVideoDuration(url: string): Promise<number> {
   return new Promise((resolve) => {
@@ -58,15 +67,27 @@ export function computeImageDimensions(
     const img = new Image()
     img.onload = () => {
       const imgAspect = img.naturalWidth / img.naturalHeight
-      const containerAspect = containerPxW / containerPxH
       let fitPxW: number, fitPxH: number
-      if (imgAspect >= containerAspect) {
-        fitPxW = containerPxW
-        fitPxH = Math.round(containerPxW / imgAspect)
+
+      if (isMainTrack) {
+        if (aspectRatio === '16:9') {
+          fitPxH = containerPxH
+          fitPxW = Math.round(containerPxH * imgAspect)
+        } else {
+          fitPxW = containerPxW
+          fitPxH = Math.round(containerPxW / imgAspect)
+        }
       } else {
-        fitPxH = containerPxH
-        fitPxW = Math.round(containerPxH * imgAspect)
+        const containerAspect = containerPxW / containerPxH
+        if (imgAspect >= containerAspect) {
+          fitPxW = containerPxW
+          fitPxH = Math.round(containerPxW / imgAspect)
+        } else {
+          fitPxH = containerPxH
+          fitPxW = Math.round(containerPxH * imgAspect)
+        }
       }
+
       const pxX = containerPxX + Math.round((containerPxW - fitPxW) / 2)
       const pxY = Math.round((containerPxH - fitPxH) / 2)
       resolve({
@@ -83,6 +104,68 @@ export function computeImageDimensions(
       height: Math.round(containerPxH * 1080 / canvasH),
     })
     img.src = url
+  })
+}
+
+export function computeCropForAspect(
+  image: ImageClass,
+  canvasAspectRatio: AspectRatio,
+  targetW: number,
+  targetH: number,
+  cropAspectLabel: string
+): Promise<Partial<ImageClass>> {
+  const canvasW = canvasAspectRatio === '16:9' ? 1920 : 1080
+  const canvasH = canvasAspectRatio === '16:9' ? 1080 : 1920
+
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      const nw = img.naturalWidth
+      const nh = img.naturalHeight
+      const naturalAspect = nw / nh
+      const targetAspect = targetW / targetH
+
+      let sx: number, sy: number, sw: number, sh: number
+      if (Math.abs(targetAspect - naturalAspect) < 0.001) {
+        sx = 0; sy = 0; sw = nw; sh = nh
+      } else if (targetAspect > naturalAspect) {
+        sw = nw
+        sh = Math.round(nw / targetAspect)
+        sx = 0
+        sy = Math.round((nh - sh) / 2)
+      } else {
+        sh = nh
+        sw = Math.round(nh * targetAspect)
+        sx = Math.round((nw - sw) / 2)
+        sy = 0
+      }
+
+      const canvasAspect = canvasW / canvasH
+      let dw: number, dh: number
+      if (targetAspect >= canvasAspect) {
+        dw = canvasW
+        dh = Math.round(canvasW / targetAspect)
+      } else {
+        dh = canvasH
+        dw = Math.round(canvasH * targetAspect)
+      }
+      const ddx = Math.round((canvasW - dw) / 2)
+      const ddy = Math.round((canvasH - dh) / 2)
+
+      resolve({
+        x: Math.round(ddx * 1920 / canvasW),
+        y: Math.round(ddy * 1080 / canvasH),
+        width: Math.round(dw * 1920 / canvasW),
+        height: Math.round(dh * 1080 / canvasH),
+        cropAspect: cropAspectLabel,
+        cropSx: sx / nw,
+        cropSy: sy / nh,
+        cropSw: sw / nw,
+        cropSh: sh / nh,
+      })
+    }
+    img.onerror = () => resolve({})
+    img.src = image.url
   })
 }
 

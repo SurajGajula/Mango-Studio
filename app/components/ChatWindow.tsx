@@ -2,8 +2,10 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
-import type { ManifestMutation, SplitInstruction, ReplaceInstruction, AddTextInstruction } from '@/app/api/route-prompt/route'
+import type { ManifestMutation, SplitInstruction, ReplaceInstruction, AddTextInstruction, TransitionInstruction, CropInstruction } from '@/app/api/route-prompt/route'
 import { TextClass } from '@/app/models/TextClass'
+import { ImageClass } from '@/app/models/ImageClass'
+import { computeCropForAspect, computeImageDimensions, ASPECT_RATIOS } from '@/app/lib/mediaUtils'
 import styles from './ChatWindow.module.css'
 
 interface Message {
@@ -75,16 +77,52 @@ export default function ChatWindow() {
     }
   }
 
-  const applyReplacements = (replacements: ReplaceInstruction[], files: UploadedFile[]) => {
+  const applyTransitions = (transitions: TransitionInstruction[]) => {
+    for (const t of transitions) {
+      const updates: { zoom: typeof t.zoom; zoomIntensity?: number } = { zoom: t.zoom }
+      if (t.zoomIntensity !== undefined) updates.zoomIntensity = t.zoomIntensity
+      if (t.type === 'image') updateImage(t.id, updates)
+      else if (t.type === 'video') updateVideo(t.id, updates)
+    }
+  }
+
+  const applyCrops = async (crops: CropInstruction[]) => {
+    const { images, aspectRatio } = useManifestStore.getState()
+    for (const c of crops) {
+      const image = images.find((i) => i.id === c.id)
+      if (!image) continue
+      if (c.cropAspect === 'none') {
+        const dims = await computeImageDimensions(image.url, aspectRatio, image.isMainTrack)
+        updateImage(c.id, { ...dims, cropAspect: undefined, cropSx: 0, cropSy: 0, cropSw: 1, cropSh: 1 })
+      } else {
+        const ratio = ASPECT_RATIOS[c.cropAspect]
+        if (!ratio) continue
+        const patch = await computeCropForAspect(image, aspectRatio, ratio[0], ratio[1], c.cropAspect)
+        updateImage(c.id, patch)
+      }
+    }
+  }
+
+  const applyReplacements = async (replacements: ReplaceInstruction[], files: UploadedFile[]) => {
+    const { images, aspectRatio } = useManifestStore.getState()
     for (const r of replacements) {
       const file = files[r.fileIndex]
       if (!file) continue
+      const original = images.find((i) => i.id === r.targetId)
       const blob = new Blob(
         [Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0))],
         { type: file.mimeType }
       )
       const url = URL.createObjectURL(blob)
       replaceImageSource(r.targetId, url, file.name)
+      if (original?.cropAspect) {
+        const ratio = ASPECT_RATIOS[original.cropAspect]
+        if (ratio) {
+          const tempImage = new ImageClass('tmp', '', url, 0, 1)
+          const patch = await computeCropForAspect(tempImage, aspectRatio, ratio[0], ratio[1], original.cropAspect)
+          updateImage(r.targetId, patch)
+        }
+      }
     }
   }
 
@@ -118,8 +156,8 @@ export default function ChatWindow() {
     try {
       const { videos, images, texts, audios } = useManifestStore.getState()
       const manifest = {
-        images: images.map((i) => ({ id: i.id, name: i.name, startTime: i.startTime, endTime: i.endTime })),
-        videos: videos.map((v) => ({ id: v.id, title: v.title, timestamp: v.timestamp, duration: v.duration, isOverlay: v.isOverlay })),
+        images: images.map((i) => ({ id: i.id, name: i.name, startTime: i.startTime, endTime: i.endTime, zoom: i.zoom, cropAspect: i.cropAspect })),
+        videos: videos.map((v) => ({ id: v.id, title: v.title, timestamp: v.timestamp, duration: v.duration, isOverlay: v.isOverlay, zoom: v.zoom })),
         texts: texts.map((t) => ({ id: t.id, content: t.content, startTime: t.startTime, endTime: t.endTime })),
         audios: audios.map((a) => ({ id: a.id, name: a.name, startTime: a.startTime, endTime: a.endTime, marks: a.marks })),
       }
@@ -147,8 +185,12 @@ export default function ChatWindow() {
       } else if (data.action === 'add_text') {
         applyNewTexts(data.newTexts || [])
       } else if (data.action === 'replace_images') {
-        applyReplacements(data.replacements || [], filesSnapshot)
+        await applyReplacements(data.replacements || [], filesSnapshot)
         setUploadedFiles([])
+      } else if (data.action === 'set_transitions') {
+        applyTransitions(data.transitions || [])
+      } else if (data.action === 'set_crop') {
+        await applyCrops(data.crops || [])
       }
 
       updateStatus(data.message, false)
