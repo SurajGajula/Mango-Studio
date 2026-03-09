@@ -807,8 +807,12 @@ export default function Timeline() {
   useEffect(() => {
     const canvas = audioCanvasRef.current
     if (!canvas || !audioAnalysis) return
-    drawAudioGraph(canvas, audioAnalysis, totalDuration, effectivePadding)
-  }, [audioAnalysis, totalDuration])
+    const draw = () => drawAudioGraph(canvas, audioAnalysis, totalDuration, effectivePadding)
+    draw()
+    const ro = new ResizeObserver(draw)
+    ro.observe(canvas)
+    return () => ro.disconnect()
+  }, [audioAnalysis, totalDuration, effectivePadding])
 
   return (
     <div className={styles.container}>
