@@ -17,7 +17,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'edit_manifest',
-    description: 'Edit, rearrange, resize, or synchronise existing items on the timeline. Use this when the user asks to change timing, duration, or position of existing images, videos, texts, or audio tracks — for example "make the image the same length as the audio" or "move the video to start at 5 seconds".',
+    description: 'Edit, rearrange, resize, or synchronise existing items on the timeline. Use this when the user asks to change timing, duration, or position of existing images, videos, texts, or audio tracks — for example "make the image the same length as the audio" or "move the video to start at 5 seconds". For audio, you can also set trimStart and trimEnd to trim the audio file, or set both to 0 to restore the full original length.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -50,6 +50,14 @@ export const functionDeclarations: FunctionDeclaration[] = [
               duration: {
                 type: Type.NUMBER,
                 description: 'New duration in seconds (for videos).',
+              },
+              trimStart: {
+                type: Type.NUMBER,
+                description: 'Seconds to hide from the beginning of the audio file (updateAudio only). Set to 0 to restore.',
+              },
+              trimEnd: {
+                type: Type.NUMBER,
+                description: 'Seconds to hide from the end of the audio file (updateAudio only). Set to 0 to restore full original length.',
               },
             },
             required: ['type', 'id'],
@@ -138,7 +146,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'set_transitions',
-    description: 'Set the zoom transition (none, in, or out) on one or more images or videos. Use this when the user asks to set, apply, add, or remove zoom transitions on timeline images or videos — for example "set zoom in on images 2 to 25" or "remove transitions from all images". Use the image/video ids from the manifest.',
+    description: 'Set the transition (none, in, out, or shake) on one or more images or videos. Use this when the user asks to set, apply, add, or remove transitions on timeline images or videos — for example "set zoom in on images 2 to 25", "add shake to image 1", or "remove transitions from all images". Use the image/video ids from the manifest.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -158,7 +166,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
               },
               zoom: {
                 type: Type.STRING,
-                description: 'The zoom mode to apply: "none", "in", or "out".',
+                description: 'The transition mode to apply: "none", "in", "out", or "shake".',
               },
               zoomIntensity: {
                 type: Type.NUMBER,
@@ -246,13 +254,14 @@ export const tools: Tool[] = [{ functionDeclarations }]
 
 export const systemInstruction =
   'You are a timeline editing assistant for a media studio. Your only job is to call the correct function:\n' +
-  '- edit_manifest: when the user asks to change timing, duration, or position of existing items\n' +
+  '- edit_manifest: when the user asks to change timing, duration, or position of existing items. You MUST include all affected items as separate entries in the mutations array in a SINGLE call — never call edit_manifest multiple times. For audio mutations (type=updateAudio): ALWAYS use trimStart and trimEnd fields (not endTime). To restore an audio to its full original length set trimStart=0 and trimEnd=0. The active playing duration of an audio is: originalDuration - trimStart - trimEnd. ALWAYS use the exact id strings from the manifest (e.g. "audio-1234-abc") — never make up or shorten ids.\n' +
   '- split_at_marks: when the user asks to split, cut, or divide images or videos at audio mark positions (use the marks listed in the audio data)\n' +
   '- add_text: when the user asks to add text overlays to the timeline at a computed time range\n' +
   '- replace_images: when the user has attached files and asks to replace, swap, or update existing timeline images with them\n' +
   '- set_transitions: when the user asks to set, apply, add, or remove zoom transitions (none/in/out) on images or videos; include zoomIntensity (0.05–1.0) if the user specifies a percentage or intensity level\n' +
   '- set_crop: when the user asks to set or change the aspect ratio of images (e.g. "make images 2-25 16:9"); cropAspect must be one of "16:9", "4:3", "1:1", "3:4", "9:16", or "none"\n' +
   '- no_op: for anything else\n' +
-  'Always call exactly one function. Compute exact numeric values from the timeline data provided.'
+  'Always call exactly one function. Compute exact numeric values from the timeline data provided.\n' +
+  'When the user refers to "image 3", "video 2", etc., the number refers to the item\'s position when all items of that type are sorted by startTime — so "image 1" is the one with the earliest startTime, "image 2" is the next earliest, and so on. This ordering is reflected by the #N labels in the manifest context.'
 
 export { FunctionCallingConfigMode }

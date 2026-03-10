@@ -34,11 +34,14 @@ export default function ChatWindow() {
   const updateImage = useManifestStore((state) => state.updateImage)
   const updateVideo = useManifestStore((state) => state.updateVideo)
   const updateText = useManifestStore((state) => state.updateText)
-  const updateAudio = useManifestStore((state) => state.updateAudio)
+  const trimAudio = useManifestStore((state) => state.trimAudio)
   const splitVideoAtTimes = useManifestStore((state) => state.splitVideoAtTimes)
   const splitImageAtTimes = useManifestStore((state) => state.splitImageAtTimes)
   const replaceImageSource = useManifestStore((state) => state.replaceImageSource)
   const addText = useManifestStore((state) => state.addText)
+  const pauseHistory = useManifestStore((state) => state.pauseHistory)
+  const resumeHistory = useManifestStore((state) => state.resumeHistory)
+  const pushHistory = useManifestStore((state) => state.pushHistory)
   const pendingPrompt = useManifestStore((state) => state.pendingPrompt)
   const setPendingPrompt = useManifestStore((state) => state.setPendingPrompt)
 
@@ -55,7 +58,17 @@ export default function ChatWindow() {
       if (m.type === 'updateImage') updateImage(m.id, { startTime: m.startTime, endTime: m.endTime })
       else if (m.type === 'updateVideo') updateVideo(m.id, { timestamp: m.timestamp, duration: m.duration })
       else if (m.type === 'updateText') updateText(m.id, { startTime: m.startTime, endTime: m.endTime })
-      else if (m.type === 'updateAudio') updateAudio(m.id, { startTime: m.startTime, endTime: m.endTime })
+      else if (m.type === 'updateAudio') {
+        const audio = useManifestStore.getState().audios.find((a) => a.id === m.id)
+        if (audio) {
+          let newTrimStart = m.trimStart ?? audio.trimStart
+          let newTrimEnd = m.trimEnd ?? audio.trimEnd
+          if (m.endTime !== undefined && m.trimStart === undefined && m.trimEnd === undefined) {
+            newTrimEnd = Math.max(0, audio.originalDuration - m.endTime)
+          }
+          trimAudio(m.id, newTrimStart, newTrimEnd, m.startTime ?? audio.startTime)
+        }
+      }
     }
   }
 
@@ -159,7 +172,7 @@ export default function ChatWindow() {
         images: images.map((i) => ({ id: i.id, name: i.name, startTime: i.startTime, endTime: i.endTime, zoom: i.zoom, cropAspect: i.cropAspect })),
         videos: videos.map((v) => ({ id: v.id, title: v.title, timestamp: v.timestamp, duration: v.duration, isOverlay: v.isOverlay, zoom: v.zoom })),
         texts: texts.map((t) => ({ id: t.id, content: t.content, startTime: t.startTime, endTime: t.endTime })),
-        audios: audios.map((a) => ({ id: a.id, name: a.name, startTime: a.startTime, endTime: a.endTime, marks: a.marks })),
+        audios: audios.map((a) => ({ id: a.id, name: a.name, startTime: a.startTime, endTime: a.endTime, originalDuration: a.originalDuration, trimStart: a.trimStart, trimEnd: a.trimEnd, marks: a.marks })),
       }
 
       const filesSnapshot = uploadedFiles
@@ -178,19 +191,25 @@ export default function ChatWindow() {
         return
       }
 
-      if (data.action === 'edit_manifest') {
-        applyMutations(data.mutations || [])
-      } else if (data.action === 'split_at_marks') {
-        applySplits(data.splits || [])
-      } else if (data.action === 'add_text') {
-        applyNewTexts(data.newTexts || [])
-      } else if (data.action === 'replace_images') {
-        await applyReplacements(data.replacements || [], filesSnapshot)
-        setUploadedFiles([])
-      } else if (data.action === 'set_transitions') {
-        applyTransitions(data.transitions || [])
-      } else if (data.action === 'set_crop') {
-        await applyCrops(data.crops || [])
+      pauseHistory()
+      try {
+        if (data.action === 'edit_manifest') {
+          applyMutations(data.mutations || [])
+        } else if (data.action === 'split_at_marks') {
+          applySplits(data.splits || [])
+        } else if (data.action === 'add_text') {
+          applyNewTexts(data.newTexts || [])
+        } else if (data.action === 'replace_images') {
+          await applyReplacements(data.replacements || [], filesSnapshot)
+          setUploadedFiles([])
+        } else if (data.action === 'set_transitions') {
+          applyTransitions(data.transitions || [])
+        } else if (data.action === 'set_crop') {
+          await applyCrops(data.crops || [])
+        }
+      } finally {
+        resumeHistory()
+        pushHistory()
       }
 
       updateStatus(data.message, false)

@@ -15,6 +15,9 @@ interface ManifestItem {
   marks?: number[]
   zoom?: string
   cropAspect?: string
+  originalDuration?: number
+  trimStart?: number
+  trimEnd?: number
 }
 
 interface SerializedManifest {
@@ -42,6 +45,8 @@ export interface ManifestMutation {
   endTime?: number
   timestamp?: number
   duration?: number
+  trimStart?: number
+  trimEnd?: number
 }
 
 export interface SplitInstruction {
@@ -64,7 +69,7 @@ export interface AddTextInstruction {
 export interface TransitionInstruction {
   type: 'image' | 'video'
   id: string
-  zoom: 'none' | 'in' | 'out'
+  zoom: 'none' | 'in' | 'out' | 'shake'
   zoomIntensity?: number
 }
 
@@ -97,34 +102,43 @@ function buildUploadedFilesContext(files: UploadedFileMeta[]): string {
 
 function buildManifestContext(manifest: SerializedManifest): string {
   const lines: string[] = ['Current timeline contents:']
+  lines.push('Item numbers reflect order by start time (e.g. "image 1" = earliest image on the timeline).')
 
   if (manifest.images?.length) {
-    lines.push(`Images (${manifest.images.length}):`)
-    for (const img of manifest.images) {
-      lines.push(`  - id="${img.id}" name="${img.name}" startTime=${img.startTime}s endTime=${img.endTime}s zoom=${img.zoom ?? 'none'} cropAspect=${img.cropAspect ?? 'none'}`)
-    }
+    const sorted = [...manifest.images].sort((a, b) => (a.startTime ?? 0) - (b.startTime ?? 0))
+    lines.push(`Images (${sorted.length}):`)
+    sorted.forEach((img, i) => {
+      lines.push(`  - #${i + 1} id="${img.id}" name="${img.name}" startTime=${img.startTime}s endTime=${img.endTime}s zoom=${img.zoom ?? 'none'} cropAspect=${img.cropAspect ?? 'none'}`)
+    })
   }
   if (manifest.videos?.length) {
-    lines.push(`Videos (${manifest.videos.length}):`)
-    for (const vid of manifest.videos) {
-      lines.push(`  - id="${vid.id}" title="${vid.title}" timestamp=${vid.timestamp}s duration=${vid.duration}s isOverlay=${vid.isOverlay} zoom=${vid.zoom ?? 'none'}`)
-    }
+    const sorted = [...manifest.videos].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
+    lines.push(`Videos (${sorted.length}):`)
+    sorted.forEach((vid, i) => {
+      lines.push(`  - #${i + 1} id="${vid.id}" title="${vid.title}" timestamp=${vid.timestamp}s duration=${vid.duration}s isOverlay=${vid.isOverlay} zoom=${vid.zoom ?? 'none'}`)
+    })
   }
   if (manifest.texts?.length) {
-    lines.push(`Texts (${manifest.texts.length}):`)
-    for (const txt of manifest.texts) {
-      lines.push(`  - id="${txt.id}" content="${txt.content}" startTime=${txt.startTime}s endTime=${txt.endTime}s`)
-    }
+    const sorted = [...manifest.texts].sort((a, b) => (a.startTime ?? 0) - (b.startTime ?? 0))
+    lines.push(`Texts (${sorted.length}):`)
+    sorted.forEach((txt, i) => {
+      lines.push(`  - #${i + 1} id="${txt.id}" content="${txt.content}" startTime=${txt.startTime}s endTime=${txt.endTime}s`)
+    })
   }
   if (manifest.audios?.length) {
-    lines.push(`Audios (${manifest.audios.length}):`)
-    for (const aud of manifest.audios) {
+    const sorted = [...manifest.audios].sort((a, b) => (a.startTime ?? 0) - (b.startTime ?? 0))
+    lines.push(`Audios (${sorted.length}):`)
+    sorted.forEach((aud, i) => {
       const markStr = aud.marks?.length ? aud.marks.map((m) => `${m.toFixed(3)}s`).join(', ') : 'none'
-      lines.push(`  - id="${aud.id}" name="${aud.name}" startTime=${aud.startTime}s endTime=${aud.endTime}s marks=[${markStr}]`)
-    }
+      const origDur = aud.originalDuration ?? aud.endTime ?? 0
+      const ts = aud.trimStart ?? 0
+      const te = aud.trimEnd ?? 0
+      const activeDur = Math.max(0, origDur - ts - te)
+      lines.push(`  - #${i + 1} id="${aud.id}" name="${aud.name}" activeStartTime=${aud.startTime}s originalDuration=${origDur}s trimStart=${ts}s trimEnd=${te}s activeDuration=${activeDur.toFixed(3)}s (to restore to originalDuration set trimStart=0 trimEnd=0) marks=[${markStr}]`)
+    })
   }
 
-  if (lines.length === 1) lines.push('  (empty — no items yet)')
+  if (lines.length === 2) lines.push('  (empty — no items yet)')
 
   return lines.join('\n')
 }

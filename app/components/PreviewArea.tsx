@@ -316,6 +316,18 @@ export default function PreviewArea() {
 
   useEffect(() => {
     if (!cropEditId) return
+    const handleMouseDown = (e: MouseEvent) => {
+      const container = containerRef.current
+      if (container && !container.contains(e.target as Node)) {
+        exitCropEdit()
+      }
+    }
+    document.addEventListener('mousedown', handleMouseDown)
+    return () => document.removeEventListener('mousedown', handleMouseDown)
+  }, [cropEditId, exitCropEdit])
+
+  useEffect(() => {
+    if (!cropEditId) return
     const handleWheel = (e: WheelEvent) => {
       const canvas = canvasRef.current
       if (!canvas) return
@@ -510,7 +522,7 @@ export default function PreviewArea() {
               <canvas
                 ref={canvasRef}
                 className={styles.video}
-                onClick={() => { setSelectedImageId(null); setSelectedVideoId(null); setSelectedTextId(null); setEditingTextId(null) }}
+                onClick={() => { setSelectedImageId(null); setSelectedVideoId(null); setSelectedTextId(null); setEditingTextId(null); if (cropEditId) exitCropEdit() }}
                 onDoubleClick={handleCanvasDoubleClick}
               />
               <div className={styles.overlayLayer}>

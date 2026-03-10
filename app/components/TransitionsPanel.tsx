@@ -45,6 +45,16 @@ const ZOOM_OPTIONS: { value: ZoomMode; label: string; desc: string; icon: React.
       </svg>
     ),
   },
+  {
+    value: 'shake',
+    label: 'Shake',
+    desc: 'Zooms in and smoothly shakes the image throughout its duration',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 12 Q6 9 8 12 Q10 15 12 12 Q14 9 16 12 Q18 15 20 12" />
+      </svg>
+    ),
+  },
 ]
 
 export default function TransitionsPanel({ onClose }: Props) {
@@ -59,16 +69,10 @@ export default function TransitionsPanel({ onClose }: Props) {
   const selectedVideo = selectedVideoId ? videos.find((v) => v.id === selectedVideoId) : null
   const selectedItem = selectedImage ?? selectedVideo
   const currentZoom: ZoomMode = selectedItem?.zoom ?? 'none'
-  const currentIntensity = selectedItem?.zoomIntensity ?? 0.15
 
   const handleSelect = (zoom: ZoomMode) => {
     if (selectedImageId) updateImage(selectedImageId, { zoom })
     else if (selectedVideoId) updateVideo(selectedVideoId, { zoom })
-  }
-
-  const handleIntensity = (value: number) => {
-    if (selectedImageId) updateImage(selectedImageId, { zoomIntensity: value })
-    else if (selectedVideoId) updateVideo(selectedVideoId, { zoomIntensity: value })
   }
 
   return (
@@ -98,27 +102,6 @@ export default function TransitionsPanel({ onClose }: Props) {
                 </button>
               ))}
             </div>
-            {currentZoom !== 'none' && (
-              <div className={styles.intensitySection}>
-                <div className={styles.intensityHeader}>
-                  <p className={styles.sectionLabel} style={{ margin: 0 }}>Intensity</p>
-                  <span className={styles.intensityValue}>{Math.round(currentIntensity * 100)}%</span>
-                </div>
-                <input
-                  type="range"
-                  min={5}
-                  max={100}
-                  step={1}
-                  value={Math.round(currentIntensity * 100)}
-                  onChange={(e) => handleIntensity(Number(e.target.value) / 100)}
-                  className={styles.intensitySlider}
-                />
-                <div className={styles.intensityHints}>
-                  <span>Subtle</span>
-                  <span>Strong</span>
-                </div>
-              </div>
-            )}
           </>
         )}
       </div>

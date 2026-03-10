@@ -40,9 +40,6 @@ export default function Timeline({ onOpenTransitions }: TimelineProps) {
   const updateText = useManifestStore((state) => state.updateText)
   const removeText = useManifestStore((state) => state.removeText)
   const splitText = useManifestStore((state) => state.splitText)
-  const replaceTargetId = useManifestStore((state) => state.replaceTargetId)
-  const setReplaceTargetId = useManifestStore((state) => state.setReplaceTargetId)
-  const setPendingPrompt = useManifestStore((state) => state.setPendingPrompt)
   const playbackTime = useManifestStore((state) => state.playbackTime)
   const isPlaying = useManifestStore((state) => state.isPlaying)
   const playbackRate = useManifestStore((state) => state.playbackRate)
@@ -70,6 +67,8 @@ export default function Timeline({ onOpenTransitions }: TimelineProps) {
   const removeAudio = useAudioStore((state) => state.removeAudio)
   const addAudioToManifest = useManifestStore((state) => state.addAudio)
   const removeAudioFromManifest = useManifestStore((state) => state.removeAudio)
+  const trimAudio = useManifestStore((state) => state.trimAudio)
+  const audios = useManifestStore((state) => state.audios)
   const audioUrl = useAudioStore((state) => state.audioUrl)
   const userMarks = useAudioStore((state) => state.userMarks)
   const addUserMark = useAudioStore((state) => state.addUserMark)
@@ -92,6 +91,28 @@ export default function Timeline({ onOpenTransitions }: TimelineProps) {
   const [videoThumbnails, setVideoThumbnails] = useState<Map<string, string[]>>(new Map())
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null)
   const [trimDragging, setTrimDragging] = useState<{ videoId: string; handle: TrimHandle } | null>(null)
+  const [audioTrimDragging, setAudioTrimDragging] = useState<{ audioId: string; handle: 'start' | 'end' } | null>(null)
+  const audioTrimRef = useRef<{
+    trimStart: number
+    trimEnd: number
+    originalDuration: number
+    startTime: number
+    fileOffset: number
+    initialMouseX: number
+    timelineWidth: number
+    totalWithPadding: number
+  } | null>(null)
+  const [audioBodyDragging, setAudioBodyDragging] = useState<{ audioId: string } | null>(null)
+  const audioBodyDragRef = useRef<{
+    initialStartTime: number
+    initialTrimStart: number
+    initialOrigDuration: number
+    initialEffectiveDuration: number
+    initialMouseX: number
+    timelineWidth: number
+    totalWithPadding: number
+    totalDuration: number
+  } | null>(null)
   const [imageDragging, setImageDragging] = useState<{ imageId: string; handle: 'move' | 'start' | 'end' } | null>(null)
   const [overlayVideoDragging, setOverlayVideoDragging] = useState<{ videoId: string } | null>(null)
   const [textDragging, setTextDragging] = useState<{ textId: string; handle: 'move' | 'start' | 'end' } | null>(null)
@@ -140,7 +161,8 @@ export default function Timeline({ onOpenTransitions }: TimelineProps) {
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
     const secs = Math.floor(seconds % 60)
-    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+    const ms = Math.floor((seconds % 1) * 100)
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}:${String(ms).padStart(2, '0')}`
   }
 
   const getContentPosition = (time: number) => {
@@ -329,7 +351,9 @@ export default function Timeline({ onOpenTransitions }: TimelineProps) {
           const audioCtx = new AudioContext()
           const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer)
           await audioCtx.close()
-          const audioInstance = new AudioClass(audioId, file.name, blobUrl, 0, audioBuffer.duration)
+          const audioDuration = audioBuffer.duration
+          const defaultTrimEnd = Math.max(0, audioDuration - totalDuration)
+          const audioInstance = new AudioClass(audioId, file.name, blobUrl, 0, audioDuration, [], undefined, 0, defaultTrimEnd, audioDuration)
           setAudio(audioInstance)
           addAudioToManifest(audioInstance)
           const mono = toMono(audioBuffer)
@@ -404,7 +428,9 @@ export default function Timeline({ onOpenTransitions }: TimelineProps) {
     setExportProgress({ phase: 'preparing', progress: 0, message: 'Starting export...' })
 
     try {
-      const blob = await exportVideo(videos, aspectRatio, setExportProgress, images, audioUrl, texts)
+      const audioTrimStart = audios[0]?.trimStart ?? 0
+      const audioStartTime = audios[0]?.startTime ?? 0
+      const blob = await exportVideo(videos, aspectRatio, setExportProgress, images, audioUrl, texts, audioTrimStart, audioStartTime)
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
       downloadBlob(blob, `mango-export-${timestamp}.mp4`)
     } catch (error) {
@@ -505,6 +531,89 @@ export default function Timeline({ onOpenTransitions }: TimelineProps) {
   const handleTrimEnd = useCallback(() => {
     setTrimDragging(null)
     trimStartRef.current = null
+    pushHistory()
+  }, [pushHistory])
+
+  const handleAudioTrimStart = useCallback((audioId: string, handle: 'start' | 'end', e: React.MouseEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+    const audioItem = audios.find((a) => a.id === audioId)
+    if (!audioItem || !timelineRowRef.current) return
+    const rect = timelineRowRef.current.getBoundingClientRect()
+    setAudioTrimDragging({ audioId, handle })
+    audioTrimRef.current = {
+      trimStart: audioItem.trimStart,
+      trimEnd: audioItem.trimEnd,
+      originalDuration: audioItem.originalDuration,
+      startTime: audioItem.startTime,
+      fileOffset: audioItem.startTime - audioItem.trimStart,
+      initialMouseX: e.clientX,
+      timelineWidth: rect.width,
+      totalWithPadding: totalDuration + effectivePadding * 2,
+    }
+    setIsPlaying(false)
+  }, [audios, totalDuration, effectivePadding, setIsPlaying])
+
+  const handleAudioTrimMove = useCallback((e: MouseEvent) => {
+    if (!audioTrimDragging || !audioTrimRef.current) return
+    const { trimStart: initialTrimStart, trimEnd: initialTrimEnd, originalDuration, fileOffset, initialMouseX, timelineWidth, totalWithPadding } = audioTrimRef.current
+    const mouseDeltaX = e.clientX - initialMouseX
+    const mouseDeltaTime = (mouseDeltaX / timelineWidth) * totalWithPadding
+    const minDuration = 0.5
+
+    if (audioTrimDragging.handle === 'start') {
+      let newTrimStart = initialTrimStart + mouseDeltaTime
+      newTrimStart = Math.max(0, Math.min(newTrimStart, originalDuration - initialTrimEnd - minDuration))
+      const newStartTime = Math.max(0, fileOffset + newTrimStart)
+      trimAudio(audioTrimDragging.audioId, newTrimStart, initialTrimEnd, newStartTime)
+    } else {
+      let newTrimEnd = initialTrimEnd - mouseDeltaTime
+      newTrimEnd = Math.max(0, Math.min(newTrimEnd, originalDuration - initialTrimStart - minDuration))
+      trimAudio(audioTrimDragging.audioId, initialTrimStart, newTrimEnd)
+    }
+  }, [audioTrimDragging, trimAudio])
+
+  const handleAudioTrimEnd = useCallback(() => {
+    setAudioTrimDragging(null)
+    audioTrimRef.current = null
+    pushHistory()
+  }, [pushHistory])
+
+  const handleAudioBodyDragStart = useCallback((audioId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+    const audioItem = audios.find((a) => a.id === audioId)
+    if (!audioItem || !timelineRowRef.current) return
+    const rect = timelineRowRef.current.getBoundingClientRect()
+    const activeDur = audioItem.originalDuration - audioItem.trimStart - audioItem.trimEnd
+    const effectiveDur = Math.min(activeDur, Math.max(0, totalDuration - audioItem.startTime))
+    setAudioBodyDragging({ audioId })
+    audioBodyDragRef.current = {
+      initialStartTime: audioItem.startTime,
+      initialTrimStart: audioItem.trimStart,
+      initialOrigDuration: audioItem.originalDuration,
+      initialEffectiveDuration: effectiveDur,
+      initialMouseX: e.clientX,
+      timelineWidth: rect.width,
+      totalWithPadding: totalDuration + effectivePadding * 2,
+      totalDuration,
+    }
+    setIsPlaying(false)
+  }, [audios, totalDuration, effectivePadding, setIsPlaying])
+
+  const handleAudioBodyDragMove = useCallback((e: MouseEvent) => {
+    if (!audioBodyDragging || !audioBodyDragRef.current) return
+    const { initialStartTime, initialTrimStart, initialOrigDuration, initialEffectiveDuration, initialMouseX, timelineWidth, totalWithPadding, totalDuration: td } = audioBodyDragRef.current
+    const mouseDeltaTime = ((e.clientX - initialMouseX) / timelineWidth) * totalWithPadding
+    const newStartTime = Math.max(0, initialStartTime + mouseDeltaTime)
+    const newActiveDuration = Math.min(initialEffectiveDuration, Math.max(0, td - newStartTime))
+    const newTrimEnd = Math.max(0, initialOrigDuration - initialTrimStart - newActiveDuration)
+    trimAudio(audioBodyDragging.audioId, initialTrimStart, newTrimEnd, newStartTime)
+  }, [audioBodyDragging, trimAudio])
+
+  const handleAudioBodyDragEnd = useCallback(() => {
+    setAudioBodyDragging(null)
+    audioBodyDragRef.current = null
     pushHistory()
   }, [pushHistory])
 
@@ -744,6 +853,26 @@ export default function Timeline({ onOpenTransitions }: TimelineProps) {
   }, [trimDragging, handleTrimMove, handleTrimEnd])
 
   useEffect(() => {
+    if (!audioTrimDragging) return
+    document.addEventListener('mousemove', handleAudioTrimMove)
+    document.addEventListener('mouseup', handleAudioTrimEnd)
+    return () => {
+      document.removeEventListener('mousemove', handleAudioTrimMove)
+      document.removeEventListener('mouseup', handleAudioTrimEnd)
+    }
+  }, [audioTrimDragging, handleAudioTrimMove, handleAudioTrimEnd])
+
+  useEffect(() => {
+    if (!audioBodyDragging) return
+    document.addEventListener('mousemove', handleAudioBodyDragMove)
+    document.addEventListener('mouseup', handleAudioBodyDragEnd)
+    return () => {
+      document.removeEventListener('mousemove', handleAudioBodyDragMove)
+      document.removeEventListener('mouseup', handleAudioBodyDragEnd)
+    }
+  }, [audioBodyDragging, handleAudioBodyDragMove, handleAudioBodyDragEnd])
+
+  useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName
       const isEditing = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable
@@ -817,12 +946,13 @@ export default function Timeline({ onOpenTransitions }: TimelineProps) {
   useEffect(() => {
     const canvas = audioCanvasRef.current
     if (!canvas || !audioAnalysis) return
-    const draw = () => drawAudioGraph(canvas, audioAnalysis, totalDuration, effectivePadding)
+    const audioItem = useManifestStore.getState().audios[0]
+    const draw = () => drawAudioGraph(canvas, audioAnalysis, totalDuration, effectivePadding, audioItem?.trimStart ?? 0, audioItem?.trimEnd ?? 0, audioItem?.startTime ?? 0)
     draw()
     const ro = new ResizeObserver(draw)
     ro.observe(canvas)
     return () => ro.disconnect()
-  }, [audioAnalysis, totalDuration, effectivePadding])
+  }, [audioAnalysis, totalDuration, effectivePadding, audios])
 
   useEffect(() => {
     if (!showCropMenu) return
@@ -909,7 +1039,7 @@ export default function Timeline({ onOpenTransitions }: TimelineProps) {
               <button
                 className={styles.speedButton}
                 onClick={() => {
-                  const steps = [0.25, 0.5, 1, 1.5, 2]
+                  const steps = [0.5, 0.75, 1, 1.5, 2]
                   const idx = steps.indexOf(playbackRate)
                   setPlaybackRate(steps[(idx + 1) % steps.length])
                 }}
@@ -1090,33 +1220,91 @@ export default function Timeline({ onOpenTransitions }: TimelineProps) {
               <div className={styles.playheadLine} />
               <div ref={scrollContainerRef} className={styles.scrollContainer} onScroll={handleScroll}>
                 <div className={styles.timelineContent} style={{ width: `${totalTimelineWidth}%` }}>
-                  {(audioAnalysis || isAnalyzing) && (
+                  {(audioAnalysis || isAnalyzing) && (() => {
+                    const audioItem = audios[0]
+                    const aTrimStart = audioItem?.trimStart ?? 0
+                    const aTrimEnd = audioItem?.trimEnd ?? 0
+                    const aOrigDur = audioItem?.originalDuration ?? audioAnalysis?.duration ?? 0
+                    const aStartTime = audioItem?.startTime ?? 0
+                    const aActiveDur = aOrigDur - aTrimStart - aTrimEnd
+                    const totalWithPadding = totalDuration + effectivePadding * 2
+                    const activeStartPct = getContentPosition(aStartTime)
+                    const activeEndPct = getContentPosition(Math.min(aStartTime + aActiveDur, totalDuration))
+                    return (
                     <div
-                      className={`${styles.audioRow} ${isAudioSelected ? styles.audioRowSelected : ''}`}
+                      className={styles.audioRow}
                       onClick={() => setIsAudioSelected((s) => !s)}
                     >
+                      <div
+                        className={styles.audioRowBackground}
+                        style={{
+                          left: `${activeStartPct}%`,
+                          width: `${Math.max(0, activeEndPct - activeStartPct)}%`,
+                          cursor: audioItem ? 'grab' : 'default',
+                        }}
+                        onMouseDown={audioItem ? (e) => handleAudioBodyDragStart(audioItem.id, e) : undefined}
+                      />
                       {isAnalyzing && (
                         <span className={styles.analyzingBadge}>Analyzing audio…</span>
                       )}
                       {audioAnalysis && (
                         <>
                           <canvas ref={audioCanvasRef} className={styles.audioCanvas} />
-                          {userMarks
-                            .filter((t) => t >= 0 && t <= audioAnalysis.duration)
-                            .map((t, i) => (
+                          {isAudioSelected && totalDuration > 0 && (
+                            <div
+                              className={styles.audioRowSelected}
+                              style={{
+                                position: 'absolute',
+                                top: 0,
+                                bottom: 0,
+                                left: `${activeStartPct}%`,
+                                width: `${activeEndPct - activeStartPct}%`,
+                                pointerEvents: 'none',
+                              }}
+                            />
+                          )}
+                          {isAudioSelected && audioItem && (
+                            <>
                               <div
-                                key={`um-${i}`}
-                                className={styles.userMarkMarker}
-                                style={{ left: `${getContentPosition(t)}%` }}
-                                title={`Mark at ${t.toFixed(2)}s`}
+                                className={styles.audioTrimHandleStart}
+                                style={{ left: `${activeStartPct}%` }}
+                                onMouseDown={(e) => { e.stopPropagation(); handleAudioTrimStart(audioItem.id, 'start', e) }}
                               />
-                            ))}
+                              <div
+                                className={styles.audioTrimHandleEnd}
+                                style={{ left: `${activeEndPct}%` }}
+                                onMouseDown={(e) => { e.stopPropagation(); handleAudioTrimStart(audioItem.id, 'end', e) }}
+                              />
+                            </>
+                          )}
+                          {userMarks
+                            .filter((t) => t >= aTrimStart && t <= (aOrigDur - aTrimEnd))
+                            .map((t, i) => {
+                              const timelinePos = aStartTime + (t - aTrimStart)
+                              if (timelinePos > totalDuration) return null
+                              return (
+                                <div
+                                  key={`um-${i}`}
+                                  className={styles.userMarkMarker}
+                                  style={{ left: `${getContentPosition(timelinePos)}%` }}
+                                  title={`Mark at ${t.toFixed(2)}s`}
+                                />
+                              )
+                            })}
                         </>
                       )}
                     </div>
-                  )}
+                    )
+                  })()}
                   {(images.some((img) => !img.isMainTrack) || videos.some((v) => v.isOverlay)) && (
                   <div className={styles.overlayRow}>
+                    <div
+                      className={styles.overlayRowBackground}
+                      style={{
+                        left: `${getContentPosition(0)}%`,
+                        width: `${(totalDuration / (totalDuration + effectivePadding * 2)) * 100}%`,
+                      }}
+                    />
                     {images.filter((img) => !img.isMainTrack).map((image) => {
                       const leftPercent = getContentPosition(image.startTime)
                       const widthPercent = totalDuration > 0 ? (image.duration / (totalDuration + effectivePadding * 2)) * 100 : 0
@@ -1212,6 +1400,13 @@ export default function Timeline({ onOpenTransitions }: TimelineProps) {
                   )}
                   {texts.length > 0 && (
                     <div className={styles.textRow}>
+                      <div
+                        className={styles.textRowBackground}
+                        style={{
+                          left: `${getContentPosition(0)}%`,
+                          width: `${(totalDuration / (totalDuration + effectivePadding * 2)) * 100}%`,
+                        }}
+                      />
                       {texts.map((text) => {
                         const leftPercent = getContentPosition(text.startTime)
                         const widthPercent = totalDuration > 0 ? (text.duration / (totalDuration + effectivePadding * 2)) * 100 : 0
@@ -1252,12 +1447,11 @@ export default function Timeline({ onOpenTransitions }: TimelineProps) {
                       const leftPercent = getContentPosition(video.timestamp)
                       const widthPercent = totalDuration > 0 && video.duration ? (video.duration / (totalDuration + effectivePadding * 2)) * 100 : 0
                       const isSelected = selectedVideoId === video.id
-                      const isReplaceTarget = replaceTargetId === video.id
                       const hasTrim = video.trimStart > 0 || video.trimEnd > 0
                       return (
                         <div
                           key={video.id}
-                          className={`${styles.timelineItem} ${isSelected ? styles.selected : ''} ${hasTrim ? styles.trimmed : ''} ${isReplaceTarget ? styles.replaceTarget : ''}`}
+                          className={`${styles.timelineItem} ${isSelected ? styles.selected : ''} ${hasTrim ? styles.trimmed : ''}`}
                           style={{
                             left: `${leftPercent}%`,
                             width: `${widthPercent}%`,
@@ -1279,34 +1473,6 @@ export default function Timeline({ onOpenTransitions }: TimelineProps) {
                             className={styles.trimHandleEnd}
                             onMouseDown={(e) => handleTrimStart(video.id, 'end', e)}
                           />
-                          <button
-                            className={`${styles.replaceButton} ${isReplaceTarget ? styles.active : ''}`}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setReplaceTargetId(isReplaceTarget ? null : video.id)
-                            }}
-                            title={isReplaceTarget ? 'Cancel replace mode' : 'Replace this video'}
-                          >
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
-                            </svg>
-                          </button>
-                          <button
-                            className={`${styles.copyPromptButton} ${!video.prompt ? styles.disabled : ''}`}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              if (video.prompt) {
-                                setPendingPrompt(video.prompt)
-                              }
-                            }}
-                            title={video.prompt ? 'Use this prompt' : 'No prompt available'}
-                            disabled={!video.prompt}
-                          >
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                            </svg>
-                          </button>
                         </>
                       )}
                       <div className={styles.videoBox}>
@@ -1342,15 +1508,11 @@ export default function Timeline({ onOpenTransitions }: TimelineProps) {
                             ))
                           })()}
                         </div>
-                        {(hasTrim || isReplaceTarget) && (
+                        {hasTrim && (
                           <div className={styles.videoOverlayText}>
-                            {isReplaceTarget ? (
-                              <span className={styles.replaceIndicator}>Will be replaced</span>
-                            ) : (
-                              <span className={styles.trimBadge}>
-                                {video.trimStart.toFixed(1)}s / {video.trimEnd.toFixed(1)}s
-                              </span>
-                            )}
+                            <span className={styles.trimBadge}>
+                              {video.trimStart.toFixed(1)}s / {video.trimEnd.toFixed(1)}s
+                            </span>
                           </div>
                         )}
                       </div>
@@ -1361,11 +1523,10 @@ export default function Timeline({ onOpenTransitions }: TimelineProps) {
                       const leftPercent = getContentPosition(image.startTime)
                       const widthPercent = totalDuration > 0 ? (image.duration / (totalDuration + effectivePadding * 2)) * 100 : 0
                       const isSelected = selectedImageId === image.id
-                      const isReplaceTarget = replaceImageTargetId === image.id
                       return (
                         <div
                           key={image.id}
-                          className={`${styles.overlayItem} ${isSelected ? styles.selected : ''} ${isReplaceTarget ? styles.replaceTarget : ''}`}
+                          className={`${styles.overlayItem} ${isSelected ? styles.selected : ''}`}
                           style={{ left: `${leftPercent}%`, width: `${widthPercent}%`, position: 'absolute', height: '100%' }}
                           onClick={(e) => {
                             e.stopPropagation()
@@ -1386,17 +1547,17 @@ export default function Timeline({ onOpenTransitions }: TimelineProps) {
                           />
                           {isSelected && (
                             <button
-                              className={`${styles.replaceButton} ${isReplaceTarget ? styles.active : ''}`}
+                              className={`${styles.replaceButton} ${replaceImageTargetId === image.id ? styles.active : ''}`}
                               onClick={(e) => {
                                 e.stopPropagation()
-                                if (isReplaceTarget) {
+                                if (replaceImageTargetId === image.id) {
                                   setReplaceImageTargetId(null)
                                 } else {
                                   setReplaceImageTargetId(image.id)
                                   replaceImageInputRef.current?.click()
                                 }
                               }}
-                              title={isReplaceTarget ? 'Cancel replace' : 'Replace image source'}
+                              title={replaceImageTargetId === image.id ? 'Cancel replace' : 'Replace image source'}
                             >
                               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                 <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />

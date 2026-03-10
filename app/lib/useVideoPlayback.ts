@@ -201,10 +201,11 @@ export function useVideoPlayback(
     visibleImages.forEach((image) => {
       const img = imageElementsRef.current.get(image.id)
       if (!img || !img.complete || img.naturalWidth === 0) return
-      const progress = image.duration > 0 ? (currentTime - image.startTime) / image.duration : 0
+      const elapsedTime = currentTime - image.startTime
+      const progress = image.duration > 0 ? elapsedTime / image.duration : 0
       ctx.save()
       ctx.globalAlpha = image.opacity
-      applyZoomTransform(ctx, image.zoom, progress, img, cx + image.x * xScale, cy + image.y * yScale, image.width * xScale, image.height * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity)
+      applyZoomTransform(ctx, image.zoom, progress, img, cx + image.x * xScale, cy + image.y * yScale, image.width * xScale, image.height * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, elapsedTime)
       ctx.restore()
     })
   }, [getState])
@@ -233,7 +234,7 @@ export function useVideoPlayback(
       const progress = duration > 0 ? localTime / duration : 0
       ctx.save()
       ctx.globalAlpha = video.opacity
-      applyZoomTransform(ctx, video.zoom, progress, videoEl, cx + video.x * xScale, cy + video.y * yScale, video.width * xScale, video.height * yScale, 0, 0, 1, 1, video.zoomIntensity)
+      applyZoomTransform(ctx, video.zoom, progress, videoEl, cx + video.x * xScale, cy + video.y * yScale, video.width * xScale, video.height * yScale, 0, 0, 1, 1, video.zoomIntensity, localTime)
       ctx.restore()
     })
   }, [getState])
@@ -287,6 +288,11 @@ export function useVideoPlayback(
         }
 
         const audioEl = audioElementRef.current
+        const audioTrimStart = state.audios?.[0]?.trimStart ?? 0
+        const audioTrimEnd = state.audios?.[0]?.trimEnd ?? 0
+        const audioOrigDur = state.audios?.[0]?.originalDuration ?? Infinity
+        const audioStartTime = state.audios?.[0]?.startTime ?? 0
+        const audioActiveEnd = audioOrigDur - audioTrimEnd
 
         if (isPlaying) {
           const rate = state.playbackRate ?? 1
@@ -301,16 +307,22 @@ export function useVideoPlayback(
           } else {
             state.setPlaybackTime(newTime)
             if (audioEl) {
+              const targetAudioTime = audioTrimStart + Math.max(0, newTime - audioStartTime)
               if (audioEl.playbackRate !== rate) audioEl.playbackRate = rate
-              if (Math.abs(audioEl.currentTime - newTime) > 0.3) audioEl.currentTime = newTime
-              if (audioEl.paused && audioEl.readyState >= 2) audioEl.play().catch(() => {})
+              if (newTime < audioStartTime || targetAudioTime >= audioActiveEnd) {
+                if (!audioEl.paused) audioEl.pause()
+              } else {
+                if (Math.abs(audioEl.currentTime - targetAudioTime) > 0.3) audioEl.currentTime = targetAudioTime
+                if (audioEl.paused && audioEl.readyState >= 2) audioEl.play().catch(() => {})
+              }
             }
           }
         } else {
           lastTimestamp = null
           if (audioEl && !audioEl.paused) audioEl.pause()
-          if (audioEl && Math.abs(audioEl.currentTime - playbackTime) > 0.3) {
-            audioEl.currentTime = playbackTime
+          if (audioEl) {
+            const targetAudioTime = audioTrimStart + Math.max(0, playbackTime - audioStartTime)
+            if (Math.abs(audioEl.currentTime - targetAudioTime) > 0.3) audioEl.currentTime = targetAudioTime
           }
           if (activeClip) {
             const videoEl = videoElementsRef.current.get(activeClip.id)

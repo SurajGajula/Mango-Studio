@@ -87,13 +87,13 @@
 }
 
 .optionCardActive {
-  border-color: #4a9eff;
-  background-color: #0d1f35;
+  border-color: #ffffff;
+  background-color: #1a1a1a;
 }
 
 .optionCardActive:hover {
-  border-color: #6ab4ff;
-  background-color: #0d1f35;
+  border-color: #ffffff;
+  background-color: #1a1a1a;
 }
 
 .optionIcon {
@@ -108,7 +108,7 @@
 }
 
 .optionCardActive .optionIcon {
-  background-color: #1a3a5c;
+  background-color: #333333;
 }
 
 .optionInfo {
@@ -133,7 +133,7 @@
 }
 
 .optionCardActive .optionDesc {
-  color: #7fb3e8;
+  color: #999999;
 }
 
 .intensitySection {
@@ -152,7 +152,7 @@
 .intensityValue {
   font-size: 0.75rem;
   font-weight: 600;
-  color: #4a9eff;
+  color: #ffffff;
   min-width: 2.5rem;
   text-align: right;
 }
@@ -172,13 +172,13 @@
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #4a9eff;
+  background: #ffffff;
   cursor: pointer;
   transition: background 0.15s ease, transform 0.1s ease;
 }
 
 .intensitySlider::-webkit-slider-thumb:hover {
-  background: #6ab4ff;
+  background: #e0e0e0;
   transform: scale(1.2);
 }
 
@@ -187,7 +187,7 @@
   height: 14px;
   border: none;
   border-radius: 50%;
-  background: #4a9eff;
+  background: #ffffff;
   cursor: pointer;
 }
 

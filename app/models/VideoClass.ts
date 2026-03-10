@@ -60,6 +60,6 @@ export class VideoClass {
     this.height = height ?? 270
     this.opacity = opacity ?? 1
     this.zoom = zoom ?? 'none'
-    this.zoomIntensity = zoomIntensity ?? 0.15
+    this.zoomIntensity = zoomIntensity ?? 0.5
   }
 }

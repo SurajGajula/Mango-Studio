@@ -52,6 +52,8 @@ interface ImageOnlyExportParams {
   canvas: HTMLCanvasElement
   totalDuration: number
   audioUrl: string | null
+  audioTrimStart?: number
+  audioStartTime?: number
   drawFrameToCanvas: (t: number) => void
   onProgress?: ProgressCallback
 }
@@ -62,6 +64,8 @@ async function exportImageOnlyWithFFmpeg({
   canvas,
   totalDuration,
   audioUrl,
+  audioTrimStart,
+  audioStartTime,
   drawFrameToCanvas,
   onProgress,
 }: ImageOnlyExportParams): Promise<Blob> {
@@ -146,7 +150,13 @@ async function exportImageOnlyWithFFmpeg({
     '-f', 'concat', '-safe', '0', '-i', 'concat.txt',
   ]
 
-  if (audioUrl) args.push('-i', 'bgaudio.mp3')
+  if (audioUrl) {
+    const aDelay = audioStartTime ?? 0
+    const aTrimStart = audioTrimStart ?? 0
+    if (aDelay > 0) args.push('-itsoffset', aDelay.toFixed(3))
+    if (aTrimStart > 0) args.push('-ss', aTrimStart.toFixed(3))
+    args.push('-i', 'bgaudio.mp3')
+  }
 
   args.push(
     '-c:v', 'libx264',
@@ -188,7 +198,9 @@ export async function exportVideo(
   onProgress?: ProgressCallback,
   images?: ImageClass[],
   audioUrl?: string | null,
-  texts?: TextClass[]
+  texts?: TextClass[],
+  audioTrimStart?: number,
+  audioStartTime?: number
 ): Promise<Blob> {
   const mainVideos = [...videos].filter((v) => !v.isOverlay).sort((a, b) => a.timestamp - b.timestamp)
   const overlayVideos = videos.filter((v) => v.isOverlay)
@@ -269,10 +281,11 @@ export async function exportVideo(
         .forEach((image) => {
           const img = imageElements.get(image.id)
           if (!img || img.naturalWidth === 0) return
-          const progress = image.duration > 0 ? (t - image.startTime) / image.duration : 0
+          const imageElapsed = t - image.startTime
+          const progress = image.duration > 0 ? imageElapsed / image.duration : 0
           ctx.save()
           ctx.globalAlpha = image.opacity
-          applyZoomTransform(ctx, image.zoom, progress, img, image.x * xScale, image.y * yScale, image.width * xScale, image.height * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity)
+          applyZoomTransform(ctx, image.zoom, progress, img, image.x * xScale, image.y * yScale, image.width * xScale, image.height * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, imageElapsed)
           ctx.restore()
         })
     }
@@ -284,10 +297,11 @@ export async function exportVideo(
         const localTime = (video.trimStart ?? 0) + (t - video.timestamp)
         if (Math.abs(videoEl.currentTime - localTime) > 0.1) videoEl.currentTime = localTime
         const vDuration = video.duration ?? 0
-        const vProgress = vDuration > 0 ? (t - video.timestamp) / vDuration : 0
+        const vElapsed = t - video.timestamp
+        const vProgress = vDuration > 0 ? vElapsed / vDuration : 0
         ctx.save()
         ctx.globalAlpha = video.opacity
-        applyZoomTransform(ctx, video.zoom, vProgress, videoEl, video.x * xScale, video.y * yScale, video.width * xScale, video.height * yScale, 0, 0, 1, 1, video.zoomIntensity)
+        applyZoomTransform(ctx, video.zoom, vProgress, videoEl, video.x * xScale, video.y * yScale, video.width * xScale, video.height * yScale, 0, 0, 1, 1, video.zoomIntensity, vElapsed)
         ctx.restore()
       })
     if (texts && texts.length > 0) {
@@ -338,6 +352,8 @@ export async function exportVideo(
       canvas,
       totalDuration,
       audioUrl: audioUrl ?? null,
+      audioTrimStart,
+      audioStartTime,
       drawFrameToCanvas,
       onProgress,
     })
@@ -551,8 +567,15 @@ export async function exportVideo(
     }
 
     if (bgAudioElement) {
-      bgAudioElement.currentTime = 0
-      bgAudioElement.play().catch(() => {})
+      bgAudioElement.currentTime = audioTrimStart ?? 0
+      const audioDelay = audioStartTime ?? 0
+      if (audioDelay > 0) {
+        setTimeout(() => {
+          if (bgAudioElement && !bgAudioElement.ended) bgAudioElement.play().catch(() => {})
+        }, audioDelay * 1000)
+      } else {
+        bgAudioElement.play().catch(() => {})
+      }
     }
 
     animationId = requestAnimationFrame(renderFrame)

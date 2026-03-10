@@ -11,6 +11,7 @@ interface HistoryEntry {
   videos: VideoClass[]
   images: ImageClass[]
   texts: TextClass[]
+  audios: AudioClass[]
 }
 
 const MAX_HISTORY = 50
@@ -28,6 +29,8 @@ interface ManifestStore {
   history: HistoryEntry[]
   historyIndex: number
   pushHistory: () => void
+  pauseHistory: () => void
+  resumeHistory: () => void
   undo: () => void
   redo: () => void
   addVideo: (video: VideoClass) => void
@@ -61,6 +64,7 @@ interface ManifestStore {
   addAudio: (audio: AudioClass) => void
   updateAudio: (id: string, updates: Partial<AudioClass>) => void
   removeAudio: (id: string) => void
+  trimAudio: (id: string, trimStart: number, trimEnd: number, startTime?: number) => void
   splitVideoAtTimes: (id: string, times: number[]) => void
   splitImageAtTimes: (id: string, times: number[]) => void
 }
@@ -92,6 +96,8 @@ function pruneUrls(
   }
 }
 
+let historyPaused = false
+
 export const useManifestStore = create<ManifestStore>((set, get) => ({
   videos: [],
   images: [],
@@ -103,15 +109,20 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
   isPlaying: false,
   playbackRate: 1,
   aspectRatio: '16:9',
-  history: [{ videos: [], images: [], texts: [] }],
+  history: [{ videos: [], images: [], texts: [], audios: [] }],
   historyIndex: 0,
 
+  pauseHistory: () => { historyPaused = true },
+  resumeHistory: () => { historyPaused = false },
+
   pushHistory: () => {
+    if (historyPaused) return
     const state = get()
     const entry: HistoryEntry = {
       videos: [...state.videos],
       images: [...state.images],
       texts: [...state.texts],
+      audios: [...state.audios],
     }
     const current = state.history[state.historyIndex]
     if (current && JSON.stringify(current) === JSON.stringify(entry)) return
@@ -133,6 +144,7 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
       videos: [...target.videos],
       images: [...target.images],
       texts: [...(target.texts ?? [])],
+      audios: [...(target.audios ?? [])],
       historyIndex: state.historyIndex - 1,
       isPlaying: false,
     })
@@ -147,6 +159,7 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
       videos: [...target.videos],
       images: [...target.images],
       texts: [...(target.texts ?? [])],
+      audios: [...(target.audios ?? [])],
       historyIndex: state.historyIndex + 1,
       isPlaying: false,
     })
@@ -699,7 +712,10 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
               updates.startTime ?? a.startTime,
               updates.endTime ?? a.endTime,
               updates.marks ?? a.marks,
-              a.createdAt
+              a.createdAt,
+              updates.trimStart ?? a.trimStart,
+              updates.trimEnd ?? a.trimEnd,
+              updates.originalDuration ?? a.originalDuration
             )
           : a
       ),
@@ -712,6 +728,26 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
       if (audio?.url.startsWith('blob:')) URL.revokeObjectURL(audio.url)
       return { audios: state.audios.filter((a) => a.id !== id) }
     })
+  },
+
+  trimAudio: (id: string, trimStart: number, trimEnd: number, startTime?: number) => {
+    const state = get()
+    const audio = state.audios.find((a) => a.id === id)
+    if (!audio) return
+    const origDuration = audio.originalDuration
+    const clampedTrimStart = Math.max(0, Math.min(trimStart, origDuration - 0.1))
+    const clampedTrimEnd = Math.max(0, Math.min(trimEnd, origDuration - clampedTrimStart - 0.1))
+    const newStartTime = startTime !== undefined ? Math.max(0, startTime) : audio.startTime
+    set((s) => ({
+      audios: s.audios.map((a) =>
+        a.id !== id ? a : new AudioClass(
+          a.id, a.name, a.url,
+          newStartTime, a.endTime,
+          a.marks, a.createdAt,
+          clampedTrimStart, clampedTrimEnd, origDuration
+        )
+      ),
+    }))
   },
 
   splitVideoAtTimes: (id: string, times: number[]) => {

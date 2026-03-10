@@ -1,4 +1,4 @@
-export type ZoomMode = 'none' | 'in' | 'out'
+export type ZoomMode = 'none' | 'in' | 'out' | 'shake'
 
 export class ImageClass {
   id: string
@@ -55,7 +55,7 @@ export class ImageClass {
     this.createdAt = createdAt || new Date()
     this.isMainTrack = isMainTrack ?? false
     this.zoom = zoom ?? 'none'
-    this.zoomIntensity = zoomIntensity ?? 0.15
+    this.zoomIntensity = zoomIntensity ?? 0.5
     this.cropAspect = cropAspect
     this.cropSx = cropSx ?? 0
     this.cropSy = cropSy ?? 0
