@@ -5,6 +5,7 @@ import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useAudioStore } from '@/app/stores/audioStore'
 import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
+import { applyEffect } from '@/app/lib/applyEffect'
 
 export function useVideoPlayback(
   canvasRef: React.RefObject<HTMLCanvasElement>,
@@ -137,17 +138,17 @@ export function useVideoPlayback(
     return cr
   }, [computeContentRect])
 
-  const drawVideoToCanvas = useCallback((video: HTMLVideoElement): boolean => {
+  const drawVideoToCanvas = useCallback((video: HTMLVideoElement): { x: number; y: number; width: number; height: number } | null => {
     const canvas = canvasRef.current
     const container = containerRef.current
-    if (!canvas || !container) return false
+    if (!canvas || !container) return null
 
     if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) {
-      return false
+      return null
     }
 
     const ctx = canvas.getContext('2d')
-    if (!ctx) return false
+    if (!ctx) return null
 
     const rect = container.getBoundingClientRect()
     const cw = Math.round(rect.width)
@@ -174,7 +175,7 @@ export function useVideoPlayback(
 
     ctx.drawImage(video, drawX, drawY, drawWidth, drawHeight)
 
-    return true
+    return { x: Math.round(drawX), y: Math.round(drawY), width: Math.round(drawWidth), height: Math.round(drawHeight) }
   }, [canvasRef, containerRef])
 
   const drawImages = useCallback((ctx: CanvasRenderingContext2D, cr: {x:number,y:number,width:number,height:number}, currentTime: number, mainTrackOnly: boolean) => {
@@ -241,6 +242,7 @@ export function useVideoPlayback(
 
   useEffect(() => {
     let currentVideoId: string | null = null
+    let lastKnownIsPlaying = false
 
     const drawOverlays = (ctx: CanvasRenderingContext2D, cr: {x:number,y:number,width:number,height:number}, t: number) => {
       drawImages(ctx, cr, t, false)
@@ -262,6 +264,8 @@ export function useVideoPlayback(
     const loop = (timestamp: number) => {
       const state = getState()
       const { playbackTime, isPlaying } = state
+      const justStartedPlaying = isPlaying && !lastKnownIsPlaying
+      lastKnownIsPlaying = isPlaying
       const { selectedVideoId } = getSelectionState()
       const sorted = [...state.videos].filter((v) => !v.isOverlay).sort((a, b) => a.timestamp - b.timestamp)
 
@@ -284,6 +288,8 @@ export function useVideoPlayback(
             ctx.fillRect(0, 0, canvas.width, canvas.height)
             drawImages(ctx, cr, playbackTime, true)
             drawOverlays(ctx, cr, playbackTime)
+              const activeEffect = state.effects?.find((e) => playbackTime >= e.startTime && playbackTime < e.endTime)
+            if (activeEffect) applyEffect(ctx, activeEffect.type, cr.x, cr.y, cr.width, cr.height, playbackTime)
           }
         }
 
@@ -381,6 +387,9 @@ export function useVideoPlayback(
         if (videoEl.playbackRate !== rate) videoEl.playbackRate = rate
 
         if (videoEl.paused && videoEl.readyState >= 3) {
+          if (Math.abs(videoEl.currentTime - localTimeInOriginal) > 0.02) {
+            videoEl.currentTime = localTimeInOriginal
+          }
           videoEl.play().catch(() => {})
         }
 
@@ -394,7 +403,7 @@ export function useVideoPlayback(
           }
         }
 
-        if (!videoEl.paused) {
+        if (!videoEl.paused && !justStartedPlaying) {
           const newGlobalTime = activeClip.timestamp + (videoEl.currentTime - trimStart)
           if (Math.abs(newGlobalTime - playbackTime) > 0.05) {
             state.setPlaybackTime(newGlobalTime)
@@ -427,10 +436,14 @@ export function useVideoPlayback(
         }
       }
 
-      const drawn = drawVideoToCanvas(videoEl)
-      if (drawn && canvas) {
+      const videoRect = drawVideoToCanvas(videoEl)
+      if (videoRect && canvas) {
         const ctx = canvas.getContext('2d')
-        if (ctx) drawOverlays(ctx, contentRectRef.current, playbackTime)
+        if (ctx) {
+          drawOverlays(ctx, videoRect, playbackTime)
+          const activeEffect = state.effects?.find((e) => playbackTime >= e.startTime && playbackTime < e.endTime)
+          if (activeEffect) applyEffect(ctx, activeEffect.type, videoRect.x, videoRect.y, videoRect.width, videoRect.height, playbackTime)
+        }
       }
 
       rafRef.current = requestAnimationFrame(loop)

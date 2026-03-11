@@ -1,10 +1,12 @@
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { TextClass } from '@/app/models/TextClass'
+import { EffectClass } from '@/app/models/EffectClass'
 import { FFmpeg } from '@ffmpeg/ffmpeg'
 import { fetchFile, toBlobURL } from '@ffmpeg/util'
 import { wrapTextToLines } from '@/app/lib/textUtils'
 import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
+import { applyEffect } from '@/app/lib/applyEffect'
 
 let ffmpegInstance: FFmpeg | null = null
 let ffmpegLoading: Promise<FFmpeg> | null = null
@@ -46,150 +48,13 @@ export interface ExportProgress {
 
 export type ProgressCallback = (progress: ExportProgress) => void
 
-interface ImageOnlyExportParams {
-  images: ImageClass[]
-  texts: TextClass[]
-  canvas: HTMLCanvasElement
-  totalDuration: number
-  audioUrl: string | null
-  audioTrimStart?: number
-  audioStartTime?: number
-  drawFrameToCanvas: (t: number) => void
-  onProgress?: ProgressCallback
-}
 
-async function exportImageOnlyWithFFmpeg({
-  images,
-  texts,
-  canvas,
-  totalDuration,
-  audioUrl,
-  audioTrimStart,
-  audioStartTime,
-  drawFrameToCanvas,
-  onProgress,
-}: ImageOnlyExportParams): Promise<Blob> {
-  onProgress?.({ phase: 'rendering', progress: 15, message: 'Rendering frames...' })
-
-  const ff = await getFFmpeg()
-  for (const f of ['output.mp4']) {
-    try { await ff.deleteFile(f) } catch {}
-  }
-
-  const ANIM_FPS = 30
-  const MAX_ZOOM_FRAMES = 60
-
-  const breakSet = new Set<number>([0, totalDuration])
-  images.forEach((img) => {
-    breakSet.add(img.startTime)
-    breakSet.add(img.endTime)
-    if ((img.zoom ?? 'none') !== 'none') {
-      const imgDur = img.endTime - img.startTime
-      const frameCount = Math.min(Math.round(imgDur * ANIM_FPS), MAX_ZOOM_FRAMES)
-      for (let k = 1; k < frameCount; k++) {
-        breakSet.add(img.startTime + (k / frameCount) * imgDur)
-      }
-    }
-  })
-  texts.forEach((text) => { breakSet.add(text.startTime); breakSet.add(text.endTime) })
-  const sortedBreaks = [...breakSet]
-    .filter((t) => t >= 0 && t <= totalDuration)
-    .sort((a, b) => a - b)
-    .filter((t, i, arr) => i === 0 || t - arr[i - 1] > 1e-9)
-
-  const segments: Array<{ name: string; duration: number }> = []
-
-  for (let i = 0; i < sortedBreaks.length - 1; i++) {
-    const segStart = sortedBreaks[i]
-    const segEnd = sortedBreaks[i + 1]
-    const dur = segEnd - segStart
-    if (dur <= 0) continue
-
-    drawFrameToCanvas(segStart + dur / 2)
-
-    const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.92))
-    if (!blob) continue
-
-    const name = `eif${i}.jpg`
-    await ff.writeFile(name, await fetchFile(blob))
-    segments.push({ name, duration: dur })
-
-    onProgress?.({
-      phase: 'rendering',
-      progress: 15 + ((i + 1) / (sortedBreaks.length - 1)) * 60,
-      message: `Rendering frame ${i + 1}/${sortedBreaks.length - 1}...`,
-    })
-  }
-
-  if (segments.length === 0) throw new Error('No frames to render')
-
-  onProgress?.({ phase: 'converting', progress: 75, message: 'Encoding video...' })
-
-  // Write ffconcat manifest — avoids per-input arg limits for large segment counts
-  // The last file must be duplicated without a duration so FFmpeg encodes the full final-frame duration
-  const concatLines = ['ffconcat version 1.0']
-  for (const seg of segments) {
-    concatLines.push(`file ${seg.name}`)
-    concatLines.push(`duration ${seg.duration}`)
-  }
-  if (segments.length > 0) {
-    concatLines.push(`file ${segments[segments.length - 1].name}`)
-  }
-  const concatText = new TextEncoder().encode(concatLines.join('\n'))
-  try { await ff.deleteFile('concat.txt') } catch {}
-  await ff.writeFile('concat.txt', concatText)
-
-  if (audioUrl) {
-    try { await ff.deleteFile('bgaudio.mp3') } catch {}
-    const audioData = await fetchFile(audioUrl)
-    await ff.writeFile('bgaudio.mp3', audioData)
-  }
-
-  const args: string[] = [
-    '-y',
-    '-f', 'concat', '-safe', '0', '-i', 'concat.txt',
-  ]
-
-  if (audioUrl) {
-    const aDelay = audioStartTime ?? 0
-    const aTrimStart = audioTrimStart ?? 0
-    if (aDelay > 0) args.push('-itsoffset', aDelay.toFixed(3))
-    if (aTrimStart > 0) args.push('-ss', aTrimStart.toFixed(3))
-    args.push('-i', 'bgaudio.mp3')
-  }
-
-  args.push(
-    '-c:v', 'libx264',
-    '-preset', 'ultrafast',
-    '-crf', '23',
-    '-pix_fmt', 'yuv420p',
-    '-movflags', '+faststart',
-  )
-
-  if (audioUrl) {
-    args.push('-map', '0:v', '-map', '1:a', '-c:a', 'aac', '-b:a', '128k', '-shortest')
-  } else {
-    args.push('-an')
-  }
-
-  args.push('output.mp4')
-
-  await ff.exec(args)
-
-  for (const { name } of segments) {
-    try { await ff.deleteFile(name) } catch {}
-  }
-  try { await ff.deleteFile('concat.txt') } catch {}
-  if (audioUrl) {
-    try { await ff.deleteFile('bgaudio.mp3') } catch {}
-  }
-
-  const mp4Data = await ff.readFile('output.mp4') as Uint8Array
-  const mp4Blob = new Blob([mp4Data.buffer as ArrayBuffer], { type: 'video/mp4' })
-  try { await ff.deleteFile('output.mp4') } catch {}
-
-  onProgress?.({ phase: 'complete', progress: 100, message: 'Export complete!' })
-  return mp4Blob
+function resolveCanvasFont(fontFamily: string): string {
+  return fontFamily
+    .split(',')
+    .map((f) => f.trim())
+    .filter((f) => !f.startsWith('var('))
+    .join(', ')
 }
 
 export async function exportVideo(
@@ -200,7 +65,9 @@ export async function exportVideo(
   audioUrl?: string | null,
   texts?: TextClass[],
   audioTrimStart?: number,
-  audioStartTime?: number
+  audioStartTime?: number,
+  effects?: EffectClass[],
+  signal?: AbortSignal
 ): Promise<Blob> {
   const mainVideos = [...videos].filter((v) => !v.isOverlay).sort((a, b) => a.timestamp - b.timestamp)
   const overlayVideos = videos.filter((v) => v.isOverlay)
@@ -229,6 +96,13 @@ export async function exportVideo(
         // failed to decode — skip
       }
     }
+  }
+
+  if (texts && texts.length > 0) {
+    const fontSpecs = new Set(
+      texts.map((t) => `${t.fontWeight} 72px ${resolveCanvasFont(t.fontFamily)}`)
+    )
+    await Promise.all([...fontSpecs].map((spec) => document.fonts.load(spec).catch(() => {})))
   }
 
   const width = aspectRatio === '16:9' ? 1920 : 1080
@@ -313,7 +187,8 @@ export async function exportVideo(
         const shadowBlur = fontPx * 0.08
 
         ctx.save()
-        ctx.font = `${text.fontWeight} ${fontPx}px ${text.fontFamily}`
+        const canvasFont = resolveCanvasFont(text.fontFamily)
+        ctx.font = `${text.fontWeight} ${fontPx}px ${canvasFont}`
 
         const lines = wrapTextToLines(ctx, text.content, text.width * xScale)
         const textX = text.textAlign === 'center'
@@ -345,20 +220,6 @@ export async function exportVideo(
     }
   }
 
-  if (mainVideos.length === 0) {
-    return exportImageOnlyWithFFmpeg({
-      images: images || [],
-      texts: texts || [],
-      canvas,
-      totalDuration,
-      audioUrl: audioUrl ?? null,
-      audioTrimStart,
-      audioStartTime,
-      drawFrameToCanvas,
-      onProgress,
-    })
-  }
-
   const audioContext = new AudioContext()
   await audioContext.resume()
 
@@ -387,21 +248,30 @@ export async function exportVideo(
     bgSource.connect(audioDestination)
   }
 
-  const canvasStream = canvas.captureStream(60)
-  const combinedStream = new MediaStream([
-    ...canvasStream.getVideoTracks(),
-    ...audioDestination.stream.getAudioTracks(),
-  ])
+  const hasAudio = !!audioUrl || mainVideos.length > 0
 
-  const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
-    ? 'video/webm;codecs=vp9,opus'
-    : MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
-    ? 'video/webm;codecs=vp8,opus'
+  const canvasStream = canvas.captureStream(0)
+  const canvasTrack = canvasStream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack
+  const combinedStream = hasAudio
+    ? new MediaStream([
+        ...canvasStream.getVideoTracks(),
+        ...audioDestination.stream.getAudioTracks(),
+      ])
+    : new MediaStream([...canvasStream.getVideoTracks()])
+
+  const mimeType = hasAudio
+    ? MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
+      ? 'video/webm;codecs=vp9,opus'
+      : MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
+      ? 'video/webm;codecs=vp8,opus'
+      : 'video/webm'
+    : MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+    ? 'video/webm;codecs=vp9'
     : 'video/webm'
 
   const mediaRecorder = new MediaRecorder(combinedStream, {
     mimeType,
-    videoBitsPerSecond: 20_000_000,
+    videoBitsPerSecond: 5_000_000,
   })
 
   const chunks: Blob[] = []
@@ -412,42 +282,104 @@ export async function exportVideo(
 
   return new Promise((resolve, reject) => {
     mediaRecorder.onstop = async () => {
-      onProgress?.({ phase: 'encoding', progress: 95, message: 'Finalizing WebM...' })
-
       videoElements.forEach((v) => { v.pause(); v.src = '' })
       if (bgAudioElement) { bgAudioElement.pause(); bgAudioElement.src = '' }
       audioContext.close()
 
+      if (isCancelled || signal?.aborted) {
+        reject(new DOMException('Export cancelled', 'AbortError'))
+        return
+      }
+
+      onProgress?.({ phase: 'encoding', progress: 95, message: 'Finalizing WebM...' })
+
       const webmBlob = new Blob(chunks, { type: mimeType })
+      console.log(`[export] chunks=${chunks.length} webmSize=${(webmBlob.size / 1024 / 1024).toFixed(2)}MB mimeType=${mimeType}`)
+
+      if (chunks.length === 0 || webmBlob.size === 0) {
+        reject(new Error('No recorded data'))
+        return
+      }
+
       onProgress?.({ phase: 'converting', progress: 96, message: 'Loading FFmpeg...' })
+      console.log('[export] loading FFmpeg...')
+
+      let ff: FFmpeg
+      try {
+        ff = await getFFmpeg()
+        ff.on('log', ({ message }) => console.log('[ffmpeg]', message))
+        console.log('[export] FFmpeg loaded')
+      } catch (err) {
+        console.error('[export] FFmpeg load failed:', err)
+        onProgress?.({ phase: 'error', progress: 0, message: 'MP4 conversion failed, using WebM' })
+        resolve(webmBlob)
+        return
+      }
+
+      if (signal?.aborted) {
+        reject(new DOMException('Export cancelled', 'AbortError'))
+        return
+      }
+
+      let ffCancelled = false
+      let raceReject: (reason: unknown) => void = () => {}
+      const raceBreaker = new Promise<never>((_, rej) => { raceReject = rej })
+
+      const killFFmpeg = () => {
+        if (ffCancelled) return
+        ffCancelled = true
+        console.log('[export] killFFmpeg called — terminating worker')
+        try { ff.terminate() } catch {}
+        ffmpegInstance = null
+        ffmpegLoading = null
+        raceReject(new DOMException('Export cancelled', 'AbortError'))
+      }
+
+      signal?.addEventListener('abort', killFFmpeg, { once: true })
+
+      const timeoutId = setTimeout(() => {
+        console.warn('[export] FFmpeg timeout fired after 5 min')
+        killFFmpeg()
+      }, 5 * 60 * 1000)
 
       try {
-        const ff = await getFFmpeg()
-        onProgress?.({ phase: 'converting', progress: 97, message: 'Converting to MP4...' })
-
         for (const f of ['input.webm', 'output.mp4']) {
           try { await ff.deleteFile(f) } catch {}
         }
-
-        if (chunks.length === 0 || webmBlob.size === 0) {
-          throw new Error('No recorded data')
-        }
+        console.log('[export] writing input.webm to WASM FS...')
 
         const webmData = await fetchFile(webmBlob)
+        console.log(`[export] fetchFile done, byteLength=${webmData.byteLength}`)
         await ff.writeFile('input.webm', webmData)
+        console.log('[export] writeFile done — starting exec')
 
-        const hasAudio = audioUrl != null || mainVideos.length > 0
-        await ff.exec([
+        onProgress?.({ phase: 'converting', progress: 97, message: 'Converting to MP4...' })
+
+        const cmd = [
           '-y',
           '-i', 'input.webm',
-          '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
-          ...(hasAudio ? ['-c:a', 'aac', '-b:a', '128k'] : ['-an']),
+          '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-tune', 'fastdecode',
+          '-pix_fmt', 'yuv420p',
+          '-r', '30',
+          '-vsync', 'cfr',
+          ...(hasAudio
+            ? ['-c:a', 'aac', '-b:a', '128k', '-af', 'aresample=async=1:min_hard_comp=0.100000:first_pts=0']
+            : ['-an']),
           '-movflags', '+faststart',
           'output.mp4',
-        ])
+        ]
+        console.log('[export] ffmpeg cmd:', cmd.join(' '))
 
+        const execStart = Date.now()
+        await Promise.race([ff.exec(cmd), raceBreaker])
+        console.log(`[export] exec done in ${((Date.now() - execStart) / 1000).toFixed(1)}s`)
+
+        clearTimeout(timeoutId)
+
+        console.log('[export] reading output.mp4...')
         const mp4Data = await ff.readFile('output.mp4')
         const mp4Blob = new Blob([new Uint8Array(mp4Data as Uint8Array)], { type: 'video/mp4' })
+        console.log(`[export] mp4 size=${(mp4Blob.size / 1024 / 1024).toFixed(2)}MB`)
 
         for (const f of ['input.webm', 'output.mp4']) {
           try { await ff.deleteFile(f) } catch {}
@@ -456,9 +388,17 @@ export async function exportVideo(
         onProgress?.({ phase: 'complete', progress: 100, message: 'Export complete!' })
         resolve(mp4Blob)
       } catch (err) {
-        console.error('FFmpeg conversion failed:', err)
+        clearTimeout(timeoutId)
+        if (ffCancelled || signal?.aborted) {
+          console.log('[export] cancelled/timed-out — rejecting')
+          reject(new DOMException('Export cancelled', 'AbortError'))
+          return
+        }
+        console.error('[export] FFmpeg exec error:', err)
         onProgress?.({ phase: 'error', progress: 0, message: 'MP4 conversion failed, using WebM' })
         resolve(webmBlob)
+      } finally {
+        signal?.removeEventListener('abort', killFFmpeg)
       }
     }
 
@@ -467,6 +407,8 @@ export async function exportVideo(
       reject(e)
     }
 
+    let isCancelled = false
+
     mediaRecorder.start(100)
 
     let currentTime = 0
@@ -474,8 +416,23 @@ export async function exportVideo(
     let activeClipId: string | null = null
     let activeVideoEl: HTMLVideoElement | null = null
     let animationId: number
+    let rafFrameCount = 0
+
+    const applyActiveEffect = (t: number) => {
+      if (!effects || effects.length === 0) return
+      const activeEffect = effects.find((e) => t >= e.startTime && t < e.endTime)
+      if (activeEffect) applyEffect(ctx, activeEffect.type, 0, 0, width, height, t)
+    }
 
     const renderFrame = (rafTimestamp: number) => {
+      if (signal?.aborted) {
+        isCancelled = true
+        if (activeVideoEl) activeVideoEl.pause()
+        cancelAnimationFrame(animationId)
+        if (mediaRecorder.state !== 'inactive') mediaRecorder.stop()
+        return
+      }
+
       if (currentTime >= totalDuration) {
         if (activeVideoEl) activeVideoEl.pause()
         cancelAnimationFrame(animationId)
@@ -527,6 +484,9 @@ export async function exportVideo(
           ctx.drawImage(videoEl, dx, dy, dw, dh)
 
           drawFrameToCanvas(currentTime, false)
+          applyActiveEffect(currentTime)
+          rafFrameCount++
+          if (rafFrameCount % 2 === 0) canvasTrack?.requestFrame?.()
 
           const progress = 15 + (currentTime / totalDuration) * 80
           onProgress?.({ phase: 'rendering', progress: Math.min(95, progress), message: `Rendering... ${Math.round((currentTime / totalDuration) * 100)}%` })
@@ -552,12 +512,16 @@ export async function exportVideo(
           activeVideoEl = null
         }
 
-        if (lastRafTimestamp !== null) {
-          currentTime = Math.min(currentTime + (rafTimestamp - lastRafTimestamp) / 1000, totalDuration)
-        }
+        const frameDelta = lastRafTimestamp !== null
+          ? Math.min((rafTimestamp - lastRafTimestamp) / 1000, 1 / 30)
+          : 0
+        currentTime = Math.min(currentTime + frameDelta, totalDuration)
         lastRafTimestamp = rafTimestamp
 
         drawFrameToCanvas(currentTime)
+        applyActiveEffect(currentTime)
+        rafFrameCount++
+        if (rafFrameCount % 2 === 0) canvasTrack?.requestFrame?.()
 
         const progress = 15 + (currentTime / totalDuration) * 80
         onProgress?.({ phase: 'rendering', progress: Math.min(95, progress), message: `Rendering... ${Math.round((currentTime / totalDuration) * 100)}%` })

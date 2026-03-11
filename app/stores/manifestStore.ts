@@ -3,6 +3,7 @@ import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { TextClass } from '@/app/models/TextClass'
 import { AudioClass } from '@/app/models/AudioClass'
+import { EffectClass } from '@/app/models/EffectClass'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 
 export type AspectRatio = '16:9' | '9:16'
@@ -12,6 +13,7 @@ interface HistoryEntry {
   images: ImageClass[]
   texts: TextClass[]
   audios: AudioClass[]
+  effects: EffectClass[]
 }
 
 const MAX_HISTORY = 50
@@ -21,7 +23,6 @@ interface ManifestStore {
   images: ImageClass[]
   texts: TextClass[]
   audios: AudioClass[]
-  replaceTargetId: string | null
   pendingPrompt: string | null
   playbackTime: number
   isPlaying: boolean
@@ -34,7 +35,6 @@ interface ManifestStore {
   undo: () => void
   redo: () => void
   addVideo: (video: VideoClass) => void
-  replaceVideo: (targetId: string, newVideo: VideoClass) => void
   updateVideo: (id: string, updates: Partial<VideoClass>) => void
   removeVideo: (id: string) => void
   trimVideo: (id: string, trimStart: number, trimEnd: number) => void
@@ -42,7 +42,6 @@ interface ManifestStore {
   splitImage: (id: string, playbackTime: number) => void
   recalculateTimestamps: () => void
   getTotalDuration: () => number
-  setReplaceTargetId: (id: string | null) => void
   setPendingPrompt: (prompt: string | null) => void
   playbackRate: number
   setPlaybackTime: (time: number) => void
@@ -67,6 +66,11 @@ interface ManifestStore {
   trimAudio: (id: string, trimStart: number, trimEnd: number, startTime?: number) => void
   splitVideoAtTimes: (id: string, times: number[]) => void
   splitImageAtTimes: (id: string, times: number[]) => void
+  effects: EffectClass[]
+  addEffect: (effect: EffectClass) => void
+  updateEffect: (id: string, updates: Partial<EffectClass>) => void
+  removeEffect: (id: string) => void
+  removeAllEffects: () => void
 }
 
 type BlobEntry = { videos: VideoClass[]; images: ImageClass[] }
@@ -103,13 +107,13 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
   images: [],
   texts: [],
   audios: [],
-  replaceTargetId: null,
+  effects: [],
   pendingPrompt: null,
   playbackTime: 0,
   isPlaying: false,
   playbackRate: 1,
   aspectRatio: '16:9',
-  history: [{ videos: [], images: [], texts: [], audios: [] }],
+  history: [{ videos: [], images: [], texts: [], audios: [], effects: [] }],
   historyIndex: 0,
 
   pauseHistory: () => { historyPaused = true },
@@ -123,6 +127,7 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
       images: [...state.images],
       texts: [...state.texts],
       audios: [...state.audios],
+      effects: [...state.effects],
     }
     const current = state.history[state.historyIndex]
     if (current && JSON.stringify(current) === JSON.stringify(entry)) return
@@ -145,6 +150,7 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
       images: [...target.images],
       texts: [...(target.texts ?? [])],
       audios: [...(target.audios ?? [])],
+      effects: [...(target.effects ?? [])],
       historyIndex: state.historyIndex - 1,
       isPlaying: false,
     })
@@ -160,6 +166,7 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
       images: [...target.images],
       texts: [...(target.texts ?? [])],
       audios: [...(target.audios ?? [])],
+      effects: [...(target.effects ?? [])],
       historyIndex: state.historyIndex + 1,
       isPlaying: false,
     })
@@ -201,53 +208,12 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
     get().pushHistory()
   },
 
-  replaceVideo: (targetId: string, newVideo: VideoClass) => {
-    set((state) => {
-      const targetIndex = state.videos.findIndex((v) => v.id === targetId)
-      if (targetIndex === -1) return state
-
-      const targetVideo = state.videos[targetIndex]
-      const replacementVideo = new VideoClass(
-        newVideo.id,
-        newVideo.title,
-        newVideo.url,
-        newVideo.duration,
-        targetVideo.timestamp,
-        newVideo.createdAt,
-        newVideo.updatedAt,
-        undefined,
-        undefined,
-        undefined,
-        newVideo.prompt,
-        targetVideo.isOverlay,
-        targetVideo.x,
-        targetVideo.y,
-        targetVideo.width,
-        targetVideo.height,
-        targetVideo.opacity
-      )
-
-      const updatedVideos = [...state.videos]
-      updatedVideos[targetIndex] = replacementVideo
-
-      useSelectionStore.getState().setSelectedVideoId(replacementVideo.id)
-      return {
-        videos: updatedVideos,
-        replaceTargetId: null,
-        playbackTime: replacementVideo.timestamp,
-      }
-    })
-    get().recalculateTimestamps()
-    get().pushHistory()
-  },
-
   removeVideo: (id: string) => {
     const state = get()
     const { selectedVideoId, setSelectedVideoId } = useSelectionStore.getState()
     if (selectedVideoId === id) setSelectedVideoId(null)
     set((s) => ({
       videos: s.videos.filter((v) => v.id !== id),
-      replaceTargetId: s.replaceTargetId === id ? null : s.replaceTargetId,
     }))
     get().recalculateTimestamps()
     get().pushHistory()
@@ -490,10 +456,6 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
       .filter((img) => img.isMainTrack)
       .reduce((max, img) => Math.max(max, img.endTime), 0)
     return Math.max(videoDuration, imageEnd)
-  },
-
-  setReplaceTargetId: (id: string | null) => {
-    set({ replaceTargetId: id })
   },
 
   setPendingPrompt: (prompt: string | null) => {
@@ -838,6 +800,38 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
     set((s) => ({
       images: s.images.filter((img) => img.id !== id).concat(newSegments),
     }))
+    get().pushHistory()
+  },
+
+  addEffect: (effect: EffectClass) => {
+    set((s) => ({ effects: [...s.effects, effect] }))
+    get().pushHistory()
+  },
+
+  updateEffect: (id: string, updates: Partial<EffectClass>) => {
+    set((s) => ({
+      effects: s.effects.map((e) =>
+        e.id === id
+          ? new EffectClass(
+              e.id,
+              updates.type ?? e.type,
+              updates.startTime ?? e.startTime,
+              updates.endTime ?? e.endTime,
+              e.createdAt
+            )
+          : e
+      ),
+    }))
+    get().pushHistory()
+  },
+
+  removeEffect: (id: string) => {
+    set((s) => ({ effects: s.effects.filter((e) => e.id !== id) }))
+    get().pushHistory()
+  },
+
+  removeAllEffects: () => {
+    set({ effects: [] })
     get().pushHistory()
   },
 

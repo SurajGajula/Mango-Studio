@@ -18,9 +18,11 @@ type TrimHandle = 'start' | 'end' | null
 
 interface TimelineProps {
   onOpenTransitions?: () => void
+  onOpenFont?: () => void
+  onOpenEffects?: () => void
 }
 
-export default function Timeline({ onOpenTransitions }: TimelineProps) {
+export default function Timeline({ onOpenTransitions, onOpenFont, onOpenEffects }: TimelineProps) {
   const videos = useManifestStore((state) => state.videos)
   const images = useManifestStore((state) => state.images)
   const texts = useManifestStore((state) => state.texts)
@@ -69,6 +71,7 @@ export default function Timeline({ onOpenTransitions }: TimelineProps) {
   const removeAudioFromManifest = useManifestStore((state) => state.removeAudio)
   const trimAudio = useManifestStore((state) => state.trimAudio)
   const audios = useManifestStore((state) => state.audios)
+  const effects = useManifestStore((state) => state.effects)
   const audioUrl = useAudioStore((state) => state.audioUrl)
   const userMarks = useAudioStore((state) => state.userMarks)
   const addUserMark = useAudioStore((state) => state.addUserMark)
@@ -82,6 +85,7 @@ export default function Timeline({ onOpenTransitions }: TimelineProps) {
   const [replaceImageTargetId, setReplaceImageTargetId] = useState<string | null>(null)
 
   const [isExporting, setIsExporting] = useState(false)
+  const exportAbortRef = useRef<AbortController | null>(null)
   const [isAudioSelected, setIsAudioSelected] = useState(false)
   const snapStateRef = useRef<{ dropTime: number } | null>(null)
   const prevRawTimeRef = useRef<number | null>(null)
@@ -427,22 +431,34 @@ export default function Timeline({ onOpenTransitions }: TimelineProps) {
     setIsExporting(true)
     setExportProgress({ phase: 'preparing', progress: 0, message: 'Starting export...' })
 
+    const controller = new AbortController()
+    exportAbortRef.current = controller
+
     try {
       const audioTrimStart = audios[0]?.trimStart ?? 0
       const audioStartTime = audios[0]?.startTime ?? 0
-      const blob = await exportVideo(videos, aspectRatio, setExportProgress, images, audioUrl, texts, audioTrimStart, audioStartTime)
+      const blob = await exportVideo(videos, aspectRatio, setExportProgress, images, audioUrl, texts, audioTrimStart, audioStartTime, effects, controller.signal)
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
       downloadBlob(blob, `mango-export-${timestamp}.mp4`)
     } catch (error) {
-      setExportProgress({
-        phase: 'error',
-        progress: 0,
-        message: error instanceof Error ? error.message : 'Export failed',
-      })
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        setExportProgress({ phase: 'error', progress: 0, message: 'Export cancelled' })
+      } else {
+        setExportProgress({
+          phase: 'error',
+          progress: 0,
+          message: error instanceof Error ? error.message : 'Export failed',
+        })
+      }
     } finally {
+      exportAbortRef.current = null
       setIsExporting(false)
       setTimeout(() => setExportProgress(null), 3000)
     }
+  }
+
+  const handleCancelExport = () => {
+    exportAbortRef.current?.abort()
   }
 
   const handleTrimStart = useCallback((videoId: string, handle: TrimHandle, e: React.MouseEvent) => {
@@ -935,7 +951,12 @@ export default function Timeline({ onOpenTransitions }: TimelineProps) {
       } else {
         e.preventDefault()
         if (!useManifestStore.getState().isPlaying) {
-          container.scrollLeft += e.deltaX + e.deltaY
+          const delta = e.deltaX + e.deltaY
+          const atLeftEdge = container.scrollLeft === 0
+          container.scrollLeft += delta
+          if (atLeftEdge && delta < 0) {
+            useManifestStore.getState().setPlaybackTime(0)
+          }
         }
       }
     }
@@ -1144,6 +1165,23 @@ export default function Timeline({ onOpenTransitions }: TimelineProps) {
                   <circle cx="16" cy="12" r="5" />
                 </svg>
               </button>
+              <button
+                className={styles.transitionsButton}
+                onClick={onOpenFont}
+                disabled={!selectedTextId}
+                title="Font"
+                style={{ fontWeight: 700, fontSize: '13px' }}
+              >
+                F
+              </button>
+              <button
+                className={styles.transitionsButton}
+                onClick={onOpenEffects}
+                title="Effects"
+                style={{ fontWeight: 700, fontSize: '11px', letterSpacing: '0.02em' }}
+              >
+                Fx
+              </button>
               <div className={styles.cropMenuWrapper}>
                 <button
                   ref={cropButtonRef}
@@ -1208,12 +1246,17 @@ export default function Timeline({ onOpenTransitions }: TimelineProps) {
               </button>
             </div>
             {exportProgress && (
-              <div className={styles.exportProgress}>
-                <div 
-                  className={styles.exportProgressBar} 
-                  style={{ width: `${exportProgress.progress}%` }}
-                />
-                <span className={styles.exportProgressText}>{exportProgress.message}</span>
+              <div className={styles.exportProgressWrapper}>
+                <div className={styles.exportProgress}>
+                  <div
+                    className={styles.exportProgressBar}
+                    style={{ width: `${exportProgress.progress}%` }}
+                  />
+                  <span className={styles.exportProgressText}>{exportProgress.message}</span>
+                </div>
+                {isExporting && (
+                  <button className={styles.exportCancelBtn} onClick={handleCancelExport} title="Cancel export">✕</button>
+                )}
               </div>
             )}
             <div className={styles.timelineRowContainer}>

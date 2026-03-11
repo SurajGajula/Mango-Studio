@@ -330,12 +330,42 @@
   cursor: not-allowed;
 }
 
+.exportProgressWrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .exportProgress {
   position: relative;
+  flex: 1;
   height: 24px;
   background-color: #1a1a1a;
   border-radius: 4px;
   overflow: hidden;
+}
+
+.exportCancelBtn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #aaa;
+  font-size: 0.65rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+}
+
+.exportCancelBtn:hover {
+  background: #3a1a1a;
+  border-color: #c44;
+  color: #f66;
 }
 
 .exportProgressBar {
@@ -687,18 +717,6 @@
   padding: 2px 6px;
 }
 
-.replaceIndicator {
-  display: inline-block;
-  font-size: 0.625rem;
-  color: #ff9800;
-  font-weight: 500;
-  user-select: none;
-  background-color: rgba(0, 0, 0, 0.6);
-  border: 1px solid rgba(255, 152, 0, 0.5);
-  border-radius: 4px;
-  padding: 2px 6px;
-}
-
 .title {
   color: #ffffff;
   font-size: 0.75rem;
@@ -736,34 +754,6 @@
 .replaceButton.active {
   background-color: #ffffff;
   color: #000000;
-}
-
-.copyPromptButton {
-  position: absolute;
-  top: 24px;
-  right: 14px;
-  width: 20px;
-  height: 20px;
-  border: none;
-  border-radius: 4px;
-  background-color: rgba(0, 0, 0, 0.6);
-  color: #888888;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 16;
-  transition: all 0.15s ease;
-}
-
-.copyPromptButton:hover:not(:disabled) {
-  background-color: rgba(0, 0, 0, 0.8);
-  color: #ffffff;
-}
-
-.copyPromptButton.disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
 }
 
 .audioRow {

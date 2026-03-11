@@ -33,8 +33,4 @@ export class AudioClass {
     this.originalDuration = originalDuration ?? endTime
     this.createdAt = createdAt ?? new Date()
   }
-
-  get activeDuration(): number {
-    return this.originalDuration - this.trimStart - this.trimEnd
-  }
 }
