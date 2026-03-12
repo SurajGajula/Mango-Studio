@@ -1,5 +1,6 @@
 import type { AspectRatio } from '@/app/stores/manifestStore'
 import type { ImageClass } from '@/app/models/ImageClass'
+import type { VideoClass } from '@/app/models/VideoClass'
 
 export const ASPECT_RATIOS: Record<string, [number, number]> = {
   '16:9': [16, 9],
@@ -9,24 +10,107 @@ export const ASPECT_RATIOS: Record<string, [number, number]> = {
   '9:16': [9, 16],
 }
 
-export function resolveVideoDuration(url: string): Promise<number> {
+export function computeMediaCropForAspect(
+  url: string,
+  type: 'image' | 'video',
+  canvasAspectRatio: AspectRatio,
+  targetW: number,
+  targetH: number,
+  cropAspectLabel: string
+): Promise<Partial<ImageClass | VideoClass>> {
+  const canvasW = canvasAspectRatio === '16:9' ? 1920 : 1080
+  const canvasH = canvasAspectRatio === '16:9' ? 1080 : 1920
+
+  return new Promise((resolve) => {
+    const el = type === 'image' ? new Image() : document.createElement('video')
+    
+    const onLoaded = () => {
+      const nw = el instanceof HTMLImageElement ? el.naturalWidth : el.videoWidth
+      const nh = el instanceof HTMLImageElement ? el.naturalHeight : el.videoHeight
+      if (nw === 0 || nh === 0) {
+        resolve({})
+        return
+      }
+
+      const naturalAspect = nw / nh
+      const targetAspect = targetW / targetH
+
+      let sx: number, sy: number, sw: number, sh: number
+      if (Math.abs(targetAspect - naturalAspect) < 0.001) {
+        sx = 0; sy = 0; sw = nw; sh = nh
+      } else if (targetAspect > naturalAspect) {
+        sw = nw
+        sh = Math.round(nw / targetAspect)
+        sx = 0
+        sy = Math.round((nh - sh) / 2)
+      } else {
+        sh = nh
+        sw = Math.round(nh * targetAspect)
+        sx = Math.round((nw - sw) / 2)
+        sy = 0
+      }
+
+      const canvasAspect = canvasW / canvasH
+      let dw: number, dh: number
+      if (targetAspect >= canvasAspect) {
+        dw = canvasW
+        dh = Math.round(canvasW / targetAspect)
+      } else {
+        dh = canvasH
+        dw = Math.round(canvasH * targetAspect)
+      }
+      const ddx = Math.round((canvasW - dw) / 2)
+      const ddy = Math.round((canvasH - dh) / 2)
+
+      resolve({
+        x: ddx,
+        y: ddy,
+        width: dw,
+        height: dh,
+        cropAspect: cropAspectLabel,
+        cropSx: sx / nw,
+        cropSy: sy / nh,
+        cropSw: sw / nw,
+        cropSh: sh / nh,
+      })
+      if (el instanceof HTMLVideoElement) {
+        el.src = ''
+        el.load()
+      }
+    }
+
+    if (el instanceof HTMLImageElement) {
+      el.onload = onLoaded
+      el.onerror = () => resolve({})
+    } else {
+      el.onloadedmetadata = onLoaded
+      el.onerror = () => resolve({})
+      el.preload = 'metadata'
+    }
+    el.src = url
+  })
+}
+
+export function resolveVideoMetadata(url: string): Promise<{ duration: number; width: number; height: number }> {
   return new Promise((resolve) => {
     const probe = document.createElement('video')
     const timeout = window.setTimeout(() => {
       probe.src = ''
-      resolve(8)
+      resolve({ duration: 8, width: 1920, height: 1080 })
     }, 8000)
     probe.preload = 'metadata'
     probe.onloadedmetadata = () => {
       window.clearTimeout(timeout)
       const dur = Number.isFinite(probe.duration) && probe.duration > 0 ? probe.duration : 8
+      const width = probe.videoWidth || 1920
+      const height = probe.videoHeight || 1080
       probe.src = ''
-      resolve(dur)
+      resolve({ duration: dur, width, height })
     }
     probe.onerror = () => {
       window.clearTimeout(timeout)
       probe.src = ''
-      resolve(8)
+      resolve({ duration: 8, width: 1920, height: 1080 })
     }
     probe.src = url
   })
@@ -44,65 +128,68 @@ export function toMono(audioBuffer: AudioBuffer): Float32Array {
   return mono
 }
 
+export function computeMediaDimensions(
+  mediaWidth: number,
+  mediaHeight: number,
+  aspectRatio: AspectRatio,
+  isMainTrack = false
+): { x: number; y: number; width: number; height: number } {
+  const canvasW = aspectRatio === '16:9' ? 1920 : 1080
+  const canvasH = aspectRatio === '16:9' ? 1080 : 1920
+
+  // The container is always the full canvas now, for both main track and overlays.
+  // Previously overlays in 16:9 were restricted to a 9:16 column.
+  const containerPxW = canvasW
+  const containerPxH = canvasH
+  const containerPxX = 0
+
+  const mediaAspect = mediaWidth / mediaHeight
+  let fitPxW: number, fitPxH: number
+
+  if (isMainTrack) {
+    if (aspectRatio === '16:9') {
+      fitPxH = containerPxH
+      fitPxW = Math.round(containerPxH * mediaAspect)
+    } else {
+      fitPxW = containerPxW
+      fitPxH = Math.round(containerPxW / mediaAspect)
+    }
+  } else {
+    // For overlays, fit inside container while preserving aspect ratio
+    const containerAspect = containerPxW / containerPxH
+    if (mediaAspect >= containerAspect) {
+      fitPxW = containerPxW
+      fitPxH = Math.round(containerPxW / mediaAspect)
+    } else {
+      fitPxH = containerPxH
+      fitPxW = Math.round(containerPxH * mediaAspect)
+    }
+  }
+
+  const pxX = containerPxX + Math.round((containerPxW - fitPxW) / 2)
+  const pxY = Math.round((containerPxH - fitPxH) / 2)
+
+  return {
+    x: pxX,
+    y: pxY,
+    width: fitPxW,
+    height: fitPxH,
+  }
+}
+
 export function computeImageDimensions(
   url: string,
   aspectRatio: AspectRatio,
   isMainTrack = false
 ): Promise<{ x: number; y: number; width: number; height: number }> {
-  const canvasW = aspectRatio === '16:9' ? 1920 : 1080
-  const canvasH = aspectRatio === '16:9' ? 1080 : 1920
-
-  let containerPxW: number, containerPxH: number, containerPxX: number
-  if (isMainTrack) {
-    containerPxW = canvasW
-    containerPxH = canvasH
-    containerPxX = 0
-  } else {
-    containerPxW = aspectRatio === '16:9' ? Math.round(canvasH * 9 / 16) : canvasW
-    containerPxH = canvasH
-    containerPxX = Math.round((canvasW - containerPxW) / 2)
-  }
-
   return new Promise((resolve) => {
     const img = new Image()
     img.onload = () => {
-      const imgAspect = img.naturalWidth / img.naturalHeight
-      let fitPxW: number, fitPxH: number
-
-      if (isMainTrack) {
-        if (aspectRatio === '16:9') {
-          fitPxH = containerPxH
-          fitPxW = Math.round(containerPxH * imgAspect)
-        } else {
-          fitPxW = containerPxW
-          fitPxH = Math.round(containerPxW / imgAspect)
-        }
-      } else {
-        const containerAspect = containerPxW / containerPxH
-        if (imgAspect >= containerAspect) {
-          fitPxW = containerPxW
-          fitPxH = Math.round(containerPxW / imgAspect)
-        } else {
-          fitPxH = containerPxH
-          fitPxW = Math.round(containerPxH * imgAspect)
-        }
-      }
-
-      const pxX = containerPxX + Math.round((containerPxW - fitPxW) / 2)
-      const pxY = Math.round((containerPxH - fitPxH) / 2)
-      resolve({
-        x: Math.round(pxX * 1920 / canvasW),
-        y: Math.round(pxY * 1080 / canvasH),
-        width: Math.round(fitPxW * 1920 / canvasW),
-        height: Math.round(fitPxH * 1080 / canvasH),
-      })
+      resolve(computeMediaDimensions(img.naturalWidth, img.naturalHeight, aspectRatio, isMainTrack))
     }
-    img.onerror = () => resolve({
-      x: Math.round(containerPxX * 1920 / canvasW),
-      y: 0,
-      width: Math.round(containerPxW * 1920 / canvasW),
-      height: Math.round(containerPxH * 1080 / canvasH),
-    })
+    img.onerror = () => {
+      resolve({ x: 0, y: 0, width: 1920, height: 1080 })
+    }
     img.src = url
   })
 }
@@ -153,10 +240,10 @@ export function computeCropForAspect(
       const ddy = Math.round((canvasH - dh) / 2)
 
       resolve({
-        x: Math.round(ddx * 1920 / canvasW),
-        y: Math.round(ddy * 1080 / canvasH),
-        width: Math.round(dw * 1920 / canvasW),
-        height: Math.round(dh * 1080 / canvasH),
+        x: ddx,
+        y: ddy,
+        width: dw,
+        height: dh,
         cropAspect: cropAspectLabel,
         cropSx: sx / nw,
         cropSy: sy / nh,
@@ -169,7 +256,11 @@ export function computeCropForAspect(
   })
 }
 
-export async function generateVideoThumbnails(url: string): Promise<string[] | null> {
+export async function generateVideoThumbnails(
+  url: string, 
+  seconds: number[], 
+  onProgress?: (time: number, data: string) => void
+): Promise<Map<number, string> | null> {
   const video = document.createElement('video')
   video.src = url
   video.crossOrigin = 'anonymous'
@@ -194,17 +285,35 @@ export async function generateVideoThumbnails(url: string): Promise<string[] | n
   canvas.width = thumbWidth
   canvas.height = thumbHeight
 
-  const thumbnails: string[] = []
-  const numThumbs = Math.max(1, Math.ceil(video.duration))
+  const thumbnails = new Map<number, string>()
+  
+  // Sort seconds to minimize seeking distance
+  const sortedSeconds = [...seconds].sort((a, b) => a - b)
 
-  for (let i = 0; i < numThumbs; i++) {
-    video.currentTime = i
+  for (const s of sortedSeconds) {
+    if (s < 0 || s > video.duration) continue
+    
+    video.currentTime = s
     await new Promise<void>((resolve) => {
       video.onseeked = () => resolve()
-      setTimeout(resolve, 200)
+      // Fallback for slow seeking
+      const t = setTimeout(resolve, 500)
+      video.onseeked = () => {
+        clearTimeout(t)
+        resolve()
+      }
     })
+    
     ctx.drawImage(video, 0, 0, thumbWidth, thumbHeight)
-    thumbnails.push(canvas.toDataURL('image/jpeg', 0.6))
+    const data = canvas.toDataURL('image/jpeg', 0.6)
+    thumbnails.set(s, data)
+    
+    if (onProgress) {
+      onProgress(s, data)
+    }
+    
+    // Yield to event loop to keep UI responsive
+    await new Promise(r => setTimeout(r, 0))
   }
 
   video.src = ''

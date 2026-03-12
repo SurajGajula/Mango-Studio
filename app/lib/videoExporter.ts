@@ -10,9 +10,10 @@ import { applyEffect } from '@/app/lib/applyEffect'
 
 let ffmpegInstance: FFmpeg | null = null
 let ffmpegLoading: Promise<FFmpeg> | null = null
+let ffmpegLock = false
 
 async function getFFmpeg(): Promise<FFmpeg> {
-  if (ffmpegInstance?.loaded) {
+  if (ffmpegInstance) {
     return ffmpegInstance
   }
   
@@ -21,20 +22,34 @@ async function getFFmpeg(): Promise<FFmpeg> {
   }
   
   ffmpegLoading = (async () => {
-    ffmpegInstance = new FFmpeg()
+    try {
+      const ff = new FFmpeg()
 
-    const BASE = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd'
-    const [coreURL, wasmURL] = await Promise.all([
-      toBlobURL(`${BASE}/ffmpeg-core.js`, 'text/javascript'),
-      toBlobURL(`${BASE}/ffmpeg-core.wasm`, 'application/wasm'),
-    ])
+      const BASE = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd'
+      const [coreURL, wasmURL] = await Promise.all([
+        toBlobURL(`${BASE}/ffmpeg-core.js`, 'text/javascript'),
+        toBlobURL(`${BASE}/ffmpeg-core.wasm`, 'application/wasm'),
+      ])
 
-    await ffmpegInstance.load({
-      coreURL,
-      wasmURL,
-    })
-    
-    return ffmpegInstance
+      const loadPromise = ff.load({
+        coreURL,
+        wasmURL,
+      })
+      
+      // 15 second timeout for engine load
+      const timeoutPromise = new Promise((_, rej) => 
+        setTimeout(() => rej(new Error('FFmpeg load timeout')), 15000)
+      )
+
+      await Promise.race([loadPromise, timeoutPromise])
+      
+      ffmpegInstance = ff
+      return ff
+    } catch (err) {
+      ffmpegLoading = null
+      ffmpegInstance = null
+      throw err
+    }
   })()
   
   return ffmpegLoading
@@ -72,7 +87,7 @@ export async function exportVideo(
   const mainVideos = [...videos].filter((v) => !v.isOverlay).sort((a, b) => a.timestamp - b.timestamp)
   const overlayVideos = videos.filter((v) => v.isOverlay)
 
-  const videoDuration = mainVideos.reduce((sum, v) => sum + (v.duration || 0), 0)
+  const videoDuration = mainVideos.reduce((max, v) => Math.max(max, (v.timestamp ?? 0) + (v.duration || 0)), 0)
   const maxImageEnd = images
     ? images.filter((img) => img.isMainTrack).reduce((max, img) => Math.max(max, img.endTime), 0)
     : 0
@@ -82,7 +97,14 @@ export async function exportVideo(
     throw new Error('No content to export')
   }
 
-  onProgress?.({ phase: 'preparing', progress: 0, message: 'Preparing elements...' })
+  while (ffmpegLock) {
+    onProgress?.({ phase: 'preparing', progress: 0, message: 'Waiting for engine...' })
+    await new Promise(r => setTimeout(r, 500))
+  }
+  ffmpegLock = true
+
+  try {
+    onProgress?.({ phase: 'preparing', progress: 0, message: 'Preparing elements...' })
 
   const imageElements = new Map<string, HTMLImageElement>()
   if (images && images.length > 0) {
@@ -122,7 +144,7 @@ export async function exportVideo(
         const video = document.createElement('video')
         video.preload = 'auto'
         video.playsInline = true
-        video.muted = false
+        video.muted = clip.muted
         video.src = clip.url || ''
         video.onloadeddata = () => { videoElements.set(clip.id, video); resolve() }
         video.onerror = () => reject(new Error(`Failed to load video: ${clip.title}`))
@@ -133,8 +155,10 @@ export async function exportVideo(
 
   onProgress?.({ phase: 'preparing', progress: 10, message: 'Setting up...' })
 
-  const xScale = width / 1920
-  const yScale = height / 1080
+  const logicalW = aspectRatio === '16:9' ? 1920 : 1080
+  const logicalH = aspectRatio === '16:9' ? 1080 : 1920
+  const xScale = width / logicalW
+  const yScale = height / logicalH
 
   const drawFrameToCanvas = (t: number, fillBlack = true) => {
     if (fillBlack) {
@@ -175,22 +199,38 @@ export async function exportVideo(
         const vProgress = vDuration > 0 ? vElapsed / vDuration : 0
         ctx.save()
         ctx.globalAlpha = video.opacity
-        applyZoomTransform(ctx, video.zoom, vProgress, videoEl, video.x * xScale, video.y * yScale, video.width * xScale, video.height * yScale, 0, 0, 1, 1, video.zoomIntensity, vElapsed)
+        const cropSx = video.cropSx ?? 0
+        const cropSy = video.cropSy ?? 0
+        const cropSw = video.cropSw ?? 1
+        const cropSh = video.cropSh ?? 1
+        applyZoomTransform(ctx, video.zoom, vProgress, videoEl, video.x * xScale, video.y * yScale, video.width * xScale, video.height * yScale, cropSx, cropSy, cropSw, cropSh, video.zoomIntensity, vElapsed)
         ctx.restore()
       })
     if (texts && texts.length > 0) {
-      const activeTexts = texts.filter((text) => t >= text.startTime && t < text.endTime)
-      for (const text of activeTexts) {
-        const fontPx = text.fontSize * xScale
-        const lineHeight = fontPx * 1.2
-        const shadowOffset = fontPx * 0.04
-        const shadowBlur = fontPx * 0.08
+    const activeTexts = texts.filter((text) => t >= text.startTime && t < text.endTime)
+    for (const text of activeTexts) {
+      const fontPx = text.fontSize * xScale
+      const lineHeight = fontPx * 1.2
+      const shadowOffset = fontPx * 0.04
+      const shadowBlur = fontPx * 0.08
 
-        ctx.save()
-        const canvasFont = resolveCanvasFont(text.fontFamily)
-        ctx.font = `${text.fontWeight} ${fontPx}px ${canvasFont}`
+      ctx.save()
+      const canvasFont = resolveCanvasFont(text.fontFamily)
+      ctx.font = `${text.fontWeight} ${fontPx}px ${canvasFont}`
 
-        const lines = wrapTextToLines(ctx, text.content, text.width * xScale)
+      let content = text.content
+      if (text.animation === 'keyboard') {
+        const words = content.split(/\s+/)
+        const duration = text.endTime - text.startTime
+        if (duration > 0 && words.length > 0) {
+          const wordDuration = duration / words.length
+          const elapsed = t - text.startTime
+          const visibleCount = Math.min(words.length, Math.floor(elapsed / wordDuration) + 1)
+          content = words.slice(0, visibleCount).join(' ')
+        }
+      }
+
+      const lines = wrapTextToLines(ctx, content, text.width * xScale)
         const textX = text.textAlign === 'center'
           ? text.x * xScale + (text.width * xScale) / 2
           : text.textAlign === 'right'
@@ -229,8 +269,8 @@ export async function exportVideo(
   mainVideos.forEach((clip) => {
     const video = videoElements.get(clip.id)
     if (!video) return
-    video.muted = false
-    video.volume = 1
+    video.muted = clip.muted
+    video.volume = clip.muted ? 0 : 1
     const source = audioContext.createMediaElementSource(video)
     audioSources.set(clip.id, source)
   })
@@ -250,8 +290,7 @@ export async function exportVideo(
 
   const hasAudio = !!audioUrl || mainVideos.length > 0
 
-  const canvasStream = canvas.captureStream(0)
-  const canvasTrack = canvasStream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack
+  const canvasStream = canvas.captureStream(30)
   const combinedStream = hasAudio
     ? new MediaStream([
         ...canvasStream.getVideoTracks(),
@@ -271,7 +310,7 @@ export async function exportVideo(
 
   const mediaRecorder = new MediaRecorder(combinedStream, {
     mimeType,
-    videoBitsPerSecond: 5_000_000,
+    videoBitsPerSecond: 12_000_000,
   })
 
   const chunks: Blob[] = []
@@ -282,11 +321,13 @@ export async function exportVideo(
 
   return new Promise((resolve, reject) => {
     mediaRecorder.onstop = async () => {
-      videoElements.forEach((v) => { v.pause(); v.src = '' })
+      try {
+        videoElements.forEach((v) => { v.pause(); v.src = '' })
       if (bgAudioElement) { bgAudioElement.pause(); bgAudioElement.src = '' }
       audioContext.close()
 
       if (isCancelled || signal?.aborted) {
+        ffmpegLock = false
         reject(new DOMException('Export cancelled', 'AbortError'))
         return
       }
@@ -297,6 +338,7 @@ export async function exportVideo(
       console.log(`[export] chunks=${chunks.length} webmSize=${(webmBlob.size / 1024 / 1024).toFixed(2)}MB mimeType=${mimeType}`)
 
       if (chunks.length === 0 || webmBlob.size === 0) {
+        ffmpegLock = false
         reject(new Error('No recorded data'))
         return
       }
@@ -311,12 +353,14 @@ export async function exportVideo(
         console.log('[export] FFmpeg loaded')
       } catch (err) {
         console.error('[export] FFmpeg load failed:', err)
+        ffmpegLock = false
         onProgress?.({ phase: 'error', progress: 0, message: 'MP4 conversion failed, using WebM' })
         resolve(webmBlob)
         return
       }
 
       if (signal?.aborted) {
+        ffmpegLock = false
         reject(new DOMException('Export cancelled', 'AbortError'))
         return
       }
@@ -358,7 +402,8 @@ export async function exportVideo(
         const cmd = [
           '-y',
           '-i', 'input.webm',
-          '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-tune', 'fastdecode',
+          '-t', totalDuration.toFixed(3),
+          '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', '-tune', 'fastdecode',
           '-pix_fmt', 'yuv420p',
           '-r', '30',
           '-vsync', 'cfr',
@@ -386,9 +431,11 @@ export async function exportVideo(
         }
 
         onProgress?.({ phase: 'complete', progress: 100, message: 'Export complete!' })
+        ffmpegLock = false
         resolve(mp4Blob)
       } catch (err) {
         clearTimeout(timeoutId)
+        ffmpegLock = false
         if (ffCancelled || signal?.aborted) {
           console.log('[export] cancelled/timed-out — rejecting')
           reject(new DOMException('Export cancelled', 'AbortError'))
@@ -400,23 +447,27 @@ export async function exportVideo(
       } finally {
         signal?.removeEventListener('abort', killFFmpeg)
       }
+    } catch (err) {
+      ffmpegLock = false
+      onProgress?.({ phase: 'error', progress: 0, message: 'Export failed' })
+      reject(err)
     }
+  }
 
-    mediaRecorder.onerror = (e) => {
+  mediaRecorder.onerror = (e) => {
+      ffmpegLock = false
       onProgress?.({ phase: 'error', progress: 0, message: 'Export failed' })
       reject(e)
     }
 
     let isCancelled = false
-
-    mediaRecorder.start(100)
+    let isFirstFrame = true
 
     let currentTime = 0
     let lastRafTimestamp: number | null = null
     let activeClipId: string | null = null
     let activeVideoEl: HTMLVideoElement | null = null
     let animationId: number
-    let rafFrameCount = 0
 
     const applyActiveEffect = (t: number) => {
       if (!effects || effects.length === 0) return
@@ -424,10 +475,25 @@ export async function exportVideo(
       if (activeEffect) applyEffect(ctx, activeEffect.type, 0, 0, width, height, t)
     }
 
+    const startAudio = () => {
+      if (bgAudioElement) {
+        bgAudioElement.currentTime = audioTrimStart ?? 0
+        const audioDelay = audioStartTime ?? 0
+        if (audioDelay > 0) {
+          setTimeout(() => {
+            if (bgAudioElement && !bgAudioElement.ended) bgAudioElement.play().catch(() => {})
+          }, audioDelay * 1000)
+        } else {
+          bgAudioElement.play().catch(() => {})
+        }
+      }
+    }
+
     const renderFrame = (rafTimestamp: number) => {
       if (signal?.aborted) {
         isCancelled = true
         if (activeVideoEl) activeVideoEl.pause()
+        if (bgAudioElement) bgAudioElement.pause()
         cancelAnimationFrame(animationId)
         if (mediaRecorder.state !== 'inactive') mediaRecorder.stop()
         return
@@ -435,18 +501,23 @@ export async function exportVideo(
 
       if (currentTime >= totalDuration) {
         if (activeVideoEl) activeVideoEl.pause()
+        if (bgAudioElement) bgAudioElement.pause()
         cancelAnimationFrame(animationId)
-        mediaRecorder.stop()
+        if (mediaRecorder.state !== 'inactive') mediaRecorder.stop()
         return
       }
 
+      const delta = lastRafTimestamp !== null ? (rafTimestamp - lastRafTimestamp) / 1000 : 0
+      lastRafTimestamp = rafTimestamp
+
+      // Only advance time if we're not waiting for a new clip to be ready
+      let shouldAdvance = true
       const activeClip = mainVideos.find(
         (v) => v.duration && currentTime >= v.timestamp && currentTime < v.timestamp + v.duration
       )
 
       if (activeClip) {
         const videoEl = videoElements.get(activeClip.id) || null
-
         if (activeClip.id !== activeClipId) {
           if (activeVideoEl && !activeVideoEl.paused) activeVideoEl.pause()
           if (activeClipId && audioSources.has(activeClipId)) {
@@ -457,52 +528,69 @@ export async function exportVideo(
           if (activeVideoEl) {
             const trimStart = activeClip.trimStart ?? 0
             activeVideoEl.currentTime = trimStart + Math.max(0, currentTime - activeClip.timestamp)
-            activeVideoEl.play().catch(() => {})
+            // Don't play yet, wait for readyState
           }
-          if (audioSources.has(activeClip.id)) {
-            audioSources.get(activeClip.id)!.connect(audioDestination)
-          }
-          lastRafTimestamp = null
         }
 
         if (videoEl && videoEl.readyState >= 2) {
-          const trimStart = activeClip.trimStart ?? 0
-          const trimEnd = activeClip.trimEnd ?? 0
-          const originalDuration = activeClip.originalDuration ?? activeClip.duration ?? 0
-          const playbackEnd = originalDuration - trimEnd
+          if (isFirstFrame) {
+            isFirstFrame = false
+            mediaRecorder.start(100)
+            startAudio()
+          }
 
-          currentTime = activeClip.timestamp + Math.max(0, videoEl.currentTime - trimStart)
+          const trimStart = activeClip.trimStart ?? 0
+          const localTimeInOriginal = trimStart + (currentTime - activeClip.timestamp)
+          
+          if (videoEl.paused) {
+            videoEl.play().catch(() => {})
+            if (audioSources.has(activeClip.id)) {
+              audioSources.get(activeClip.id)!.connect(audioDestination)
+            }
+          }
+
+          // Sync video to master clock
+          if (Math.abs(videoEl.currentTime - localTimeInOriginal) > 0.1) {
+            videoEl.currentTime = localTimeInOriginal
+          }
+
+          const logicalW = aspectRatio === '16:9' ? 1920 : 1080
+          const logicalH = aspectRatio === '16:9' ? 1080 : 1920
+          const xScale = width / logicalW
+          const yScale = height / logicalH
+
+          const drawX = (activeClip.x ?? 0) * xScale
+          const drawY = (activeClip.y ?? 0) * yScale
+          const drawWidth = (activeClip.width ?? logicalW) * xScale
+          const drawHeight = (activeClip.height ?? logicalH) * yScale
+
+          const cropSx = activeClip.cropSx ?? 0
+          const cropSy = activeClip.cropSy ?? 0
+          const cropSw = activeClip.cropSw ?? 1
+          const cropSh = activeClip.cropSh ?? 1
+
+          const vDuration = activeClip.duration ?? 0
+          const vElapsed = currentTime - activeClip.timestamp
+          const vProgress = vDuration > 0 ? vElapsed / vDuration : 0
 
           ctx.fillStyle = '#000000'
           ctx.fillRect(0, 0, width, height)
 
-          const videoAspect = videoEl.videoWidth / videoEl.videoHeight
-          const canvasAspect = width / height
-          let dw = width, dh = height, dx = 0, dy = 0
-          if (videoAspect > canvasAspect) { dh = width / videoAspect; dy = (height - dh) / 2 }
-          else { dw = height * videoAspect; dx = (width - dw) / 2 }
-          ctx.drawImage(videoEl, dx, dy, dw, dh)
+          applyZoomTransform(ctx, activeClip.zoom, vProgress, videoEl, drawX, drawY, drawWidth, drawHeight, cropSx, cropSy, cropSw, cropSh, activeClip.zoomIntensity, vElapsed)
 
           drawFrameToCanvas(currentTime, false)
           applyActiveEffect(currentTime)
-          rafFrameCount++
-          if (rafFrameCount % 2 === 0) canvasTrack?.requestFrame?.()
-
-          const progress = 15 + (currentTime / totalDuration) * 80
-          onProgress?.({ phase: 'rendering', progress: Math.min(95, progress), message: `Rendering... ${Math.round((currentTime / totalDuration) * 100)}%` })
-
-          if (videoEl.ended || videoEl.currentTime >= playbackEnd - 0.05) {
-            videoEl.pause()
-            if (audioSources.has(activeClip.id)) {
-              try { audioSources.get(activeClip.id)!.disconnect(audioDestination) } catch {}
-            }
-            currentTime = activeClip.timestamp + (activeClip.duration || 0)
-            activeClipId = null
-            activeVideoEl = null
-            lastRafTimestamp = null
-          }
+        } else {
+          shouldAdvance = false // Wait for video
         }
       } else {
+        // Image or empty space
+        if (isFirstFrame) {
+          isFirstFrame = false
+          mediaRecorder.start(100)
+          startAudio()
+        }
+
         if (activeClipId) {
           if (activeVideoEl && !activeVideoEl.paused) activeVideoEl.pause()
           if (audioSources.has(activeClipId)) {
@@ -512,16 +600,26 @@ export async function exportVideo(
           activeVideoEl = null
         }
 
-        const frameDelta = lastRafTimestamp !== null
-          ? Math.min((rafTimestamp - lastRafTimestamp) / 1000, 1 / 30)
-          : 0
-        currentTime = Math.min(currentTime + frameDelta, totalDuration)
-        lastRafTimestamp = rafTimestamp
-
-        drawFrameToCanvas(currentTime)
+        ctx.fillStyle = '#000000'
+        ctx.fillRect(0, 0, width, height)
+        drawFrameToCanvas(currentTime, true)
         applyActiveEffect(currentTime)
-        rafFrameCount++
-        if (rafFrameCount % 2 === 0) canvasTrack?.requestFrame?.()
+      }
+
+      if (shouldAdvance) {
+        currentTime += delta
+        
+        // Pre-seek next clip if we're near the end of current one
+        const nextClip = mainVideos.find(v => v.timestamp > currentTime && v.timestamp < currentTime + 2)
+        if (nextClip) {
+          const nextVid = videoElements.get(nextClip.id)
+          if (nextVid && nextVid.readyState < 2) {
+            const nextTrimStart = nextClip.trimStart ?? 0
+            if (Math.abs(nextVid.currentTime - nextTrimStart) > 0.1) {
+              nextVid.currentTime = nextTrimStart
+            }
+          }
+        }
 
         const progress = 15 + (currentTime / totalDuration) * 80
         onProgress?.({ phase: 'rendering', progress: Math.min(95, progress), message: `Rendering... ${Math.round((currentTime / totalDuration) * 100)}%` })
@@ -530,20 +628,68 @@ export async function exportVideo(
       animationId = requestAnimationFrame(renderFrame)
     }
 
-    if (bgAudioElement) {
-      bgAudioElement.currentTime = audioTrimStart ?? 0
-      const audioDelay = audioStartTime ?? 0
-      if (audioDelay > 0) {
-        setTimeout(() => {
-          if (bgAudioElement && !bgAudioElement.ended) bgAudioElement.play().catch(() => {})
-        }, audioDelay * 1000)
-      } else {
-        bgAudioElement.play().catch(() => {})
-      }
-    }
-
     animationId = requestAnimationFrame(renderFrame)
   })
+} catch (err) {
+    ffmpegLock = false
+    throw err
+  }
+}
+
+export async function extractVideoClip(
+  url: string,
+  startTime: number,
+  duration: number,
+  onProgress?: (msg: string) => void
+): Promise<Blob> {
+  while (ffmpegLock) {
+    onProgress?.('Waiting for engine...')
+    await new Promise(r => setTimeout(r, 500))
+  }
+  ffmpegLock = true
+
+  try {
+    onProgress?.('Initializing engine...')
+    const ff = await getFFmpeg()
+    
+    // Clean up old files
+    for (const f of ['input.mp4', 'output.mp4']) {
+      try { await ff.deleteFile(f) } catch {}
+    }
+
+    onProgress?.('Loading source...')
+    const inputData = await fetchFile(url)
+    await ff.writeFile('input.mp4', inputData)
+
+    onProgress?.('Slicing video clip...')
+    
+    // Use input seeking (-ss before -i) which is nearly instant for long files
+    const cmd = [
+      '-ss', startTime.toFixed(3),
+      '-i', 'input.mp4',
+      '-t', duration.toFixed(3),
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast',
+      '-crf', '22',
+      '-c:a', 'aac',
+      '-b:a', '128k',
+      '-avoid_negative_ts', 'make_zero',
+      'output.mp4'
+    ]
+
+    await ff.exec(cmd)
+
+    onProgress?.('Finalizing...')
+    const data = await ff.readFile('output.mp4')
+    
+    // Clean up
+    try { await ff.deleteFile('input.mp4') } catch {}
+    try { await ff.deleteFile('output.mp4') } catch {}
+
+    return new Blob([new Uint8Array(data as Uint8Array)], { type: 'video/mp4' })
+  } finally {
+    ffmpegLock = false
+  }
 }
 
 export function downloadBlob(blob: Blob, filename: string) {

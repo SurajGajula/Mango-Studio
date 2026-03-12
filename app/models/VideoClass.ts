@@ -20,6 +20,13 @@ export class VideoClass {
   opacity: number
   zoom: ZoomMode
   zoomIntensity: number
+  row: number
+  muted: boolean
+  cropAspect?: string
+  cropSx: number
+  cropSy: number
+  cropSw: number
+  cropSh: number
 
   constructor(
     id: string,
@@ -40,7 +47,14 @@ export class VideoClass {
     height?: number,
     opacity?: number,
     zoom?: ZoomMode,
-    zoomIntensity?: number
+    zoomIntensity?: number,
+    row?: number,
+    muted?: boolean,
+    cropAspect?: string,
+    cropSx?: number,
+    cropSy?: number,
+    cropSw?: number,
+    cropSh?: number
   ) {
     this.id = id
     this.title = title
@@ -53,7 +67,8 @@ export class VideoClass {
     this.prompt = prompt
     this.createdAt = createdAt || new Date()
     this.updatedAt = updatedAt || new Date()
-    this.isOverlay = isOverlay ?? false
+    this.row = row ?? 0
+    this.isOverlay = isOverlay ?? (this.row > 0)
     this.x = x ?? 0
     this.y = y ?? 0
     this.width = width ?? 480
@@ -61,5 +76,11 @@ export class VideoClass {
     this.opacity = opacity ?? 1
     this.zoom = zoom ?? 'none'
     this.zoomIntensity = zoomIntensity ?? 0.5
+    this.muted = muted ?? false
+    this.cropAspect = cropAspect
+    this.cropSx = cropSx ?? 0
+    this.cropSy = cropSy ?? 0
+    this.cropSw = cropSw ?? 1
+    this.cropSh = cropSh ?? 1
   }
 }

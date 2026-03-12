@@ -56,44 +56,6 @@
   cursor: pointer;
 }
 
-.resizeHandle {
-  position: absolute;
-  width: 12px;
-  height: 12px;
-  background-color: #ffffff;
-  border: 2px solid #000000;
-  border-radius: 2px;
-  pointer-events: auto;
-}
-
-.resizeHandle:hover {
-  background-color: #e0e0e0;
-}
-
-.resizeHandle.nw {
-  top: -6px;
-  left: -6px;
-  cursor: nw-resize;
-}
-
-.resizeHandle.ne {
-  top: -6px;
-  right: -6px;
-  cursor: ne-resize;
-}
-
-.resizeHandle.sw {
-  bottom: -6px;
-  left: -6px;
-  cursor: sw-resize;
-}
-
-.resizeHandle.se {
-  bottom: -6px;
-  right: -6px;
-  cursor: se-resize;
-}
-
 .snapLineVertical {
   position: absolute;
   top: 0;
@@ -141,6 +103,32 @@
 .textOverlaySelected {
   border-color: #ffffff;
   border-style: dashed;
+}
+
+.textResizeHandle {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 6px;
+  height: 28px;
+  background-color: #ffffff;
+  border: 2px solid #000000;
+  border-radius: 2px;
+  pointer-events: auto;
+  cursor: ew-resize;
+  z-index: 60;
+}
+
+.textResizeHandle:hover {
+  background-color: #e0e0e0;
+}
+
+.textResizeHandleLeft {
+  left: -4px;
+}
+
+.textResizeHandleRight {
+  right: -4px;
 }
 
 .textEditArea {

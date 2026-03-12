@@ -16,47 +16,53 @@ function applyCrtDither(
   const noiseFrame = Math.floor(playbackTime * 60)
   const rng = makeLCG(noiseFrame)
 
-  // Scale grain to canvas size so density matches the preview at any resolution.
-  // Reference: ~480×270 preview. grainSize keeps coverage ratio constant.
-  const grainSize = Math.max(1, Math.round(rw / 480))
-  const grainPerLevel = Math.round(1000 * grainSize)
-  const scanlineSpacing = Math.max(4, grainSize * 4)
-  const scanlineH = Math.max(1, Math.round(grainSize * 0.75))
-  const scanlineScroll = Math.floor(playbackTime * 30) % scanlineSpacing
+  // Use a fixed virtual coordinate system for the effect to ensure consistency
+  // across all resolutions (preview vs export).
+  const V_WIDTH = 480
+  const scale = rw / V_WIDTH
+  const vHeight = rh / scale
 
   ctx.save()
   ctx.beginPath()
   ctx.rect(rx, ry, rw, rh)
   ctx.clip()
 
+  ctx.translate(rx, ry)
+  ctx.scale(scale, scale)
+
+  const grainPerLevel = 800 // Reduced density for a more subtle, consistent look
   const grainLevels = [80, 130, 180, 230] as const
-  ctx.globalAlpha = 0.8
+  ctx.globalAlpha = 0.4 // Significantly softer grain to prevent "overpowering" at high res
   for (const level of grainLevels) {
     ctx.fillStyle = `rgb(${level},${level},${level})`
     for (let i = 0; i < grainPerLevel; i++) {
       ctx.fillRect(
-        rx + Math.floor(rng() * (rw - grainSize)),
-        ry + Math.floor(rng() * (rh - grainSize)),
-        grainSize, grainSize
+        rng() * V_WIDTH,
+        rng() * vHeight,
+        1, 1
       )
     }
   }
-  ctx.globalAlpha = 1
 
-  ctx.fillStyle = 'rgba(0,0,0,0.6)'
-  for (let y = ry + scanlineScroll; y < ry + rh; y += scanlineSpacing) {
-    ctx.fillRect(rx, y, rw, scanlineH)
+  ctx.globalAlpha = 1
+  const scanlineSpacing = 4
+  const scanlineH = 1
+  const scanlineScroll = (playbackTime * 20) % scanlineSpacing
+
+  ctx.fillStyle = 'rgba(0,0,0,0.4)' // Softer scanlines
+  for (let y = scanlineScroll - scanlineSpacing; y < vHeight; y += scanlineSpacing) {
+    ctx.fillRect(0, y, V_WIDTH, scanlineH)
   }
 
   // Vignette
   const vignette = ctx.createRadialGradient(
-    rx + rw / 2, ry + rh / 2, Math.min(rw, rh) * 0.3,
-    rx + rw / 2, ry + rh / 2, Math.max(rw, rh) * 0.75
+    V_WIDTH / 2, vHeight / 2, Math.min(V_WIDTH, vHeight) * 0.3,
+    V_WIDTH / 2, vHeight / 2, Math.max(V_WIDTH, vHeight) * 0.75
   )
   vignette.addColorStop(0, 'rgba(0,0,0,0)')
-  vignette.addColorStop(1, 'rgba(0,0,0,0.8)')
+  vignette.addColorStop(1, 'rgba(0,0,0,0.7)')
   ctx.fillStyle = vignette
-  ctx.fillRect(rx, ry, rw, rh)
+  ctx.fillRect(0, 0, V_WIDTH, vHeight)
 
   ctx.restore()
 }

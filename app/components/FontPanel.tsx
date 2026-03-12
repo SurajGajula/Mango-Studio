@@ -2,6 +2,7 @@
 
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
+import { TextAnimation } from '@/app/models/TextClass'
 import styles from './TransitionsPanel.module.css'
 
 interface Props {
@@ -19,6 +20,24 @@ const FONT_OPTIONS: { value: string; label: string; desc: string }[] = [
     label: 'Playfair Display',
     desc: 'Elegant classic serif',
   },
+  {
+    value: 'Antonio, sans-serif',
+    label: 'Antonio',
+    desc: 'Thin modern font',
+  },
+]
+
+const ANIMATION_OPTIONS: { value: TextAnimation; label: string; desc: string }[] = [
+  {
+    value: 'none',
+    label: 'None',
+    desc: 'No animation',
+  },
+  {
+    value: 'keyboard',
+    label: 'Keyboard',
+    desc: 'Words appear one by one',
+  },
 ]
 
 export default function FontPanel({ onClose }: Props) {
@@ -28,9 +47,26 @@ export default function FontPanel({ onClose }: Props) {
 
   const selectedText = selectedTextId ? texts.find((t) => t.id === selectedTextId) : null
   const currentFont = selectedText?.fontFamily ?? FONT_OPTIONS[0].value
+  const currentAnimation = selectedText?.animation ?? 'none'
 
   const handleSelect = (fontFamily: string) => {
-    if (selectedTextId) updateText(selectedTextId, { fontFamily })
+    if (selectedTextId) {
+      const updates: any = { fontFamily }
+      if (fontFamily.includes('Antonio')) {
+        updates.fontWeight = '300'
+      } else if (fontFamily.includes('Inter')) {
+        updates.fontWeight = '600'
+      } else if (fontFamily.includes('Playfair')) {
+        updates.fontWeight = '600'
+      }
+      updateText(selectedTextId, updates)
+    }
+  }
+
+  const handleAnimationSelect = (animation: TextAnimation) => {
+    if (selectedTextId) {
+      updateText(selectedTextId, { animation })
+    }
   }
 
   return (
@@ -56,12 +92,43 @@ export default function FontPanel({ onClose }: Props) {
                   >
                     <span
                       className={styles.optionIcon}
-                      style={{ fontFamily: opt.value, fontSize: '1.1rem', fontWeight: 600, color: isActive ? '#fff' : '#aaa' }}
+                      style={{
+                        fontFamily: opt.value,
+                        fontSize: '1.1rem',
+                        fontWeight: 600,
+                        color: isActive ? '#fff' : '#aaa',
+                      }}
                     >
                       Aa
                     </span>
                     <span className={styles.optionInfo}>
-                      <span className={styles.optionName} style={{ fontFamily: opt.value }}>{opt.label}</span>
+                      <span
+                        className={styles.optionName}
+                        style={{
+                          fontFamily: opt.value,
+                        }}
+                      >
+                        {opt.label}
+                      </span>
+                      <span className={styles.optionDesc}>{opt.desc}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+
+            <p className={styles.sectionLabel} style={{ marginTop: '1.5rem' }}>Animation</p>
+            <div className={styles.optionList}>
+              {ANIMATION_OPTIONS.map((opt) => {
+                const isActive = currentAnimation === opt.value
+                return (
+                  <button
+                    key={opt.value}
+                    className={`${styles.optionCard} ${isActive ? styles.optionCardActive : ''}`}
+                    onClick={() => handleAnimationSelect(opt.value)}
+                  >
+                    <span className={styles.optionInfo}>
+                      <span className={styles.optionName}>{opt.label}</span>
                       <span className={styles.optionDesc}>{opt.desc}</span>
                     </span>
                   </button>

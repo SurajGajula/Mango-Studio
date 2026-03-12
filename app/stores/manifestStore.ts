@@ -37,7 +37,7 @@ interface ManifestStore {
   addVideo: (video: VideoClass) => void
   updateVideo: (id: string, updates: Partial<VideoClass>) => void
   removeVideo: (id: string) => void
-  trimVideo: (id: string, trimStart: number, trimEnd: number) => void
+  trimVideo: (id: string, trimStart: number, trimEnd: number, newTimestamp?: number) => void
   splitVideo: (id: string, playbackTime: number) => void
   splitImage: (id: string, playbackTime: number) => void
   recalculateTimestamps: () => void
@@ -52,6 +52,15 @@ interface ManifestStore {
   removeImage: (id: string) => void
   updateImage: (id: string, updates: Partial<ImageClass>) => void
   replaceImageSource: (id: string, newUrl: string, newName: string) => void
+  replaceImageWithVideo: (
+    imageId: string,
+    video: VideoClass
+  ) => void
+  replaceVideoSource: (id: string, newUrl: string, newTitle: string) => void
+  replaceVideoWithImage: (
+    videoId: string,
+    image: ImageClass
+  ) => void
   bulkUpdateMainTrackItems: (
     imagePatches: Array<{ id: string; startTime?: number; endTime?: number }>,
     videoTimestampPatches: Array<{ id: string; timestamp: number }>
@@ -66,6 +75,7 @@ interface ManifestStore {
   trimAudio: (id: string, trimStart: number, trimEnd: number, startTime?: number) => void
   splitVideoAtTimes: (id: string, times: number[]) => void
   splitImageAtTimes: (id: string, times: number[]) => void
+  duplicateItem: (id: string) => void
   effects: EffectClass[]
   addEffect: (effect: EffectClass) => void
   updateEffect: (id: string, updates: Partial<EffectClass>) => void
@@ -78,6 +88,7 @@ type BlobEntry = { videos: VideoClass[]; images: ImageClass[] }
 function collectUrls(entries: BlobEntry[]): Set<string> {
   const urls = new Set<string>()
   for (const entry of entries) {
+    if (!entry) continue
     for (const v of entry.videos) if (v.url) urls.add(v.url)
     for (const img of entry.images) if (img.url) urls.add(img.url)
   }
@@ -85,15 +96,18 @@ function collectUrls(entries: BlobEntry[]): Set<string> {
 }
 
 function pruneUrls(
-  prevHistory: BlobEntry[],
-  nextHistory: BlobEntry[],
+  oldHistory: BlobEntry[],
+  currentHistory: BlobEntry[],
   liveVideos: VideoClass[],
   liveImages: ImageClass[]
 ) {
   const live: BlobEntry = { videos: liveVideos, images: liveImages }
-  const kept = collectUrls([...nextHistory, live])
-  const had = collectUrls(prevHistory)
-  for (const url of had) {
+  // Only keep URLs if they are in live state or the LAST 5 entries of history
+  const recentHistory = currentHistory.slice(-5)
+  const kept = collectUrls([...recentHistory, live])
+  const candidates = collectUrls(oldHistory)
+  
+  for (const url of candidates) {
     if (!kept.has(url) && url.startsWith('blob:')) {
       URL.revokeObjectURL(url)
     }
@@ -133,11 +147,15 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
     if (current && JSON.stringify(current) === JSON.stringify(entry)) return
     const truncated = state.history.slice(0, state.historyIndex + 1)
     const next = [...truncated, entry]
-    const evicted = next.length > MAX_HISTORY ? next.slice(0, next.length - MAX_HISTORY) : []
-    const trimmed = next.slice(-MAX_HISTORY)
-    if (evicted.length > 0) {
-      pruneUrls(evicted, trimmed, state.videos, state.images)
+    
+    // Aggressive pruning: Keep blob URLs only for live state and last 5 history entries
+    const historyToKeep = next.slice(-5)
+    const evictedFromHistory = next.slice(0, -5)
+    if (evictedFromHistory.length > 0) {
+      pruneUrls(evictedFromHistory, historyToKeep, state.videos, state.images)
     }
+
+    const trimmed = next.slice(-MAX_HISTORY)
     set({ history: trimmed, historyIndex: trimmed.length - 1 })
   },
 
@@ -174,46 +192,82 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
   },
 
   addVideo: (video: VideoClass) => {
-    set((state) => {
-      const mainDuration = state.videos
-        .filter((v) => !v.isOverlay)
-        .reduce((sum, v) => sum + (v.duration || 0), 0)
-      const timestamp = video.isOverlay ? (video.timestamp ?? 0) : mainDuration
-      const newVideo = new VideoClass(
-        video.id,
-        video.title,
-        video.url,
-        video.duration,
-        timestamp,
-        video.createdAt,
-        video.updatedAt,
-        video.originalDuration,
-        video.trimStart,
-        video.trimEnd,
-        video.prompt,
-        video.isOverlay,
-        video.x,
-        video.y,
-        video.width,
-        video.height,
-        video.opacity
-      )
-      useSelectionStore.getState().setSelectedVideoId(newVideo.id)
-      return {
-        videos: [...state.videos, newVideo],
-        playbackTime: video.isOverlay ? state.playbackTime : newVideo.timestamp,
-        isPlaying: false,
-      }
-    })
+    const state = get()
+    const isMainTrack = video.row === 0
+    const delta = video.duration ?? 0
+
+    useSelectionStore.getState().setSelectedVideoId(video.id)
+    set((state) => ({
+      videos: [...state.videos.map(v => {
+        if (isMainTrack && v.row === 0 && v.timestamp >= video.timestamp) {
+          return new VideoClass(
+            v.id, v.title, v.url, v.duration, v.timestamp + delta,
+            v.createdAt, v.updatedAt, v.originalDuration, v.trimStart, v.trimEnd,
+            v.prompt, v.isOverlay, v.x, v.y, v.width, v.height, v.opacity,
+            v.zoom, v.zoomIntensity, v.row, v.muted,
+            v.cropAspect, v.cropSx, v.cropSy, v.cropSw, v.cropSh
+          )
+        }
+        return v
+      }), video],
+      images: state.images.map(img => {
+        if (isMainTrack && img.row === 0 && img.startTime >= video.timestamp) {
+          return new ImageClass(
+            img.id, img.name, img.url,
+            img.startTime + delta, img.endTime + delta,
+            img.x, img.y, img.width, img.height, img.opacity,
+            img.createdAt, img.isMainTrack, img.zoom, img.cropAspect,
+            img.cropSx, img.cropSy, img.cropSw, img.cropSh,
+            img.zoomIntensity, img.row
+          )
+        }
+        return img
+      }),
+      playbackTime: video.timestamp ?? 0,
+      isPlaying: false,
+    }))
     get().pushHistory()
   },
 
   removeVideo: (id: string) => {
     const state = get()
+    const video = state.videos.find((v) => v.id === id)
+    if (!video) return
+
     const { selectedVideoId, setSelectedVideoId } = useSelectionStore.getState()
     if (selectedVideoId === id) setSelectedVideoId(null)
+
+    const isMainTrack = video.row === 0
+    const delta = -(video.duration ?? 0)
+
     set((s) => ({
-      videos: s.videos.filter((v) => v.id !== id),
+      videos: s.videos
+        .filter((v) => v.id !== id)
+        .map((v) => {
+        if (isMainTrack && v.row === 0 && v.timestamp > video.timestamp) {
+          return new VideoClass(
+            v.id, v.title, v.url, v.duration, v.timestamp + delta,
+            v.createdAt, v.updatedAt, v.originalDuration, v.trimStart, v.trimEnd,
+            v.prompt, v.isOverlay, v.x, v.y, v.width, v.height, v.opacity,
+            v.zoom, v.zoomIntensity, v.row, v.muted,
+            v.cropAspect, v.cropSx, v.cropSy, v.cropSw, v.cropSh
+          )
+        }
+          return v
+        }),
+      images: s.images.map((img) => {
+        if (isMainTrack && img.row === 0 && img.startTime > video.timestamp) {
+          return new ImageClass(
+            img.id, img.name, img.url,
+            img.startTime + delta, img.endTime + delta,
+            img.x, img.y, img.width, img.height, img.opacity,
+            img.createdAt, img.isMainTrack, img.zoom, img.cropAspect,
+            img.cropSx, img.cropSy, img.cropSw, img.cropSh,
+            img.zoomIntensity, img.row
+          )
+        }
+        return img
+      })
     }))
     get().recalculateTimestamps()
     get().pushHistory()
@@ -230,15 +284,17 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
     set((state) => ({
       videos: state.videos.map((video) => {
         if (video.id !== id) return video
+        const newDuration = updates.duration ?? video.duration
+        const newOrigDuration = updates.originalDuration ?? video.originalDuration ?? newDuration
         return new VideoClass(
           video.id,
           updates.title ?? video.title,
           updates.url ?? video.url,
-          updates.duration ?? video.duration,
+          newDuration,
           updates.timestamp ?? video.timestamp,
           video.createdAt,
           new Date(),
-          updates.originalDuration ?? video.originalDuration,
+          newOrigDuration,
           updates.trimStart ?? video.trimStart,
           updates.trimEnd ?? video.trimEnd,
           updates.prompt ?? video.prompt,
@@ -249,13 +305,21 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
           updates.height ?? video.height,
           updates.opacity ?? video.opacity,
           updates.zoom ?? video.zoom,
-          updates.zoomIntensity ?? video.zoomIntensity
+          updates.zoomIntensity ?? video.zoomIntensity,
+          updates.row ?? video.row,
+          updates.muted ?? video.muted,
+          updates.cropAspect ?? video.cropAspect,
+          updates.cropSx ?? video.cropSx,
+          updates.cropSy ?? video.cropSy,
+          updates.cropSw ?? video.cropSw,
+          updates.cropSh ?? video.cropSh
         )
       }),
     }))
+    get().pushHistory()
   },
 
-  trimVideo: (id: string, trimStart: number, trimEnd: number) => {
+  trimVideo: (id: string, trimStart: number, trimEnd: number, newTimestamp?: number) => {
     const state = get()
     const video = state.videos.find((v) => v.id === id)
     if (!video) return
@@ -264,31 +328,52 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
     const clampedTrimStart = Math.max(0, Math.min(trimStart, origDuration - 0.1))
     const clampedTrimEnd = Math.max(0, Math.min(trimEnd, origDuration - clampedTrimStart - 0.1))
     const newDuration = origDuration - clampedTrimStart - clampedTrimEnd
+    const finalTimestamp = newTimestamp !== undefined ? newTimestamp : video.timestamp
 
-    set((state) => ({
-      videos: state.videos.map((v) => {
-        if (v.id !== id) return v
-        return new VideoClass(
-          v.id,
-          v.title,
-          v.url,
-          newDuration,
-          v.timestamp,
-          v.createdAt,
-          new Date(),
-          v.originalDuration ?? v.duration,
-          clampedTrimStart,
-          clampedTrimEnd,
-          v.prompt,
-          v.isOverlay,
-          v.x,
-          v.y,
-          v.width,
-          v.height,
-          v.opacity
-        )
-      }),
-    }))
+    const isMainTrack = video.row === 0
+    const oldDuration = video.duration ?? 0
+    const durationDelta = newDuration - oldDuration
+    const timestampDelta = finalTimestamp - video.timestamp
+    const totalDelta = durationDelta + timestampDelta
+
+    set((state) => {
+      const nextVideos = state.videos.map((v) => {
+        if (v.id === id) {
+          return new VideoClass(
+            v.id, v.title, v.url, newDuration, finalTimestamp,
+            v.createdAt, new Date(), origDuration, clampedTrimStart, clampedTrimEnd,
+            v.prompt, v.isOverlay, v.x, v.y, v.width, v.height, v.opacity,
+            v.zoom, v.zoomIntensity, v.row, v.muted
+          )
+        }
+        // If on main track, shift items that start AFTER this one
+        if (isMainTrack && v.row === 0 && v.timestamp > video.timestamp) {
+          return new VideoClass(
+            v.id, v.title, v.url, v.duration, v.timestamp + totalDelta,
+            v.createdAt, v.updatedAt, v.originalDuration, v.trimStart, v.trimEnd,
+            v.prompt, v.isOverlay, v.x, v.y, v.width, v.height, v.opacity,
+            v.zoom, v.zoomIntensity, v.row, v.muted
+          )
+        }
+        return v
+      })
+
+      const nextImages = state.images.map((img) => {
+        if (isMainTrack && img.row === 0 && img.startTime > video.timestamp) {
+          return new ImageClass(
+            img.id, img.name, img.url,
+            img.startTime + totalDelta, img.endTime + totalDelta,
+            img.x, img.y, img.width, img.height, img.opacity,
+            img.createdAt, img.isMainTrack, img.zoom, img.cropAspect,
+            img.cropSx, img.cropSy, img.cropSw, img.cropSh,
+            img.zoomIntensity, img.row
+          )
+        }
+        return img
+      })
+
+      return { videos: nextVideos, images: nextImages }
+    })
 
     get().recalculateTimestamps()
   },
@@ -324,7 +409,14 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
       video.height,
       video.opacity,
       video.zoom,
-      video.zoomIntensity
+      video.zoomIntensity,
+      video.row,
+      video.muted,
+      video.cropAspect,
+      video.cropSx,
+      video.cropSy,
+      video.cropSw,
+      video.cropSh
     )
 
     const secondHalf = new VideoClass(
@@ -346,7 +438,14 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
       video.height,
       video.opacity,
       video.zoom,
-      video.zoomIntensity
+      video.zoomIntensity,
+      video.row,
+      video.muted,
+      video.cropAspect,
+      video.cropSx,
+      video.cropSy,
+      video.cropSw,
+      video.cropSh
     )
 
     useSelectionStore.getState().setSelectedVideoId(secondHalf.id)
@@ -380,14 +479,15 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
       image.height,
       image.opacity,
       image.createdAt,
-      true,
+      image.isMainTrack,
       image.zoom,
       image.cropAspect,
       image.cropSx,
       image.cropSy,
       image.cropSw,
       image.cropSh,
-      image.zoomIntensity
+      image.zoomIntensity,
+      image.row
     )
 
     const secondHalf = new ImageClass(
@@ -402,14 +502,15 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
       image.height,
       image.opacity,
       new Date(),
-      true,
+      image.isMainTrack,
       image.zoom,
       image.cropAspect,
       image.cropSx,
       image.cropSy,
       image.cropSw,
       image.cropSh,
-      image.zoomIntensity
+      image.zoomIntensity,
+      image.row
     )
 
     useSelectionStore.getState().setSelectedImageId(secondHalf.id)
@@ -423,39 +524,17 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
   },
 
   recalculateTimestamps: () => {
-    set((state) => {
-      const mainVideos = state.videos.filter((v) => !v.isOverlay).sort((a, b) => a.timestamp - b.timestamp)
-      const overlayVideos = state.videos.filter((v) => v.isOverlay)
-      let currentTime = 0
-      const updatedMain = mainVideos.map((video) => {
-        const newVideo = new VideoClass(
-          video.id,
-          video.title,
-          video.url,
-          video.duration,
-          currentTime,
-          video.createdAt,
-          new Date(),
-          video.originalDuration,
-          video.trimStart,
-          video.trimEnd,
-          video.prompt
-        )
-        currentTime += video.duration ?? 0
-        return newVideo
-      })
-      return { videos: [...updatedMain, ...overlayVideos] }
-    })
+    // Videos are now positioned explicitly; no sequential recalculation needed.
   },
 
   getTotalDuration: () => {
-    const videoDuration = get().videos
+    const videoEnd = get().videos
       .filter((v) => !v.isOverlay)
-      .reduce((sum, video) => sum + (video.duration || 0), 0)
+      .reduce((max, v) => Math.max(max, (v.timestamp ?? 0) + (v.duration ?? 0)), 0)
     const imageEnd = get().images
       .filter((img) => img.isMainTrack)
       .reduce((max, img) => Math.max(max, img.endTime), 0)
-    return Math.max(videoDuration, imageEnd)
+    return Math.max(videoEnd, imageEnd)
   },
 
   setPendingPrompt: (prompt: string | null) => {
@@ -463,7 +542,7 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
   },
 
   setPlaybackTime: (time: number) => {
-    set({ playbackTime: time })
+    set({ playbackTime: Math.max(0, time) })
   },
 
   setIsPlaying: (playing: boolean) => {
@@ -482,19 +561,78 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
   },
 
   addImage: (image: ImageClass) => {
+    const isMainTrack = image.row === 0
+    const delta = image.duration
+
     useSelectionStore.getState().setSelectedImageId(image.id)
     set((state) => ({
-      images: [...state.images, image],
+      images: [...state.images.map(img => {
+        if (isMainTrack && img.row === 0 && img.startTime >= image.startTime) {
+          return new ImageClass(
+            img.id, img.name, img.url,
+            img.startTime + delta, img.endTime + delta,
+            img.x, img.y, img.width, img.height, img.opacity,
+            img.createdAt, img.isMainTrack, img.zoom, img.cropAspect,
+            img.cropSx, img.cropSy, img.cropSw, img.cropSh,
+            img.zoomIntensity, img.row
+          )
+        }
+        return img
+      }), image],
+      videos: state.videos.map(v => {
+        if (isMainTrack && v.row === 0 && v.timestamp >= image.startTime) {
+          return new VideoClass(
+            v.id, v.title, v.url, v.duration, v.timestamp + delta,
+            v.createdAt, v.updatedAt, v.originalDuration, v.trimStart, v.trimEnd,
+            v.prompt, v.isOverlay, v.x, v.y, v.width, v.height, v.opacity,
+            v.zoom, v.zoomIntensity, v.row, v.muted,
+            v.cropAspect, v.cropSx, v.cropSy, v.cropSw, v.cropSh
+          )
+        }
+        return v
+      }),
     }))
     get().pushHistory()
   },
 
   removeImage: (id: string) => {
     const state = get()
+    const image = state.images.find((img) => img.id === id)
+    if (!image) return
+
     const { selectedImageId, setSelectedImageId } = useSelectionStore.getState()
     if (selectedImageId === id) setSelectedImageId(null)
+
+    const isMainTrack = image.row === 0
+    const delta = -(image.duration)
+
     set((s) => ({
-      images: s.images.filter((o) => o.id !== id),
+      images: s.images
+        .filter((o) => o.id !== id)
+        .map((img) => {
+          if (isMainTrack && img.row === 0 && img.startTime > image.startTime) {
+            return new ImageClass(
+              img.id, img.name, img.url,
+              img.startTime + delta, img.endTime + delta,
+              img.x, img.y, img.width, img.height, img.opacity,
+              img.createdAt, img.isMainTrack, img.zoom, img.cropAspect,
+              img.cropSx, img.cropSy, img.cropSw, img.cropSh,
+              img.zoomIntensity, img.row
+            )
+          }
+          return img
+        }),
+      videos: s.videos.map((v) => {
+        if (isMainTrack && v.row === 0 && v.timestamp > image.startTime) {
+          return new VideoClass(
+            v.id, v.title, v.url, v.duration, v.timestamp + delta,
+            v.createdAt, v.updatedAt, v.originalDuration, v.trimStart, v.trimEnd,
+            v.prompt, v.isOverlay, v.x, v.y, v.width, v.height, v.opacity,
+            v.zoom, v.zoomIntensity, v.row, v.muted
+          )
+        }
+        return v
+      })
     }))
     get().pushHistory()
     const nextState = get()
@@ -507,33 +645,58 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
   },
 
   updateImage: (id: string, updates: Partial<ImageClass>) => {
+    const state = get()
+    const image = state.images.find((img) => img.id === id)
+    if (!image) return
+
+    const isMainTrack = image.row === 0
+    const oldDuration = image.duration
+    const newDuration = updates.endTime !== undefined && updates.startTime !== undefined 
+      ? updates.endTime - updates.startTime 
+      : (updates.endTime !== undefined ? updates.endTime - image.startTime : (updates.startTime !== undefined ? image.endTime - updates.startTime : image.duration))
+    
+    const durationDelta = newDuration - oldDuration
+    const timestampDelta = (updates.startTime ?? image.startTime) - image.startTime
+    const totalDelta = durationDelta + timestampDelta
+
     set((state) => ({
-      images: state.images.map((image) =>
-        image.id === id
-          ? new ImageClass(
-              image.id,
-              updates.name ?? image.name,
-              updates.url ?? image.url,
-              updates.startTime ?? image.startTime,
-              updates.endTime ?? image.endTime,
-              updates.x ?? image.x,
-              updates.y ?? image.y,
-              updates.width ?? image.width,
-              updates.height ?? image.height,
-              updates.opacity ?? image.opacity,
-              image.createdAt,
-              updates.isMainTrack ?? image.isMainTrack,
-              updates.zoom ?? image.zoom,
-              'cropAspect' in updates ? updates.cropAspect : image.cropAspect,
-              updates.cropSx ?? image.cropSx,
-              updates.cropSy ?? image.cropSy,
-              updates.cropSw ?? image.cropSw,
-              updates.cropSh ?? image.cropSh,
-              updates.zoomIntensity ?? image.zoomIntensity
-            )
-          : image
-      ),
+      images: state.images.map((img) => {
+        if (img.id === id) {
+          return new ImageClass(
+            img.id, updates.name ?? img.name, updates.url ?? img.url,
+            updates.startTime ?? img.startTime, updates.endTime ?? img.endTime,
+            updates.x ?? img.x, updates.y ?? img.y, updates.width ?? img.width, updates.height ?? img.height,
+            updates.opacity ?? img.opacity, img.createdAt, updates.isMainTrack ?? img.isMainTrack,
+            updates.zoom ?? img.zoom, 'cropAspect' in updates ? updates.cropAspect : img.cropAspect,
+            updates.cropSx ?? img.cropSx, updates.cropSy ?? img.cropSy, updates.cropSw ?? img.cropSw, updates.cropSh ?? img.cropSh,
+            updates.zoomIntensity ?? img.zoomIntensity, updates.row ?? img.row
+          )
+        }
+        if (isMainTrack && img.row === 0 && img.startTime > image.startTime) {
+          return new ImageClass(
+            img.id, img.name, img.url,
+            img.startTime + totalDelta, img.endTime + totalDelta,
+            img.x, img.y, img.width, img.height, img.opacity,
+            img.createdAt, img.isMainTrack, img.zoom, img.cropAspect,
+            img.cropSx, img.cropSy, img.cropSw, img.cropSh,
+            img.zoomIntensity, img.row
+          )
+        }
+        return img
+      }),
+      videos: state.videos.map((v) => {
+        if (isMainTrack && v.row === 0 && v.timestamp > image.startTime) {
+          return new VideoClass(
+            v.id, v.title, v.url, v.duration, v.timestamp + totalDelta,
+            v.createdAt, v.updatedAt, v.originalDuration, v.trimStart, v.trimEnd,
+            v.prompt, v.isOverlay, v.x, v.y, v.width, v.height, v.opacity,
+            v.zoom, v.zoomIntensity, v.row, v.muted
+          )
+        }
+        return v
+      })
     }))
+    get().pushHistory()
   },
 
   replaceImageSource: (id, newUrl, newName) => {
@@ -550,14 +713,124 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
               img.x, img.y, img.width, img.height, img.opacity,
               img.createdAt, img.isMainTrack,
               img.zoom, img.cropAspect, img.cropSx, img.cropSy, img.cropSw, img.cropSh,
-              img.zoomIntensity
+              img.zoomIntensity, img.row
             )
           : img
       ),
     }))
-    const nextState = get()
-    const urlStillInUse = nextState.images.some((img) => img.url === oldUrl)
-    if (!urlStillInUse && oldUrl.startsWith('blob:')) URL.revokeObjectURL(oldUrl)
+    get().pushHistory()
+  },
+
+  replaceImageWithVideo: (imageId, video) => {
+    const state = get()
+    const image = state.images.find((img) => img.id === imageId)
+    if (!image) return
+
+    const isMainTrack = image.row === 0
+    const delta = (video.duration ?? 0) - image.duration
+
+    set((s) => ({
+      images: s.images
+        .filter((img) => img.id !== imageId)
+        .map((img) => {
+          if (isMainTrack && img.row === 0 && img.startTime > image.startTime) {
+            return new ImageClass(
+              img.id, img.name, img.url,
+              img.startTime + delta, img.endTime + delta,
+              img.x, img.y, img.width, img.height, img.opacity,
+              img.createdAt, img.isMainTrack, img.zoom, img.cropAspect,
+              img.cropSx, img.cropSy, img.cropSw, img.cropSh,
+              img.zoomIntensity, img.row
+            )
+          }
+          return img
+        }),
+      videos: [...s.videos.map((v) => {
+        if (isMainTrack && v.row === 0 && v.timestamp > image.startTime) {
+          return new VideoClass(
+            v.id, v.title, v.url, v.duration, v.timestamp + delta,
+            v.createdAt, v.updatedAt, v.originalDuration, v.trimStart, v.trimEnd,
+            v.prompt, v.isOverlay, v.x, v.y, v.width, v.height, v.opacity,
+            v.zoom, v.zoomIntensity, v.row, v.muted
+          )
+        }
+        return v
+      }), video],
+    }))
+
+    if (image.url.startsWith('blob:')) {
+      // Manual revocation removed; pushHistory's pruneUrls will handle it
+    }
+
+    useSelectionStore.getState().setSelectedVideoId(video.id)
+    get().pushHistory()
+  },
+
+  replaceVideoWithImage: (videoId, image) => {
+    const state = get()
+    const video = state.videos.find((v) => v.id === videoId)
+    if (!video) return
+
+    const isMainTrack = video.row === 0
+    const delta = image.duration - (video.duration ?? 0)
+
+    set((s) => ({
+      videos: s.videos
+        .filter((v) => v.id !== videoId)
+        .map((v) => {
+        if (isMainTrack && v.row === 0 && v.timestamp > video.timestamp) {
+          return new VideoClass(
+            v.id, v.title, v.url, v.duration, v.timestamp + delta,
+            v.createdAt, v.updatedAt, v.originalDuration, v.trimStart, v.trimEnd,
+            v.prompt, v.isOverlay, v.x, v.y, v.width, v.height, v.opacity,
+            v.zoom, v.zoomIntensity, v.row, v.muted,
+            v.cropAspect, v.cropSx, v.cropSy, v.cropSw, v.cropSh
+          )
+        }
+          return v
+        }),
+      images: [...s.images.map((img) => {
+        if (isMainTrack && img.row === 0 && img.startTime > video.timestamp) {
+          return new ImageClass(
+            img.id, img.name, img.url,
+            img.startTime + delta, img.endTime + delta,
+            img.x, img.y, img.width, img.height, img.opacity,
+            img.createdAt, img.isMainTrack, img.zoom, img.cropAspect,
+            img.cropSx, img.cropSy, img.cropSw, img.cropSh,
+            img.zoomIntensity, img.row
+          )
+        }
+        return img
+      }), image],
+    }))
+
+    if (video.url?.startsWith('blob:')) {
+      // Manual revocation removed; pushHistory's pruneUrls will handle it
+    }
+
+    useSelectionStore.getState().setSelectedImageId(image.id)
+    get().pushHistory()
+  },
+
+  replaceVideoSource: (id, newUrl, newTitle) => {
+    const state = get()
+    const video = state.videos.find((v) => v.id === id)
+    if (!video) return
+    set((s) => ({
+      videos: s.videos.map((v) =>
+        v.id === id
+          ? new VideoClass(
+              v.id, newTitle, newUrl,
+              v.duration, v.timestamp,
+              v.createdAt, new Date(), v.originalDuration,
+              v.trimStart, v.trimEnd, v.prompt,
+              v.isOverlay, v.x, v.y, v.width, v.height, v.opacity,
+              v.zoom, v.zoomIntensity, v.row, v.muted,
+              v.cropAspect, v.cropSx, v.cropSy, v.cropSw, v.cropSh
+            )
+          : v
+      ),
+    }))
     get().pushHistory()
   },
 
@@ -575,7 +848,7 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
           img.x, img.y, img.width, img.height, img.opacity,
           img.createdAt, img.isMainTrack,
           img.zoom, img.cropAspect, img.cropSx, img.cropSy, img.cropSw, img.cropSh,
-          img.zoomIntensity
+          img.zoomIntensity, img.row
         )
       }),
       videos: state.videos.map((v) => {
@@ -586,7 +859,8 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
           v.createdAt, v.updatedAt, v.originalDuration,
           v.trimStart, v.trimEnd, v.prompt,
           v.isOverlay, v.x, v.y, v.width, v.height, v.opacity,
-          v.zoom, v.zoomIntensity
+          v.zoom, v.zoomIntensity, v.row, v.muted,
+          v.cropAspect, v.cropSx, v.cropSy, v.cropSw, v.cropSh
         )
       }),
     }))
@@ -617,7 +891,9 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
               updates.color ?? t.color,
               updates.fontWeight ?? t.fontWeight,
               updates.textAlign ?? t.textAlign,
-              t.createdAt
+              updates.animation ?? t.animation,
+              t.createdAt,
+              updates.row ?? t.row
             )
           : t
       ),
@@ -641,14 +917,14 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
       text.id, text.content, text.startTime, playbackTime,
       text.x, text.y, text.width, text.height, text.opacity,
       text.fontSize, text.fontFamily, text.color, text.fontWeight, text.textAlign,
-      text.createdAt
+      text.animation, text.createdAt, text.row
     )
     const secondHalf = new TextClass(
       `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       text.content, playbackTime, text.endTime,
       text.x, text.y, text.width, text.height, text.opacity,
       text.fontSize, text.fontFamily, text.color, text.fontWeight, text.textAlign,
-      new Date()
+      text.animation, new Date(), text.row
     )
 
     useSelectionStore.getState().setSelectedTextId(secondHalf.id)
@@ -749,7 +1025,14 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
         video.height,
         video.opacity,
         video.zoom,
-        video.zoomIntensity
+        video.zoomIntensity,
+        video.row,
+        video.muted,
+        video.cropAspect,
+        video.cropSx,
+        video.cropSy,
+        video.cropSw,
+        video.cropSh
       )
     })
 
@@ -793,13 +1076,131 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
         image.cropSy,
         image.cropSw,
         image.cropSh,
-        image.zoomIntensity
+        image.zoomIntensity,
+        image.row
       )
     })
 
     set((s) => ({
       images: s.images.filter((img) => img.id !== id).concat(newSegments),
     }))
+    get().pushHistory()
+  },
+
+  duplicateItem: (id: string) => {
+    const state = get()
+    let item: VideoClass | ImageClass | TextClass | undefined
+    let type: 'video' | 'image' | 'text' = 'video'
+
+    const vMatch = state.videos.find((v) => v.id === id)
+    if (vMatch) {
+      item = vMatch
+      type = 'video'
+    } else {
+      const imgMatch = state.images.find((img) => img.id === id)
+      if (imgMatch) {
+        item = imgMatch
+        type = 'image'
+      } else {
+        const tMatch = state.texts.find((t) => t.id === id)
+        if (tMatch) {
+          item = tMatch
+          type = 'text'
+        }
+      }
+    }
+
+    if (!item) return
+
+    const isMainTrack = (item as any).row === 0 || (type === 'image' && (item as ImageClass).isMainTrack)
+    const startTime = type === 'video' ? (item as VideoClass).timestamp : (item as any).startTime
+    const duration = (item as any).duration ?? 0
+    const endTime = startTime + duration
+
+    let newItem: VideoClass | ImageClass | TextClass
+    const newId = `${type}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+
+    if (type === 'video') {
+      const v = item as VideoClass
+      newItem = new VideoClass(
+        newId, v.title, v.url, v.duration, endTime,
+        new Date(), new Date(), v.originalDuration, v.trimStart, v.trimEnd,
+        v.prompt, v.isOverlay, v.x, v.y, v.width, v.height, v.opacity,
+        v.zoom, v.zoomIntensity, v.row, v.muted,
+        v.cropAspect, v.cropSx, v.cropSy, v.cropSw, v.cropSh
+      )
+    } else if (type === 'image') {
+      const img = item as ImageClass
+      newItem = new ImageClass(
+        newId, img.name, img.url, endTime, endTime + duration,
+        img.x, img.y, img.width, img.height, img.opacity,
+        new Date(), img.isMainTrack, img.zoom, img.cropAspect,
+        img.cropSx, img.cropSy, img.cropSw, img.cropSh,
+        img.zoomIntensity, img.row
+      )
+    } else {
+      const t = item as TextClass
+      newItem = new TextClass(
+        newId, t.content, endTime, endTime + duration,
+        t.x, t.y, t.width, t.height, t.opacity,
+        t.fontSize, t.fontFamily, t.color, t.fontWeight, t.textAlign,
+        t.animation,
+        new Date(), t.row
+      )
+    }
+
+    set((s) => {
+      const nextVideos = s.videos.map((v) => {
+        if (isMainTrack && v.row === 0 && v.timestamp >= endTime) {
+          return new VideoClass(
+            v.id, v.title, v.url, v.duration, v.timestamp + duration,
+            v.createdAt, v.updatedAt, v.originalDuration, v.trimStart, v.trimEnd,
+            v.prompt, v.isOverlay, v.x, v.y, v.width, v.height, v.opacity,
+            v.zoom, v.zoomIntensity, v.row, v.muted,
+            v.cropAspect, v.cropSx, v.cropSy, v.cropSw, v.cropSh
+          )
+        }
+        return v
+      })
+
+      const nextImages = s.images.map((img) => {
+        if (isMainTrack && img.row === 0 && img.startTime >= endTime) {
+          return new ImageClass(
+            img.id, img.name, img.url, img.startTime + duration, img.endTime + duration,
+            img.x, img.y, img.width, img.height, img.opacity,
+            img.createdAt, img.isMainTrack, img.zoom, img.cropAspect,
+            img.cropSx, img.cropSy, img.cropSw, img.cropSh,
+            img.zoomIntensity, img.row
+          )
+        }
+        return img
+      })
+
+      const nextTexts = s.texts.map((t) => {
+        if (isMainTrack && t.row === 0 && t.startTime >= endTime) {
+          return new TextClass(
+            t.id, t.content, t.startTime + duration, t.endTime + duration,
+            t.x, t.y, t.width, t.height, t.opacity,
+            t.fontSize, t.fontFamily, t.color, t.fontWeight, t.textAlign,
+            t.animation,
+            t.createdAt, t.row
+          )
+        }
+        return t
+      })
+
+      return {
+        videos: type === 'video' ? [...nextVideos, newItem as VideoClass] : nextVideos,
+        images: type === 'image' ? [...nextImages, newItem as ImageClass] : nextImages,
+        texts: type === 'text' ? [...nextTexts, newItem as TextClass] : nextTexts,
+      }
+    })
+
+    if (type === 'video') useSelectionStore.getState().setSelectedVideoId(newId)
+    else if (type === 'image') useSelectionStore.getState().setSelectedImageId(newId)
+    else if (type === 'text') useSelectionStore.getState().setSelectedTextId(newId)
+
+    set({ playbackTime: endTime })
     get().pushHistory()
   },
 

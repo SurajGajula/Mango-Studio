@@ -630,10 +630,10 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 10px;
+  width: 14px;
   background-color: #ffffff;
   cursor: ew-resize;
-  z-index: 15;
+  z-index: 25;
   opacity: 0;
   transition: opacity 0.15s ease;
 }
@@ -644,18 +644,18 @@
 }
 
 .trimHandleStart {
-  left: 0;
-  border-radius: 0;
+  left: -2px;
+  border-radius: 4px 0 0 4px;
 }
 
 .trimHandleEnd {
-  right: 0;
-  border-radius: 0;
+  right: -2px;
+  border-radius: 0 4px 4px 0;
 }
 
 .trimHandleStart:hover,
 .trimHandleEnd:hover {
-  background-color: #e0e0e0;
+  background-color: rgba(255, 255, 255, 0.4);
 }
 
 .trimHandleStart::after,
@@ -922,4 +922,44 @@
   color: #888888;
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+.muteButton {
+  background: none;
+  border: none;
+  color: #aaaaaa;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease;
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.muteButton:hover {
+  color: #ffffff;
+}
+
+.muteButtonMain {
+  position: absolute;
+  top: 6px;
+  right: 12px;
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  color: #ffffff;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  z-index: 20;
+}
+
+.muteButtonMain:hover {
+  background: rgba(0, 0, 0, 0.8);
+  border-color: rgba(255, 255, 255, 0.5);
 }

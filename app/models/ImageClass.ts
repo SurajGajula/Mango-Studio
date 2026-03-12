@@ -20,6 +20,7 @@ export class ImageClass {
   cropSy: number
   cropSw: number
   cropSh: number
+  row: number
 
   constructor(
     id: string,
@@ -40,7 +41,8 @@ export class ImageClass {
     cropSy?: number,
     cropSw?: number,
     cropSh?: number,
-    zoomIntensity?: number
+    zoomIntensity?: number,
+    row?: number
   ) {
     this.id = id
     this.name = name
@@ -53,7 +55,8 @@ export class ImageClass {
     this.height = height ?? 200
     this.opacity = opacity ?? 1
     this.createdAt = createdAt || new Date()
-    this.isMainTrack = isMainTrack ?? false
+    this.row = row ?? 0
+    this.isMainTrack = isMainTrack ?? (this.row === 0)
     this.zoom = zoom ?? 'none'
     this.zoomIntensity = zoomIntensity ?? 0.5
     this.cropAspect = cropAspect

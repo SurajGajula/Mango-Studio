@@ -2,13 +2,18 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { wrapTextToLines } from '@/app/lib/textUtils'
+import { computeMediaCropForAspect, ASPECT_RATIOS } from '@/app/lib/mediaUtils'
+import { ImageClass } from '@/app/models/ImageClass'
+import { VideoClass } from '@/app/models/VideoClass'
 import gsap from 'gsap'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useVideoPlayback } from '@/app/lib/useVideoPlayback'
 import styles from './PreviewArea.module.css'
+import TextOverlay from './TextOverlay'
+import CropEditor from './CropEditor'
 
-type DragMode = 'move' | 'resize-nw' | 'resize-ne' | 'resize-sw' | 'resize-se' | null
+type DragMode = 'move' | null
 
 interface OverlayDragState {
   itemId: string
@@ -32,6 +37,15 @@ interface TextDragState {
   initialHeight: number
 }
 
+interface TextResizeState {
+  textId: string
+  side: 'left' | 'right'
+  startX: number
+  initialX: number
+  initialWidth: number
+  minWidth: number
+}
+
 interface CropPanState {
   startX: number
   startY: number
@@ -49,6 +63,7 @@ export default function PreviewArea() {
 
   const [dragState, setDragState] = useState<OverlayDragState | null>(null)
   const [textDragState, setTextDragState] = useState<TextDragState | null>(null)
+  const [textResizeState, setTextResizeState] = useState<TextResizeState | null>(null)
   const [snapLines, setSnapLines] = useState<{ horizontal: number[], vertical: number[] }>({ horizontal: [], vertical: [] })
   const [editingTextId, setEditingTextId] = useState<string | null>(null)
   const [editingContent, setEditingContent] = useState('')
@@ -56,7 +71,6 @@ export default function PreviewArea() {
   const [cropEditId, setCropEditId] = useState<string | null>(null)
   const [cropPanState, setCropPanState] = useState<CropPanState | null>(null)
   const textRefs = useRef<Map<string, HTMLDivElement | null>>(new Map())
-  const textTimelines = useRef<Map<string, gsap.core.Timeline>>(new Map())
   const measureCanvas = useRef<HTMLCanvasElement | null>(null)
 
   const getMeasureCtx = useCallback((): CanvasRenderingContext2D => {
@@ -99,18 +113,48 @@ export default function PreviewArea() {
     (t) => playbackTime >= t.startTime && playbackTime < t.endTime
   )
 
-  const xScale = contentRect.width > 0 ? contentRect.width / 1920 : 1
-  const yScale = contentRect.height > 0 ? contentRect.height / 1080 : 1
+  const logicalW = aspectRatio === '16:9' ? 1920 : 1080
+  const logicalH = aspectRatio === '16:9' ? 1080 : 1920
+  const xScale = contentRect.width > 0 ? contentRect.width / logicalW : 1
+  const yScale = contentRect.height > 0 ? contentRect.height / logicalH : 1
   const offsetX = contentRect.x
   const offsetY = contentRect.y
   const yScaleRef = useRef(yScale)
   yScaleRef.current = yScale
 
-  const enterCropEdit = useCallback((imageId: string) => {
-    const img = images.find((i) => i.id === imageId)
-    if (!img?.cropAspect) return
-    setCropEditId(imageId)
-  }, [images])
+  const enterCropEdit = useCallback(async (id: string, type: 'image' | 'video') => {
+    if (type === 'image') {
+      let img = images.find((i) => i.id === id)
+      if (!img) return
+      if (!img.cropAspect) {
+        const currentAspect = img.width / img.height
+        const matchingLabel = Object.keys(ASPECT_RATIOS).find(label => {
+          const [rw, rh] = ASPECT_RATIOS[label]
+          return Math.abs(currentAspect - (rw / rh)) < 0.01
+        })
+        const finalLabel = matchingLabel || aspectRatio
+        const [rw, rh] = ASPECT_RATIOS[finalLabel]
+        const updates = await computeMediaCropForAspect(img.url, 'image', aspectRatio, rw, rh, finalLabel)
+        updateImage(id, updates as Partial<ImageClass>)
+      }
+      setCropEditId(id)
+    } else {
+      let vid = videos.find((v) => v.id === id)
+      if (!vid) return
+      if (!vid.cropAspect) {
+        const currentAspect = vid.width / vid.height
+        const matchingLabel = Object.keys(ASPECT_RATIOS).find(label => {
+          const [rw, rh] = ASPECT_RATIOS[label]
+          return Math.abs(currentAspect - (rw / rh)) < 0.01
+        })
+        const finalLabel = matchingLabel || aspectRatio
+        const [rw, rh] = ASPECT_RATIOS[finalLabel]
+        const updates = await computeMediaCropForAspect(vid.url || '', 'video', aspectRatio, rw, rh, finalLabel)
+        updateVideo(id, updates as Partial<VideoClass>)
+      }
+      setCropEditId(id)
+    }
+  }, [images, videos, aspectRatio, updateImage, updateVideo])
 
   const exitCropEdit = useCallback(() => {
     setCropEditId(null)
@@ -118,21 +162,23 @@ export default function PreviewArea() {
     pushHistory()
   }, [pushHistory])
 
-
   const handleCropPanStart = useCallback((e: React.MouseEvent) => {
     if (!cropEditId) return
     e.preventDefault()
+    
     const img = images.find((i) => i.id === cropEditId)
-    if (!img) return
+    const vid = videos.find((v) => v.id === cropEditId)
+    const item = img || vid
+    if (!item) return
 
     const canvasRect = canvasRef.current?.getBoundingClientRect()
     if (canvasRect) {
       const px = e.clientX - canvasRect.left
       const py = e.clientY - canvasRect.top
-      const destX = img.x * xScale + offsetX
-      const destY = img.y * yScale + offsetY
-      const destW = img.width * xScale
-      const destH = img.height * yScale
+      const destX = item.x * xScale + offsetX
+      const destY = item.y * yScale + offsetY
+      const destW = item.width * xScale
+      const destH = item.height * yScale
       if (px < destX || px > destX + destW || py < destY || py > destY + destH) {
         exitCropEdit()
         return
@@ -142,14 +188,14 @@ export default function PreviewArea() {
     setCropPanState({
       startX: e.clientX,
       startY: e.clientY,
-      startCropSx: img.cropSx,
-      startCropSy: img.cropSy,
-      cropSw: img.cropSw,
-      cropSh: img.cropSh,
-      destW: img.width * xScale,
-      destH: img.height * yScale,
+      startCropSx: item.cropSx,
+      startCropSy: item.cropSy,
+      cropSw: item.cropSw,
+      cropSh: item.cropSh,
+      destW: item.width * xScale,
+      destH: item.height * yScale,
     })
-  }, [cropEditId, images, xScale, yScale, offsetX, offsetY, exitCropEdit])
+  }, [cropEditId, images, videos, xScale, yScale, offsetX, offsetY, exitCropEdit])
 
   const handleCanvasDoubleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current
@@ -157,8 +203,24 @@ export default function PreviewArea() {
     const rect = canvas.getBoundingClientRect()
     const px = e.clientX - rect.left
     const py = e.clientY - rect.top
+
+    // Check overlay videos first
+    const visibleOverlayVideos = videos.filter(
+      (v) => v.isOverlay && playbackTime >= v.timestamp && playbackTime < v.timestamp + (v.duration ?? 0)
+    )
+    for (const vid of visibleOverlayVideos) {
+      const vx = vid.x * xScale + offsetX
+      const vy = vid.y * yScale + offsetY
+      const vw = vid.width * xScale
+      const vh = vid.height * yScale
+      if (px >= vx && px <= vx + vw && py >= vy && py <= vy + vh) {
+        enterCropEdit(vid.id, 'video')
+        return
+      }
+    }
+
     const visibleImages = images.filter(
-      (img) => img.cropAspect && playbackTime >= img.startTime && playbackTime < img.endTime
+      (img) => playbackTime >= img.startTime && playbackTime < img.endTime
     )
     for (const img of visibleImages) {
       const ix = img.x * xScale + offsetX
@@ -166,11 +228,20 @@ export default function PreviewArea() {
       const iw = img.width * xScale
       const ih = img.height * yScale
       if (px >= ix && px <= ix + iw && py >= iy && py <= iy + ih) {
-        enterCropEdit(img.id)
+        enterCropEdit(img.id, 'image')
         return
       }
     }
-  }, [images, playbackTime, xScale, yScale, offsetX, offsetY, enterCropEdit])
+
+    // Check main video
+    const mainVideo = videos.find((v) => !v.isOverlay && playbackTime >= v.timestamp && playbackTime < v.timestamp + (v.duration ?? 0))
+    if (mainVideo) {
+      if (px >= offsetX && px <= offsetX + contentRect.width && py >= offsetY && py <= offsetY + contentRect.height) {
+        enterCropEdit(mainVideo.id, 'video')
+        return
+      }
+    }
+  }, [images, videos, playbackTime, xScale, yScale, offsetX, offsetY, contentRect, enterCropEdit])
 
   const applyUpdate = useCallback((itemId: string, itemType: 'image' | 'video', updates: { x?: number; y?: number; width?: number; height?: number }) => {
     if (itemType === 'image') updateImage(itemId, updates)
@@ -217,8 +288,10 @@ export default function PreviewArea() {
       const deltaX = (e.clientX - dragState.startX) / xScale
       const deltaY = (e.clientY - dragState.startY) / yScale
 
-      const snapTargetsX = [0, 960, 1920]
-      const snapTargetsY = [0, 540, 1080]
+      const logicalW = aspectRatio === '16:9' ? 1920 : 1080
+      const logicalH = aspectRatio === '16:9' ? 1080 : 1920
+      const snapTargetsX = [0, logicalW / 2, logicalW]
+      const snapTargetsY = [0, logicalH / 2, logicalH]
 
       if (dragState.mode === 'move') {
         let newX = dragState.initialX + deltaX
@@ -243,34 +316,6 @@ export default function PreviewArea() {
 
         setSnapLines({ horizontal: activeSnapLinesH, vertical: activeSnapLinesV })
         applyUpdate(dragState.itemId, dragState.itemType, { x: newX, y: newY })
-      } else if (dragState.mode === 'resize-se') {
-        applyUpdate(dragState.itemId, dragState.itemType, {
-          width: Math.max(50, dragState.initialWidth + deltaX),
-          height: Math.max(50, dragState.initialHeight + deltaY),
-        })
-      } else if (dragState.mode === 'resize-sw') {
-        const newWidth = Math.max(50, dragState.initialWidth - deltaX)
-        applyUpdate(dragState.itemId, dragState.itemType, {
-          x: dragState.initialX + (dragState.initialWidth - newWidth),
-          width: newWidth,
-          height: Math.max(50, dragState.initialHeight + deltaY),
-        })
-      } else if (dragState.mode === 'resize-ne') {
-        const newHeight = Math.max(50, dragState.initialHeight - deltaY)
-        applyUpdate(dragState.itemId, dragState.itemType, {
-          y: dragState.initialY + (dragState.initialHeight - newHeight),
-          width: Math.max(50, dragState.initialWidth + deltaX),
-          height: newHeight,
-        })
-      } else if (dragState.mode === 'resize-nw') {
-        const newWidth = Math.max(50, dragState.initialWidth - deltaX)
-        const newHeight = Math.max(50, dragState.initialHeight - deltaY)
-        applyUpdate(dragState.itemId, dragState.itemType, {
-          x: dragState.initialX + (dragState.initialWidth - newWidth),
-          y: dragState.initialY + (dragState.initialHeight - newHeight),
-          width: newWidth,
-          height: newHeight,
-        })
       }
     }
 
@@ -298,10 +343,19 @@ export default function PreviewArea() {
       if (!imgId) return
       const dx = e.clientX - startX
       const dy = e.clientY - startY
-      updateImage(imgId, {
+      const item = useManifestStore.getState().images.find(i => i.id === imgId) ||
+                   useManifestStore.getState().videos.find(v => v.id === imgId)
+      if (!item) return
+      
+      const updates = {
         cropSx: Math.max(0, Math.min(1 - cropSw, startCropSx - dx * cropSw / destW)),
         cropSy: Math.max(0, Math.min(1 - cropSh, startCropSy - dy * cropSh / destH)),
-      })
+      }
+      if (useManifestStore.getState().images.some(i => i.id === imgId)) {
+        updateImage(imgId, updates)
+      } else {
+        updateVideo(imgId, updates)
+      }
     }
 
     const handleMouseUp = () => setCropPanState(null)
@@ -334,20 +388,25 @@ export default function PreviewArea() {
       const rect = canvas.getBoundingClientRect()
       if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return
       e.preventDefault()
-      const { images: imgs, updateImage: update } = useManifestStore.getState()
-      const img = imgs.find((i) => i.id === cropEditId)
-      if (!img) return
+      const { images: imgs, videos: vids, updateImage: updateImg, updateVideo: updateVid } = useManifestStore.getState()
+      const item = imgs.find((i) => i.id === cropEditId) || vids.find((v) => v.id === cropEditId)
+      if (!item) return
       const factor = Math.exp(e.deltaY * 0.002)
-      const newCropSw = Math.min(1, Math.max(0.05, img.cropSw * factor))
-      const newCropSh = Math.min(1, Math.max(0.05, img.cropSh * factor))
-      const centerSx = img.cropSx + img.cropSw / 2
-      const centerSy = img.cropSy + img.cropSh / 2
-      updateImage(img.id, {
+      const newCropSw = Math.min(1, Math.max(0.05, item.cropSw * factor))
+      const newCropSh = Math.min(1, Math.max(0.05, item.cropSh * factor))
+      const centerSx = item.cropSx + item.cropSw / 2
+      const centerSy = item.cropSy + item.cropSh / 2
+      const updates = {
         cropSw: newCropSw,
         cropSh: newCropSh,
         cropSx: Math.max(0, Math.min(1 - newCropSw, centerSx - newCropSw / 2)),
         cropSy: Math.max(0, Math.min(1 - newCropSh, centerSy - newCropSh / 2)),
-      })
+      }
+      if (imgs.some(i => i.id === cropEditId)) {
+        updateImage(item.id, updates)
+      } else {
+        updateVideo(item.id, updates)
+      }
     }
     document.addEventListener('wheel', handleWheel, { passive: false })
     return () => document.removeEventListener('wheel', handleWheel)
@@ -388,16 +447,6 @@ export default function PreviewArea() {
   const textAnimKey = texts.map((t) => `${t.id}:${t.startTime}:${t.endTime}:${t.opacity}`).join('|')
 
   useEffect(() => {
-    const existingIds = new Set(textTimelines.current.keys())
-    const currentIds = new Set(texts.map((t) => t.id))
-
-    for (const id of existingIds) {
-      if (!currentIds.has(id)) {
-        textTimelines.current.get(id)?.kill()
-        textTimelines.current.delete(id)
-      }
-    }
-
     for (const text of texts) {
       const el = textRefs.current.get(text.id)
       if (!el) continue
@@ -433,8 +482,10 @@ export default function PreviewArea() {
       return
     }
 
-    const snapTargetsX = [0, 960, 1920]
-    const snapTargetsY = [0, 540, 1080]
+    const logicalW = aspectRatio === '16:9' ? 1920 : 1080
+    const logicalH = aspectRatio === '16:9' ? 1080 : 1920
+    const snapTargetsX = [0, logicalW / 2, logicalW]
+    const snapTargetsY = [0, logicalH / 2, logicalH]
 
     const handleMouseMove = (e: MouseEvent) => {
       if (xScale === 0 || yScale === 0) return
@@ -479,6 +530,89 @@ export default function PreviewArea() {
     }
   }, [textDragState, xScale, yScale, updateText, pushHistory])
 
+  const handleTextResizeStart = useCallback((textId: string, side: 'left' | 'right', e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const text = texts.find((t) => t.id === textId)
+    if (!text) return
+    const mCtx = getMeasureCtx()
+    mCtx.font = `${text.fontWeight} ${text.fontSize}px ${text.fontFamily}`
+    const minWidth = mCtx.measureText('W').width
+    setTextResizeState({ textId, side, startX: e.clientX, initialX: text.x, initialWidth: text.width, minWidth })
+  }, [texts, getMeasureCtx])
+
+  useEffect(() => {
+    if (!textResizeState) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (xScale === 0) return
+      const deltaX = (e.clientX - textResizeState.startX) / xScale
+      const { minWidth } = textResizeState
+      if (textResizeState.side === 'right') {
+        updateText(textResizeState.textId, { width: Math.max(minWidth, textResizeState.initialWidth + deltaX) })
+      } else {
+        const newWidth = Math.max(minWidth, textResizeState.initialWidth - deltaX)
+        const newX = textResizeState.initialX + (textResizeState.initialWidth - newWidth)
+        updateText(textResizeState.textId, { width: newWidth, x: newX })
+      }
+    }
+
+    const handleMouseUp = () => {
+      setTextResizeState(null)
+      pushHistory()
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [textResizeState, xScale, updateText, pushHistory])
+
+  useEffect(() => {
+    if ((!selectedImageId && !selectedVideoId) || cropEditId) return
+    const handleWheel = (e: WheelEvent) => {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const rect = canvas.getBoundingClientRect()
+      if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return
+      
+      e.preventDefault()
+      const factor = Math.exp(-e.deltaY * 0.002)
+      
+      if (selectedImageId) {
+        const img = images.find(i => i.id === selectedImageId)
+        if (!img || img.isMainTrack) return
+        const newWidth = Math.max(50, img.width * factor)
+        const newHeight = img.height * (newWidth / img.width)
+        const centerX = img.x + img.width / 2
+        const centerY = img.y + img.height / 2
+        updateImage(selectedImageId, {
+          width: newWidth,
+          height: newHeight,
+          x: centerX - newWidth / 2,
+          y: centerY - newHeight / 2
+        })
+      } else if (selectedVideoId) {
+        const vid = videos.find(v => v.id === selectedVideoId)
+        if (!vid || !vid.isOverlay) return
+        const newWidth = Math.max(50, vid.width * factor)
+        const newHeight = vid.height * (newWidth / vid.width)
+        const centerX = vid.x + vid.width / 2
+        const centerY = vid.y + vid.height / 2
+        updateVideo(selectedVideoId, {
+          width: newWidth,
+          height: newHeight,
+          x: centerX - newWidth / 2,
+          y: centerY - newHeight / 2
+        })
+      }
+    }
+    document.addEventListener('wheel', handleWheel, { passive: false })
+    return () => document.removeEventListener('wheel', handleWheel)
+  }, [selectedImageId, selectedVideoId, images, videos, updateImage, updateVideo, cropEditId])
+
   const renderOverlayItem = (
     itemId: string,
     itemType: 'image' | 'video',
@@ -501,14 +635,6 @@ export default function PreviewArea() {
         onDoubleClick={onDoubleClick}
       >
         {children}
-        {isSelected && (
-          <>
-            <div className={`${styles.resizeHandle} ${styles.nw}`} onMouseDown={(e) => handleOverlayMouseDown(itemId, itemType, 'resize-nw', e)} />
-            <div className={`${styles.resizeHandle} ${styles.ne}`} onMouseDown={(e) => handleOverlayMouseDown(itemId, itemType, 'resize-ne', e)} />
-            <div className={`${styles.resizeHandle} ${styles.sw}`} onMouseDown={(e) => handleOverlayMouseDown(itemId, itemType, 'resize-sw', e)} />
-            <div className={`${styles.resizeHandle} ${styles.se}`} onMouseDown={(e) => handleOverlayMouseDown(itemId, itemType, 'resize-se', e)} />
-          </>
-        )}
       </div>
     )
   }
@@ -533,7 +659,7 @@ export default function PreviewArea() {
                     selectedImageId === image.id,
                     null,
                     image.cropAspect
-                      ? () => { if (cropEditId === image.id) exitCropEdit(); else enterCropEdit(image.id) }
+                      ? () => { if (cropEditId === image.id) exitCropEdit(); else enterCropEdit(image.id, 'image') }
                       : undefined
                   )
                 )}
@@ -545,61 +671,26 @@ export default function PreviewArea() {
                     null
                   )
                 )}
-                {activeTexts.map((text) => {
-                  const isSelected = selectedTextId === text.id
-                  const isEditing = editingTextId === text.id
-                  return (
-                    <div
-                      key={text.id}
-                      ref={(el) => { textRefs.current.set(text.id, el) }}
-                      className={`${styles.textOverlay} ${isSelected ? styles.textOverlaySelected : ''}`}
-                      style={{
-                        left: offsetX + text.x * xScale,
-                        top: offsetY + text.y * yScale,
-                        width: text.width * xScale,
-                        fontSize: text.fontSize * xScale,
-                        color: text.color,
-                        fontWeight: text.fontWeight,
-                        textAlign: text.textAlign as React.CSSProperties['textAlign'],
-                        fontFamily: text.fontFamily,
-                      }}
-                      onMouseDown={(e) => handleTextMouseDown(text.id, e)}
-                      onDoubleClick={(e) => { e.stopPropagation(); editingContentRef.current = text.content; setEditingContent(text.content); setEditingTextId(text.id) }}
-                    >
-                      {isEditing ? (
-                        <textarea
-                          value={editingContent}
-                          className={styles.textEditArea}
-                          onChange={(e) => { editingContentRef.current = e.target.value; setEditingContent(e.target.value) }}
-                          ref={(el) => {
-                            if (el) {
-                              setTimeout(() => {
-                                el.focus()
-                                const len = el.value.length
-                                el.setSelectionRange(len, len)
-                              }, 0)
-                            }
-                          }}
-                          onBlur={() => {
-                            updateText(text.id, { content: editingContentRef.current })
-                            pushHistory()
-                            setEditingTextId(null)
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Escape') { setEditingTextId(null) }
-                            e.stopPropagation()
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                      ) : (() => {
-                        const mCtx = getMeasureCtx()
-                        mCtx.font = `${text.fontWeight} ${text.fontSize * xScale}px ${text.fontFamily}`
-                        const lines = wrapTextToLines(mCtx, text.content || 'Text', text.width * xScale)
-                        return lines.join('\n')
-                      })()}
-                    </div>
-                  )
-                })}
+                {activeTexts.map((text) => (
+                  <TextOverlay
+                    key={text.id}
+                    text={text}
+                    xScale={xScale}
+                    yScale={yScale}
+                    offsetX={offsetX}
+                    offsetY={offsetY}
+                    editingTextId={editingTextId}
+                    setEditingTextId={setEditingTextId}
+                    editingContent={editingContent}
+                    setEditingContent={setEditingContent}
+                    editingContentRef={editingContentRef}
+                    handleTextMouseDown={handleTextMouseDown}
+                    handleTextResizeStart={handleTextResizeStart}
+                    getMeasureCtx={getMeasureCtx}
+                    playbackTime={playbackTime}
+                    textRefs={textRefs}
+                  />
+                ))}
                 {snapLines.vertical.map((x, i) => (
                   <div key={`v-${i}`} className={styles.snapLineVertical} style={{ left: offsetX + x * xScale }} />
                 ))}
@@ -607,50 +698,20 @@ export default function PreviewArea() {
                   <div key={`h-${i}`} className={styles.snapLineHorizontal} style={{ top: offsetY + y * yScale }} />
                 ))}
               </div>
-              {cropEditId && (() => {
-                const img = images.find((i) => i.id === cropEditId)
-                if (!img) return null
-
-                const destX = img.x * xScale + offsetX
-                const destY = img.y * yScale + offsetY
-                const destW = img.width * xScale
-                const destH = img.height * yScale
-
-                const fullImgW = destW / img.cropSw
-                const fullImgH = destH / img.cropSh
-                const fullImgLeft = destX - img.cropSx * fullImgW
-                const fullImgTop = destY - img.cropSy * fullImgH
-
-                const clipLeft = offsetX
-                const clipTop = offsetY
-                const clipW = contentRect.width
-                const clipH = contentRect.height
-
-                const cropBoxLeft = destX - clipLeft
-                const cropBoxTop = destY - clipTop
-
-                return (
-                  <>
-                    <div style={{ position: 'absolute', left: clipLeft, top: clipTop, width: clipW, height: clipH, overflow: 'hidden', pointerEvents: 'none', zIndex: 10 }}>
-                      <img
-                        src={img.url}
-                        style={{ position: 'absolute', left: fullImgLeft - clipLeft, top: fullImgTop - clipTop, width: fullImgW, height: fullImgH, userSelect: 'none' }}
-                        draggable={false}
-                      />
-                      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: cropBoxTop, background: 'rgba(0,0,0,0.55)' }} />
-                      <div style={{ position: 'absolute', left: 0, right: 0, top: cropBoxTop + destH, bottom: 0, background: 'rgba(0,0,0,0.55)' }} />
-                      <div style={{ position: 'absolute', top: cropBoxTop, left: 0, width: cropBoxLeft, height: destH, background: 'rgba(0,0,0,0.55)' }} />
-                      <div style={{ position: 'absolute', top: cropBoxTop, left: cropBoxLeft + destW, right: 0, height: destH, background: 'rgba(0,0,0,0.55)' }} />
-                    </div>
-                    <div style={{ position: 'absolute', left: destX, top: destY, width: destW, height: destH, border: '1.5px solid rgba(255,255,255,0.85)', outline: '1px solid rgba(0,0,0,0.4)', pointerEvents: 'none', zIndex: 11 }} />
-                    <div
-                      style={{ position: 'absolute', left: clipLeft, top: clipTop, width: clipW, height: clipH, cursor: cropPanState ? 'grabbing' : 'grab', zIndex: 60 }}
-                      onMouseDown={handleCropPanStart}
-                      onDoubleClick={exitCropEdit}
-                    />
-                  </>
-                )
-              })()}
+              {cropEditId && (
+                <CropEditor
+                  cropEditId={cropEditId}
+                  xScale={xScale}
+                  yScale={yScale}
+                  offsetX={offsetX}
+                  offsetY={offsetY}
+                  contentRect={contentRect}
+                  playbackTime={playbackTime}
+                  cropPanState={cropPanState}
+                  handleCropPanStart={handleCropPanStart}
+                  exitCropEdit={exitCropEdit}
+                />
+              )}
             </div>
           </div>
         ) : (
