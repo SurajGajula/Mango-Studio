@@ -2,14 +2,13 @@
 
 import { useAudioStore } from '@/app/stores/audioStore'
 import { useManifestStore } from '@/app/stores/manifestStore'
+import { useSelectionStore } from '@/app/stores/selectionStore'
 import styles from './Timeline.module.css'
 
 interface AudioTrackProps {
   totalDuration: number
   effectivePadding: number
   getContentPosition: (time: number) => number
-  setIsAudioSelected: (selected: boolean | ((v: boolean) => boolean)) => void
-  isAudioSelected: boolean
   handleAudioBodyDragStart: (audioId: string, e: React.MouseEvent) => void
   handleAudioTrimStart: (audioId: string, handle: 'start' | 'end', e: React.MouseEvent) => void
   audioCanvasRef: React.RefObject<HTMLCanvasElement>
@@ -19,8 +18,6 @@ export default function AudioTrack({
   totalDuration,
   effectivePadding,
   getContentPosition,
-  setIsAudioSelected,
-  isAudioSelected,
   handleAudioBodyDragStart,
   handleAudioTrimStart,
   audioCanvasRef,
@@ -30,30 +27,39 @@ export default function AudioTrack({
   const isAnalyzing = useAudioStore((state) => state.isAnalyzing)
   const userMarks = useAudioStore((state) => state.userMarks)
 
+  const selectedAudioId = useSelectionStore((state) => state.selectedAudioId)
+  const selectAudio = useSelectionStore((state) => state.selectAudio)
+
   if (!audioAnalysis && !isAnalyzing) return null
 
   const audioItem = audios[0]
-  const aTrimStart = audioItem?.trimStart ?? 0
-  const aTrimEnd = audioItem?.trimEnd ?? 0
-  const aOrigDur = audioItem?.originalDuration ?? audioAnalysis?.duration ?? 0
-  const aStartTime = audioItem?.startTime ?? 0
-  const aActiveDur = aOrigDur - aTrimStart - aTrimEnd
+  if (!audioItem) return null
+
+  const aTrimStart = audioItem.trimStart
+  const aTrimEnd = audioItem.trimEnd
+  const aOrigDur = audioItem.originalDuration
+  const aStartTime = audioItem.startTime
+  const aEndTime = audioItem.endTime
   const activeStartPct = getContentPosition(aStartTime)
-  const activeEndPct = getContentPosition(Math.min(aStartTime + aActiveDur, totalDuration))
+  const activeEndPct = getContentPosition(Math.min(aEndTime, totalDuration))
+  const isSelected = selectedAudioId === audioItem.id
 
   return (
     <div
       className={styles.audioRow}
-      onClick={(e) => { e.stopPropagation(); setIsAudioSelected((s) => !s) }}
+      onClick={(e) => {
+        e.stopPropagation()
+        selectAudio(isSelected ? null : audioItem.id)
+      }}
     >
       <div
         className={styles.audioRowBackground}
         style={{
           left: `${activeStartPct}%`,
           width: `${Math.max(0, activeEndPct - activeStartPct)}%`,
-          cursor: audioItem ? 'grab' : 'default',
+          cursor: 'grab',
         }}
-        onMouseDown={audioItem ? (e) => handleAudioBodyDragStart(audioItem.id, e) : undefined}
+        onMouseDown={(e) => handleAudioBodyDragStart(audioItem.id, e)}
       />
       {isAnalyzing && (
         <span className={styles.analyzingBadge}>Analyzing audio…</span>
@@ -61,7 +67,7 @@ export default function AudioTrack({
       {audioAnalysis && (
         <>
           <canvas ref={audioCanvasRef} className={styles.audioCanvas} />
-          {isAudioSelected && totalDuration > 0 && (
+          {isSelected && totalDuration > 0 && (
             <div
               className={styles.audioRowSelected}
               style={{
@@ -74,7 +80,7 @@ export default function AudioTrack({
               }}
             />
           )}
-          {isAudioSelected && audioItem && (
+          {isSelected && (
             <>
               <div
                 className={styles.audioTrimHandleStart}

@@ -11,8 +11,8 @@ interface UseTimelineShortcutsProps {
   visibleDurationRef: React.MutableRefObject<number>
   MIN_VISIBLE: number
   MAX_VISIBLE: number
-  isAudioSelected: boolean
-  setIsAudioSelected: (selected: boolean) => void
+  selectedAudioId: string | null
+  setSelectedAudioId: (id: string | null) => void
   uploadInputRef: React.RefObject<HTMLInputElement>
 }
 
@@ -22,8 +22,8 @@ export function useTimelineShortcuts({
   visibleDurationRef,
   MIN_VISIBLE,
   MAX_VISIBLE,
-  isAudioSelected,
-  setIsAudioSelected,
+  selectedAudioId,
+  setSelectedAudioId,
   uploadInputRef,
 }: UseTimelineShortcutsProps) {
   const undo = useManifestStore((state) => state.undo)
@@ -35,6 +35,8 @@ export function useTimelineShortcuts({
   const duplicateItem = useManifestStore((state) => state.duplicateItem)
   const audio = useAudioStore((state) => state.audio)
   const removeAudio = useAudioStore((state) => state.removeAudio)
+
+  const clearSelection = useSelectionStore((state) => state.clearSelection)
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -82,14 +84,14 @@ export function useTimelineShortcuts({
       
       if (e.key === 'd' && !isEditing && !e.shiftKey) {
         e.preventDefault()
-        const { selectedVideoId, selectedImageId, selectedTextId } = useSelectionStore.getState()
+        const { selectedVideoId, selectedImageId, selectedTextId, selectedAudioId } = useSelectionStore.getState()
         if (selectedVideoId) removeVideo(selectedVideoId)
         else if (selectedImageId) removeImage(selectedImageId)
         else if (selectedTextId) removeText(selectedTextId)
-        else if (isAudioSelected) {
-          if (audio) removeAudioFromManifest(audio.id)
+        else if (selectedAudioId) {
+          removeAudioFromManifest(selectedAudioId)
           removeAudio()
-          setIsAudioSelected(false)
+          clearSelection()
         }
       }
       
@@ -105,7 +107,7 @@ export function useTimelineShortcuts({
     undo, redo, removeVideo, removeImage, removeText, 
     removeAudioFromManifest, removeAudio, duplicateItem,
     replaceVideoData, applyZoom, visibleDurationRef, 
-    MIN_VISIBLE, MAX_VISIBLE, isAudioSelected, 
-    setIsAudioSelected, uploadInputRef, audio
+    MIN_VISIBLE, MAX_VISIBLE, selectedAudioId, 
+    setSelectedAudioId, uploadInputRef, audio
   ])
 }

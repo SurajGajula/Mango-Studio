@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { generateVideoThumbnails } from '@/app/lib/mediaUtils'
+import { useAudioStore } from '@/app/stores/audioStore'
 import styles from './VideoReplaceModal.module.css'
 
 const PIXELS_PER_SECOND = 60
@@ -11,6 +12,7 @@ interface Props {
   windowDuration: number
   videoDuration: number
   initialTrimStart?: number
+  projectStartTime?: number
   confirmLabel?: string
   isProcessing?: boolean
   onConfirm: (trimStart: number) => void
@@ -22,6 +24,7 @@ export default function VideoReplaceModal({
   windowDuration,
   videoDuration,
   initialTrimStart = 0,
+  projectStartTime,
   confirmLabel = 'Replace',
   isProcessing = false,
   onConfirm,
@@ -29,6 +32,7 @@ export default function VideoReplaceModal({
 }: Props) {
   const [trimStart, setTrimStart] = useState(initialTrimStart)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const audioRef = useRef<HTMLAudioElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const timelineContainerRef = useRef<HTMLDivElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -38,6 +42,11 @@ export default function VideoReplaceModal({
   const [containerWidth, setContainerWidth] = useState(0)
   const isScrollingProgrammatically = useRef(false)
   const requestRef = useRef<number>()
+
+  const audioUrl = useAudioStore((state) => state.audioUrl)
+
+  const videoPlayPromiseRef = useRef<Promise<void> | null>(null)
+  const audioPlayPromiseRef = useRef<Promise<void> | null>(null)
 
   const maxTrimStart = Math.max(0, videoDuration - windowDuration)
 
@@ -62,11 +71,100 @@ export default function VideoReplaceModal({
 
   // Smoothly update current time during playback
   const animate = useCallback(() => {
-    if (videoRef.current && isPlaying) {
-      setCurrentTime(videoRef.current.currentTime)
+    const video = videoRef.current
+    const audio = audioRef.current
+    if (!video) {
+      requestRef.current = requestAnimationFrame(animate)
+      return
     }
+
+    if (!isPlaying) {
+      if (audio && !audio.paused) {
+        if (audioPlayPromiseRef.current) {
+          audioPlayPromiseRef.current.then(() => audio?.pause()).catch(() => {})
+        } else {
+          audio.pause()
+        }
+      }
+      requestRef.current = requestAnimationFrame(animate)
+      return
+    }
+
+    const isVideoSeeking = video.seeking
+    const vTime = video.currentTime
+
+    // 1. Loop-back detection: increase epsilon to 0.15s to jump BEFORE hitches
+    // and only if we aren't already seeking to the start.
+    const isAtEnd = vTime >= trimStart + windowDuration - 0.15 || video.ended
+    const isWayBeforeStart = vTime < trimStart - 0.3
+    
+    if (!isVideoSeeking && (isAtEnd || isWayBeforeStart)) {
+      video.currentTime = trimStart
+      if (audio && projectStartTime !== undefined) {
+        audio.currentTime = projectStartTime
+        // Use muted to hide the seek stutter instead of pause() 
+        // to avoid the 1-second play-promise gap.
+        audio.muted = true 
+      }
+      setCurrentTime(trimStart)
+      requestRef.current = requestAnimationFrame(animate)
+      return
+    }
+
+    // 2. While seeking, stay muted and keep playbar at start
+    if (isVideoSeeking) {
+      setCurrentTime(trimStart)
+      requestRef.current = requestAnimationFrame(animate)
+      return
+    }
+
+    // 3. Normal playback sync
+    setCurrentTime(vTime)
+
+    // Unmute audio now that seek is done
+    if (audio && audio.muted) {
+      audio.muted = false
+    }
+
+    // Ensure video is playing
+    if (video.paused && !videoPlayPromiseRef.current) {
+      videoPlayPromiseRef.current = video.play()
+      videoPlayPromiseRef.current
+        .catch(() => {})
+        .finally(() => { videoPlayPromiseRef.current = null })
+    }
+    
+    // Sync audio with video
+    if (audio && projectStartTime !== undefined) {
+      const offsetInClip = vTime - trimStart
+      const targetProjectTime = projectStartTime + offsetInClip
+      
+      if (targetProjectTime >= 0) {
+        const drift = Math.abs(audio.currentTime - targetProjectTime)
+        // Tight drift correction
+        if (drift > 0.1 && !audio.seeking) {
+          audio.currentTime = targetProjectTime
+        }
+        
+        if (audio.paused && video.readyState >= 2 && !audioPlayPromiseRef.current) {
+          audioPlayPromiseRef.current = audio.play()
+          audioPlayPromiseRef.current
+            .catch(() => {})
+            .finally(() => { audioPlayPromiseRef.current = null })
+        }
+      } else {
+        if (!audio.paused) {
+          if (audioPlayPromiseRef.current) {
+            audioPlayPromiseRef.current.then(() => audio?.pause()).catch(() => {})
+          } else {
+            audio.pause()
+          }
+        }
+      }
+    }
+
     requestRef.current = requestAnimationFrame(animate)
-  }, [isPlaying])
+  }, [isPlaying, projectStartTime, trimStart, windowDuration])
 
   useEffect(() => {
     requestRef.current = requestAnimationFrame(animate)
@@ -110,8 +208,11 @@ export default function VideoReplaceModal({
   useEffect(() => {
     if (videoRef.current && !isPlaying) {
       videoRef.current.currentTime = trimStart
+      if (audioRef.current && projectStartTime !== undefined) {
+        audioRef.current.currentTime = projectStartTime
+      }
     }
-  }, [trimStart, isPlaying])
+  }, [trimStart, isPlaying, projectStartTime])
 
   useEffect(() => {
     if (scrollContainerRef.current) {
@@ -131,32 +232,43 @@ export default function VideoReplaceModal({
         videoRef.current.src = ''
         videoRef.current.load()
       }
+      if (audioRef.current) {
+        audioRef.current.pause()
+        audioRef.current.src = ''
+        audioRef.current.load()
+      }
     }
   }, [])
 
   const handlePlayPause = () => {
     if (!videoRef.current) return
     if (isPlaying) {
-      videoRef.current.pause()
+      if (videoPlayPromiseRef.current) {
+        videoPlayPromiseRef.current.then(() => videoRef.current?.pause()).catch(() => {})
+      } else {
+        videoRef.current.pause()
+      }
+      
+      if (audioRef.current && !audioRef.current.paused) {
+        if (audioPlayPromiseRef.current) {
+          audioPlayPromiseRef.current.then(() => audioRef.current?.pause()).catch(() => {})
+        } else {
+          audioRef.current.pause()
+        }
+      }
     } else {
-      videoRef.current.play()
+      if (!videoPlayPromiseRef.current) {
+        videoPlayPromiseRef.current = videoRef.current.play()
+        videoPlayPromiseRef.current
+          .catch(() => {})
+          .finally(() => { videoPlayPromiseRef.current = null })
+      }
     }
     setIsPlaying(!isPlaying)
   }
 
-  const handleTimeUpdate = () => {
-    if (!videoRef.current) return
-    const current = videoRef.current.currentTime
-    // setCurrentTime(current) // Handled by requestAnimationFrame for smoothness
-    
-    if (current >= trimStart + windowDuration) {
-      videoRef.current.currentTime = trimStart
-      if (!videoRef.current.paused) videoRef.current.play()
-    }
-  }
-
   const handleScroll = useCallback(() => {
-    if (isScrollingProgrammatically.current || !scrollContainerRef.current) return
+    if (isPlaying || isScrollingProgrammatically.current || !scrollContainerRef.current) return
     
     const scrollLeft = scrollContainerRef.current.scrollLeft
     const newTrimStart = Math.max(0, Math.min(maxTrimStart, scrollLeft / PIXELS_PER_SECOND))
@@ -165,11 +277,15 @@ export default function VideoReplaceModal({
     if (!isPlaying && videoRef.current) {
       videoRef.current.currentTime = newTrimStart
       setCurrentTime(newTrimStart)
+      if (audioRef.current && projectStartTime !== undefined) {
+        audioRef.current.currentTime = projectStartTime
+      }
     }
-  }, [maxTrimStart, isPlaying])
+  }, [maxTrimStart, isPlaying, projectStartTime])
 
   useEffect(() => {
     const handler = (e: WheelEvent) => {
+      if (isPlaying) return
       const container = scrollContainerRef.current
       if (!container || !container.contains(e.target as Node)) return
       
@@ -188,6 +304,14 @@ export default function VideoReplaceModal({
       const container = scrollContainerRef.current
       if (!container) return
 
+      if (e.key === ' ') {
+        e.preventDefault()
+        handlePlayPause()
+        return
+      }
+
+      if (isPlaying) return
+
       const step = e.shiftKey ? 1 : 0.1
       if (e.key === 'ArrowLeft') {
         e.preventDefault()
@@ -195,9 +319,6 @@ export default function VideoReplaceModal({
       } else if (e.key === 'ArrowRight') {
         e.preventDefault()
         container.scrollLeft += step * PIXELS_PER_SECOND
-      } else if (e.key === ' ') {
-        e.preventDefault()
-        handlePlayPause()
       }
     }
 
@@ -207,7 +328,7 @@ export default function VideoReplaceModal({
       document.removeEventListener('wheel', handler)
       document.removeEventListener('keydown', keyHandler)
     }
-  }, [handlePlayPause])
+  }, [handlePlayPause, isPlaying])
 
   const totalTimelineWidth = videoDuration * PIXELS_PER_SECOND
   
@@ -226,16 +347,19 @@ export default function VideoReplaceModal({
           <video
             ref={videoRef}
             src={videoUrl}
-            onTimeUpdate={handleTimeUpdate}
-            onEnded={() => {
-              if (videoRef.current) {
-                videoRef.current.currentTime = trimStart
-                videoRef.current.play()
-              }
-            }}
             onClick={handlePlayPause}
             className={styles.previewVideo}
+            muted
+            preload="metadata"
           />
+          {audioUrl && (
+            <audio
+              ref={audioRef}
+              src={audioUrl}
+              style={{ display: 'none' }}
+              preload="auto"
+            />
+          )}
           <button className={styles.playButton} onClick={handlePlayPause}>
             {isPlaying ? '⏸' : '▶'}
           </button>
@@ -253,6 +377,7 @@ export default function VideoReplaceModal({
               ref={scrollContainerRef}
               onScroll={handleScroll}
               tabIndex={0}
+              style={{ pointerEvents: isPlaying ? 'none' : 'auto' }}
             >
               <div 
                 className={styles.thumbnailsWrapper}

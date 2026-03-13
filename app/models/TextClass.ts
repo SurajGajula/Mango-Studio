@@ -57,6 +57,28 @@ export class TextClass {
     this.row = row ?? 0
   }
 
+  copy(updates: Partial<TextClass>): TextClass {
+    return new TextClass(
+      updates.id ?? this.id,
+      updates.content ?? this.content,
+      updates.startTime ?? this.startTime,
+      updates.endTime ?? this.endTime,
+      updates.x ?? this.x,
+      updates.y ?? this.y,
+      updates.width ?? this.width,
+      updates.height ?? this.height,
+      updates.opacity ?? this.opacity,
+      updates.fontSize ?? this.fontSize,
+      updates.fontFamily ?? this.fontFamily,
+      updates.color ?? this.color,
+      updates.fontWeight ?? this.fontWeight,
+      updates.textAlign ?? this.textAlign,
+      updates.animation ?? this.animation,
+      updates.createdAt ?? this.createdAt,
+      updates.row ?? this.row
+    )
+  }
+
   get duration(): number {
     return this.endTime - this.startTime
   }

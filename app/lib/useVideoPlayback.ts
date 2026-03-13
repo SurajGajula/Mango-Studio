@@ -17,6 +17,8 @@ export function useVideoPlayback(
   const imageElementsRef = useRef<Map<string, HTMLImageElement>>(new Map())
   const audioElementRef = useRef<HTMLAudioElement | null>(null)
   const rafRef = useRef<number | null>(null)
+  const videoPlayPromisesRef = useRef<Map<string, Promise<void>>>(new Map())
+  const audioPlayPromiseRef = useRef<Promise<void> | null>(null)
   const [contentRect, setContentRect] = useState({ x: 0, y: 0, width: 0, height: 0 })
   const contentRectRef = useRef({ x: 0, y: 0, width: 0, height: 0 })
 
@@ -219,6 +221,7 @@ export function useVideoPlayback(
   const drawImages = useCallback((ctx: CanvasRenderingContext2D, cr: {x:number,y:number,width:number,height:number}, currentTime: number, mainTrackOnly: boolean) => {
     const { x: cx, y: cy, width: canvasWidth, height: canvasHeight } = cr
     const state = getState()
+    const { aspectRatio } = state
     let visibleImages = state.images.filter(
       (image) =>
         currentTime >= image.startTime &&
@@ -253,6 +256,8 @@ export function useVideoPlayback(
 
   const drawOverlayVideos = useCallback((ctx: CanvasRenderingContext2D, cr: {x:number,y:number,width:number,height:number}, currentTime: number) => {
     const state = getState()
+    const { aspectRatio } = state
+    const rate = state.playbackRate ?? 1
     const overlayVideos = state.videos.filter((v) => v.isOverlay)
     const { x: cx, y: cy, width: cw, height: ch } = cr
 
@@ -262,10 +267,17 @@ export function useVideoPlayback(
     const yScale = ch / logicalH
 
     overlayVideos.forEach((video) => {
-      const localTime = currentTime - video.timestamp
-      if (localTime < 0 || localTime >= (video.duration ?? 0)) {
+      const localTime = (currentTime - video.timestamp) * (video.playbackSpeed ?? 1)
+      if (localTime < 0 || localTime >= (video.duration ?? 0) * (video.playbackSpeed ?? 1)) {
         const vEl = videoElementsRef.current.get(video.id)
-        if (vEl && !vEl.paused) vEl.pause()
+        if (vEl && !vEl.paused) {
+          const promise = videoPlayPromisesRef.current.get(video.id)
+          if (promise) {
+            promise.then(() => vEl.pause()).catch(() => {})
+          } else {
+            vEl.pause()
+          }
+        }
         return
       }
 
@@ -276,19 +288,38 @@ export function useVideoPlayback(
       
       const isPlaying = getState().isPlaying
       if (isPlaying) {
-        if (videoEl.paused && videoEl.readyState >= 2) videoEl.play().catch(() => {})
-        if (Math.abs(videoEl.currentTime - targetTime) > 0.15) {
+        const effectiveRate = rate * (video.playbackSpeed ?? 1)
+        if (videoEl.playbackRate !== effectiveRate) videoEl.playbackRate = effectiveRate
+        if (videoEl.paused && videoEl.readyState >= 2 && !videoPlayPromisesRef.current.has(video.id)) {
+          const promise = videoEl.play()
+          videoPlayPromisesRef.current.set(video.id, promise)
+          promise
+            .catch(() => {})
+            .finally(() => { videoPlayPromisesRef.current.delete(video.id) })
+        }
+        if (Math.abs(videoEl.currentTime - targetTime) > 0.3) {
           videoEl.currentTime = targetTime
         }
       } else {
-        if (!videoEl.paused) videoEl.pause()
+        if (!videoEl.paused) {
+          const promise = videoPlayPromisesRef.current.get(video.id)
+          if (promise) {
+            promise.then(() => {
+              videoEl.pause()
+              videoEl.playbackRate = 1
+            }).catch(() => {})
+          } else {
+            videoEl.pause()
+            videoEl.playbackRate = 1
+          }
+        }
         if (Math.abs(videoEl.currentTime - targetTime) > 0.05) {
           videoEl.currentTime = targetTime
         }
       }
 
       const duration = video.duration ?? 0
-      const progress = duration > 0 ? localTime / duration : 0
+      const progress = duration > 0 ? (currentTime - video.timestamp) / duration : 0
       ctx.save()
       ctx.globalAlpha = video.opacity
       const cropSx = video.cropSx ?? 0
@@ -367,19 +398,37 @@ export function useVideoPlayback(
           const audioTrimEnd = audioItem.trimEnd ?? 0
           const audioOrigDur = audioItem.originalDuration ?? Infinity
           const audioStartTime = audioItem.startTime ?? 0
-          const audioActiveEnd = audioOrigDur - audioTrimEnd
-          const targetAudioTime = audioTrimStart + Math.max(0, newTime - audioStartTime)
+          const audioActiveEnd = (audioOrigDur - audioTrimEnd) / (audioItem.playbackSpeed ?? 1)
+          const targetAudioTime = (audioItem.trimStart ?? 0) + Math.max(0, newTime - audioStartTime) * (audioItem.playbackSpeed ?? 1)
 
           if (isPlaying) {
-            if (audioEl.playbackRate !== rate) audioEl.playbackRate = rate
-            if (newTime < audioStartTime || targetAudioTime >= audioActiveEnd) {
-              if (!audioEl.paused) audioEl.pause()
+            const effectiveRate = rate * (audioItem.playbackSpeed ?? 1)
+            if (audioEl.playbackRate !== effectiveRate) audioEl.playbackRate = effectiveRate
+            if (newTime < audioStartTime || (newTime - audioStartTime) >= audioActiveEnd) {
+              if (!audioEl.paused) {
+                if (audioPlayPromiseRef.current) {
+                  audioPlayPromiseRef.current.then(() => audioEl.pause()).catch(() => {})
+                } else {
+                  audioEl.pause()
+                }
+              }
             } else {
-              if (Math.abs(audioEl.currentTime - targetAudioTime) > 0.2) audioEl.currentTime = targetAudioTime
-              if (audioEl.paused && audioEl.readyState >= 2) audioEl.play().catch(() => {})
+              if (Math.abs(audioEl.currentTime - targetAudioTime) > 0.3) audioEl.currentTime = targetAudioTime
+              if (audioEl.paused && audioEl.readyState >= 2 && !audioPlayPromiseRef.current) {
+                audioPlayPromiseRef.current = audioEl.play()
+                audioPlayPromiseRef.current
+                  .catch(() => {})
+                  .finally(() => { audioPlayPromiseRef.current = null })
+              }
             }
           } else {
-            if (!audioEl.paused) audioEl.pause()
+            if (!audioEl.paused) {
+              if (audioPlayPromiseRef.current) {
+                audioPlayPromiseRef.current.then(() => audioEl.pause()).catch(() => {})
+              } else {
+                audioEl.pause()
+              }
+            }
             if (Math.abs(audioEl.currentTime - targetAudioTime) > 0.2) audioEl.currentTime = targetAudioTime
           }
         }
@@ -389,7 +438,14 @@ export function useVideoPlayback(
         // No active video clip at this time (maybe an image or empty space)
         if (currentVideoId) {
           const oldVideo = videoElementsRef.current.get(currentVideoId)
-          if (oldVideo) oldVideo.pause()
+          if (oldVideo && !oldVideo.paused) {
+            const promise = videoPlayPromisesRef.current.get(currentVideoId)
+            if (promise) {
+              promise.then(() => oldVideo.pause()).catch(() => {})
+            } else {
+              oldVideo.pause()
+            }
+          }
           currentVideoId = null
         }
 
@@ -417,12 +473,19 @@ export function useVideoPlayback(
       }
 
       const trimStart = activeClip.trimStart ?? 0
-      const localTimeInOriginal = trimStart + Math.max(0, newTime - activeClip.timestamp)
+      const localTimeInOriginal = trimStart + Math.max(0, newTime - activeClip.timestamp) * (activeClip.playbackSpeed ?? 1)
 
       if (currentVideoId !== activeClip.id) {
         if (currentVideoId) {
           const oldVideo = videoElementsRef.current.get(currentVideoId)
-          if (oldVideo) oldVideo.pause()
+          if (oldVideo && !oldVideo.paused) {
+            const promise = videoPlayPromisesRef.current.get(currentVideoId)
+            if (promise) {
+              promise.then(() => oldVideo.pause()).catch(() => {})
+            } else {
+              oldVideo.pause()
+            }
+          }
         }
         currentVideoId = activeClip.id
         if (getSelectionState().selectedVideoId !== activeClip.id) {
@@ -432,16 +495,33 @@ export function useVideoPlayback(
       }
 
       if (isPlaying) {
-        if (videoEl.playbackRate !== rate) videoEl.playbackRate = rate
+        const effectiveRate = rate * (activeClip.playbackSpeed ?? 1)
+        if (videoEl.playbackRate !== effectiveRate) videoEl.playbackRate = effectiveRate
         // Sync video to global clock
-        if (Math.abs(videoEl.currentTime - localTimeInOriginal) > 0.15) {
+        if (Math.abs(videoEl.currentTime - localTimeInOriginal) > 0.3) {
           videoEl.currentTime = localTimeInOriginal
         }
-        if (videoEl.paused && videoEl.readyState >= 2) {
-          videoEl.play().catch(() => {})
+        if (videoEl.paused && videoEl.readyState >= 2 && !videoPlayPromisesRef.current.has(activeClip.id)) {
+          videoEl.playbackRate = effectiveRate
+          const promise = videoEl.play()
+          videoPlayPromisesRef.current.set(activeClip.id, promise)
+          promise
+            .catch(() => {})
+            .finally(() => { videoPlayPromisesRef.current.delete(activeClip.id) })
         }
       } else {
-        if (!videoEl.paused) videoEl.pause()
+        if (!videoEl.paused) {
+          const promise = videoPlayPromisesRef.current.get(activeClip.id)
+          if (promise) {
+            promise.then(() => {
+              videoEl.pause()
+              videoEl.playbackRate = 1 // Reset when paused to avoid some browser glitches
+            }).catch(() => {})
+          } else {
+            videoEl.pause()
+            videoEl.playbackRate = 1
+          }
+        }
         if (Math.abs(videoEl.currentTime - localTimeInOriginal) > 0.05) {
           videoEl.currentTime = localTimeInOriginal
         }

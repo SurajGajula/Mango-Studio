@@ -66,6 +66,31 @@ export class ImageClass {
     this.cropSh = cropSh ?? 1
   }
 
+  copy(updates: Partial<ImageClass>): ImageClass {
+    return new ImageClass(
+      updates.id ?? this.id,
+      updates.name ?? this.name,
+      updates.url ?? this.url,
+      updates.startTime ?? this.startTime,
+      updates.endTime ?? this.endTime,
+      updates.x ?? this.x,
+      updates.y ?? this.y,
+      updates.width ?? this.width,
+      updates.height ?? this.height,
+      updates.opacity ?? this.opacity,
+      updates.createdAt ?? this.createdAt,
+      updates.isMainTrack ?? this.isMainTrack,
+      updates.zoom ?? this.zoom,
+      updates.cropAspect ?? this.cropAspect,
+      updates.cropSx ?? this.cropSx,
+      updates.cropSy ?? this.cropSy,
+      updates.cropSw ?? this.cropSw,
+      updates.cropSh ?? this.cropSh,
+      updates.zoomIntensity ?? this.zoomIntensity,
+      updates.row ?? this.row
+    )
+  }
+
   get duration(): number {
     return this.endTime - this.startTime
   }

@@ -27,6 +27,10 @@ export class VideoClass {
   cropSy: number
   cropSw: number
   cropSh: number
+  sourceUrl?: string
+  sourceTrimStart?: number
+  sourceDuration?: number
+  playbackSpeed: number
 
   constructor(
     id: string,
@@ -54,7 +58,11 @@ export class VideoClass {
     cropSx?: number,
     cropSy?: number,
     cropSw?: number,
-    cropSh?: number
+    cropSh?: number,
+    sourceUrl?: string,
+    sourceTrimStart?: number,
+    sourceDuration?: number,
+    playbackSpeed?: number
   ) {
     this.id = id
     this.title = title
@@ -82,5 +90,44 @@ export class VideoClass {
     this.cropSy = cropSy ?? 0
     this.cropSw = cropSw ?? 1
     this.cropSh = cropSh ?? 1
+    this.sourceUrl = sourceUrl
+    this.sourceTrimStart = sourceTrimStart
+    this.sourceDuration = sourceDuration
+    this.playbackSpeed = playbackSpeed ?? 1
+  }
+
+  copy(updates: Partial<VideoClass>): VideoClass {
+    return new VideoClass(
+      updates.id ?? this.id,
+      updates.title ?? this.title,
+      updates.url ?? this.url,
+      updates.duration ?? this.duration,
+      updates.timestamp ?? this.timestamp,
+      updates.createdAt ?? this.createdAt,
+      updates.updatedAt ?? this.updatedAt,
+      updates.originalDuration ?? this.originalDuration,
+      updates.trimStart ?? this.trimStart,
+      updates.trimEnd ?? this.trimEnd,
+      updates.prompt ?? this.prompt,
+      updates.isOverlay ?? this.isOverlay,
+      updates.x ?? this.x,
+      updates.y ?? this.y,
+      updates.width ?? this.width,
+      updates.height ?? this.height,
+      updates.opacity ?? this.opacity,
+      updates.zoom ?? this.zoom,
+      updates.zoomIntensity ?? this.zoomIntensity,
+      updates.row ?? this.row,
+      updates.muted ?? this.muted,
+      updates.cropAspect ?? this.cropAspect,
+      updates.cropSx ?? this.cropSx,
+      updates.cropSy ?? this.cropSy,
+      updates.cropSw ?? this.cropSw,
+      updates.cropSh ?? this.cropSh,
+      updates.sourceUrl ?? this.sourceUrl,
+      updates.sourceTrimStart ?? this.sourceTrimStart,
+      updates.sourceDuration ?? this.sourceDuration,
+      updates.playbackSpeed ?? this.playbackSpeed
+    )
   }
 }

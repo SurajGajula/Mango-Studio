@@ -27,6 +27,7 @@ export default function TextTrack({
 }: TextTrackProps) {
   const texts = useManifestStore((state) => state.texts)
   const selectedTextId = useSelectionStore((state) => state.selectedTextId)
+  const selectText = useSelectionStore((state) => state.selectText)
 
   return (
     <div className={styles.textRow}>
@@ -46,7 +47,10 @@ export default function TextTrack({
             key={text.id}
             className={`${styles.overlayItem} ${styles.textItem} ${isSelected ? styles.selected : ''}`}
             style={{ left: `${leftPercent}%`, width: `${widthPercent}%`, position: 'absolute' }}
-            onClick={(e) => { e.stopPropagation(); setSelectedTextId(selectedTextId === text.id ? null : text.id); setSelectedVideoId(null); setSelectedImageId(null) }}
+            onClick={(e) => {
+              e.stopPropagation()
+              selectText(isSelected ? null : text.id)
+            }}
             onMouseDown={(e) => handleTextDragStart(text.id, 'move', e)}
           >
             <div className={styles.overlayHandleStart} onMouseDown={(e) => handleTextDragStart(text.id, 'start', e)} onClick={(e) => e.stopPropagation()} />

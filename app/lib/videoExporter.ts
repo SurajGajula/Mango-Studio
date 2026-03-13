@@ -1,6 +1,7 @@
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { TextClass } from '@/app/models/TextClass'
+import { AudioClass } from '@/app/models/AudioClass'
 import { EffectClass } from '@/app/models/EffectClass'
 import { FFmpeg } from '@ffmpeg/ffmpeg'
 import { fetchFile, toBlobURL } from '@ffmpeg/util'
@@ -82,7 +83,8 @@ export async function exportVideo(
   audioTrimStart?: number,
   audioStartTime?: number,
   effects?: EffectClass[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  audios?: AudioClass[]
 ): Promise<Blob> {
   const mainVideos = [...videos].filter((v) => !v.isOverlay).sort((a, b) => a.timestamp - b.timestamp)
   const overlayVideos = videos.filter((v) => v.isOverlay)
@@ -192,8 +194,11 @@ export async function exportVideo(
       .forEach((video) => {
         const videoEl = videoElements.get(video.id)
         if (!videoEl || videoEl.readyState < 2) return
-        const localTime = (video.trimStart ?? 0) + (t - video.timestamp)
-        if (Math.abs(videoEl.currentTime - localTime) > 0.1) videoEl.currentTime = localTime
+        const localTime = (video.trimStart ?? 0) + (t - video.timestamp) * (video.playbackSpeed ?? 1)
+        if (Math.abs(videoEl.currentTime - localTime) > 0.1) {
+          videoEl.playbackRate = video.playbackSpeed ?? 1
+          videoEl.currentTime = localTime
+        }
         const vDuration = video.duration ?? 0
         const vElapsed = t - video.timestamp
         const vProgress = vDuration > 0 ? vElapsed / vDuration : 0
@@ -203,7 +208,7 @@ export async function exportVideo(
         const cropSy = video.cropSy ?? 0
         const cropSw = video.cropSw ?? 1
         const cropSh = video.cropSh ?? 1
-        applyZoomTransform(ctx, video.zoom, vProgress, videoEl, video.x * xScale, video.y * yScale, video.width * xScale, video.height * yScale, cropSx, cropSy, cropSw, cropSh, video.zoomIntensity, vElapsed)
+        applyZoomTransform(ctx, video.zoom, vProgress, videoEl, video.x * xScale, video.y * yScale, video.width * xScale, video.height * yScale, cropSx, cropSy, cropSw, cropSh, video.zoomIntensity, localTime)
         ctx.restore()
       })
     if (texts && texts.length > 0) {
@@ -477,6 +482,7 @@ export async function exportVideo(
 
     const startAudio = () => {
       if (bgAudioElement) {
+        bgAudioElement.playbackRate = audios?.[0]?.playbackSpeed ?? 1
         bgAudioElement.currentTime = audioTrimStart ?? 0
         const audioDelay = audioStartTime ?? 0
         if (audioDelay > 0) {
@@ -540,9 +546,10 @@ export async function exportVideo(
           }
 
           const trimStart = activeClip.trimStart ?? 0
-          const localTimeInOriginal = trimStart + (currentTime - activeClip.timestamp)
+          const localTimeInOriginal = trimStart + (currentTime - activeClip.timestamp) * (activeClip.playbackSpeed ?? 1)
           
           if (videoEl.paused) {
+            videoEl.playbackRate = activeClip.playbackSpeed ?? 1
             videoEl.play().catch(() => {})
             if (audioSources.has(activeClip.id)) {
               audioSources.get(activeClip.id)!.connect(audioDestination)
@@ -551,6 +558,7 @@ export async function exportVideo(
 
           // Sync video to master clock
           if (Math.abs(videoEl.currentTime - localTimeInOriginal) > 0.1) {
+            videoEl.playbackRate = activeClip.playbackSpeed ?? 1
             videoEl.currentTime = localTimeInOriginal
           }
 

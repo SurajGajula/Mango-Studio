@@ -40,6 +40,8 @@ export default function MainTrack({
   const updateVideo = useManifestStore((state) => state.updateVideo)
   const selectedVideoId = useSelectionStore((state) => state.selectedVideoId)
   const selectedImageId = useSelectionStore((state) => state.selectedImageId)
+  const selectVideo = useSelectionStore((state) => state.selectVideo)
+  const selectImage = useSelectionStore((state) => state.selectImage)
 
   return (
     <div className={styles.timelineRow}>
@@ -59,8 +61,7 @@ export default function MainTrack({
             }}
             onClick={(e) => {
               e.stopPropagation()
-              setSelectedVideoId(video.id)
-              setSelectedImageId(null)
+              selectVideo(isSelected ? null : video.id)
             }}
             onDoubleClick={(e) => {
               e.stopPropagation()
@@ -162,8 +163,7 @@ export default function MainTrack({
             style={{ left: `${leftPercent}%`, width: `${widthPercent}%`, position: 'absolute', height: '100%' }}
             onClick={(e) => {
               e.stopPropagation()
-              setSelectedImageId(selectedImageId === image.id ? null : image.id)
-              setSelectedVideoId(null)
+              selectImage(isSelected ? null : image.id)
             }}
             onMouseDown={(e) => handleImageDragStart(image.id, 'move', e)}
           >

@@ -21,8 +21,6 @@ interface PlaybackControlsProps {
   handleExport: () => void
   handleCancelExport: () => void
   exportProgress: ExportProgress | null
-  setIsAudioSelected: (selected: boolean) => void
-  isAudioSelected: boolean
   handleAddText: () => void
   showCropMenu: boolean
   setShowCropMenu: (show: boolean | ((v: boolean) => boolean)) => void
@@ -42,8 +40,6 @@ export default function PlaybackControls({
   handleExport,
   handleCancelExport,
   exportProgress,
-  setIsAudioSelected,
-  isAudioSelected,
   handleAddText,
   showCropMenu,
   setShowCropMenu,
@@ -54,6 +50,7 @@ export default function PlaybackControls({
   const setIsPlaying = useManifestStore((state) => state.setIsPlaying)
   const playbackRate = useManifestStore((state) => state.playbackRate)
   const setPlaybackRate = useManifestStore((state) => state.setPlaybackRate)
+  const setItemPlaybackSpeed = useManifestStore((state) => state.setItemPlaybackSpeed)
   const undo = useManifestStore((state) => state.undo)
   const redo = useManifestStore((state) => state.redo)
   const historyIndex = useManifestStore((state) => state.historyIndex)
@@ -73,10 +70,13 @@ export default function PlaybackControls({
   const videos = useManifestStore((state) => state.videos)
   const images = useManifestStore((state) => state.images)
   const texts = useManifestStore((state) => state.texts)
+  const audios = useManifestStore((state) => state.audios)
 
   const selectedVideoId = useSelectionStore((state) => state.selectedVideoId)
   const selectedImageId = useSelectionStore((state) => state.selectedImageId)
   const selectedTextId = useSelectionStore((state) => state.selectedTextId)
+  const selectedAudioId = useSelectionStore((state) => state.selectedAudioId)
+  const clearSelection = useSelectionStore((state) => state.clearSelection)
 
   const audio = useAudioStore((state) => state.audio)
   const removeAudio = useAudioStore((state) => state.removeAudio)
@@ -124,7 +124,7 @@ export default function PlaybackControls({
             const idx = steps.indexOf(playbackRate)
             setPlaybackRate(steps[(idx + 1) % steps.length])
           }}
-          title="Playback speed"
+          title="Global playback speed"
         >
           {playbackRate === 1 ? '1×' : `${playbackRate}×`}
         </button>
@@ -148,9 +148,13 @@ export default function PlaybackControls({
             if (selectedVideoId) removeVideo(selectedVideoId)
             else if (selectedImageId) removeImage(selectedImageId)
             else if (selectedTextId) removeText(selectedTextId)
-            else if (isAudioSelected) { if (audio) removeAudioFromManifest(audio.id); removeAudio(); setIsAudioSelected(false) }
+            else if (selectedAudioId) {
+              removeAudioFromManifest(selectedAudioId)
+              removeAudio()
+              clearSelection()
+            }
           }}
-          disabled={!selectedVideoId && !selectedImageId && !selectedTextId && !isAudioSelected}
+          disabled={!selectedVideoId && !selectedImageId && !selectedTextId && !selectedAudioId}
           title="Delete selected (Cmd+D)"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -295,6 +299,28 @@ export default function PlaybackControls({
             )
           })()}
         </div>
+        {(selectedVideoId || selectedAudioId) && (() => {
+          const item = selectedVideoId 
+            ? videos.find(v => v.id === selectedVideoId)
+            : audios.find(a => a.id === selectedAudioId)
+          if (!item) return null
+          const itemSpeed = item.playbackSpeed ?? 1
+          return (
+            <button
+              className={styles.speedButton}
+              style={{ color: '#0070f3', border: '1px solid rgba(0, 112, 243, 0.3)' }}
+              onClick={() => {
+                const steps = [0.5, 0.75, 1, 1.5, 2]
+                const idx = steps.indexOf(itemSpeed)
+                const nextSpeed = steps[(idx + 1) % steps.length]
+                setItemPlaybackSpeed(selectedVideoId || selectedAudioId!, nextSpeed)
+              }}
+              title="Item playback speed"
+            >
+              {itemSpeed}×
+            </button>
+          )
+        })()}
         {audioAnalysis && userMarks.length > 0 && (
           <button
             className={styles.clearMarksButton}

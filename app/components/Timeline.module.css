@@ -572,7 +572,7 @@
 
 .overlayHandleStart:hover,
 .overlayHandleEnd:hover {
-  background-color: #e0e0e0;
+  background-color: #ffffff;
 }
 
 .overlayHandleStart::after,
@@ -655,7 +655,7 @@
 
 .trimHandleStart:hover,
 .trimHandleEnd:hover {
-  background-color: rgba(255, 255, 255, 0.4);
+  background-color: #ffffff;
 }
 
 .trimHandleStart::after,
@@ -837,7 +837,7 @@
 .audioTrimHandleStart:hover,
 .audioTrimHandleEnd:hover {
   opacity: 1;
-  background-color: #e0e0e0;
+  background-color: #ffffff;
 }
 
 .audioTrimHandleStart::after,

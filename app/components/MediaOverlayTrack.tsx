@@ -40,6 +40,8 @@ export default function MediaOverlayTrack({
   const updateVideo = useManifestStore((state) => state.updateVideo)
   const selectedImageId = useSelectionStore((state) => state.selectedImageId)
   const selectedVideoId = useSelectionStore((state) => state.selectedVideoId)
+  const selectImage = useSelectionStore((state) => state.selectImage)
+  const selectVideo = useSelectionStore((state) => state.selectVideo)
 
   return (
     <div className={styles.overlayRow}>
@@ -59,7 +61,10 @@ export default function MediaOverlayTrack({
             key={image.id}
             className={`${styles.overlayItem} ${isSelected ? styles.selected : ''}`}
             style={{ left: `${leftPercent}%`, width: `${widthPercent}%`, position: 'absolute' }}
-            onClick={(e) => { e.stopPropagation(); setSelectedImageId(selectedImageId === image.id ? null : image.id); setSelectedVideoId(null) }}
+            onClick={(e) => {
+              e.stopPropagation()
+              selectImage(isSelected ? null : image.id)
+            }}
             onMouseDown={(e) => handleImageDragStart(image.id, 'move', e)}
           >
             <div className={styles.overlayHandleStart} onMouseDown={(e) => handleImageDragStart(image.id, 'start', e)} onClick={(e) => e.stopPropagation()} />
@@ -91,7 +96,10 @@ export default function MediaOverlayTrack({
             key={video.id}
             className={`${styles.overlayItem} ${isSelected ? styles.selected : ''}`}
             style={{ left: `${leftPercent}%`, width: `${widthPercent}%`, position: 'absolute' }}
-            onClick={(e) => { e.stopPropagation(); setSelectedVideoId(selectedVideoId === video.id ? null : video.id); setSelectedImageId(null) }}
+            onClick={(e) => {
+              e.stopPropagation()
+              selectVideo(isSelected ? null : video.id)
+            }}
             onDoubleClick={(e) => { e.stopPropagation(); handleVideoDoubleClick(video.id) }}
             onMouseDown={(e) => handleOverlayVideoDragStart(video.id, e)}
           >
