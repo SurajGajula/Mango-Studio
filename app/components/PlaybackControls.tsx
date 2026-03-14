@@ -5,7 +5,7 @@ import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useAudioStore } from '@/app/stores/audioStore'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
-import { computeMediaCropForAspect } from '@/app/lib/mediaUtils'
+import { ASPECT_RATIOS, computeMediaCropForAspect } from '@/app/lib/mediaUtils'
 import { ExportProgress } from '@/app/lib/videoExporter'
 import styles from './Timeline.module.css'
 
@@ -266,13 +266,7 @@ export default function PlaybackControls({
             const item = selectedImageId 
               ? images.find((i) => i.id === selectedImageId)
               : videos.find((v) => v.id === selectedVideoId)
-            const RATIOS = [
-              { label: '16:9', w: 16, h: 9 },
-              { label: '4:3', w: 4, h: 3 },
-              { label: '1:1', w: 1, h: 1 },
-              { label: '3:4', w: 3, h: 4 },
-              { label: '9:16', w: 9, h: 16 },
-            ]
+            const RATIOS = Object.entries(ASPECT_RATIOS).map(([label, [w, h]]) => ({ label, w, h }))
             return (
               <div ref={cropMenuRef} className={styles.cropMenu}>
                 {RATIOS.map((r) => (

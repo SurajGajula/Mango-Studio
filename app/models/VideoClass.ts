@@ -20,6 +20,7 @@ export class VideoClass {
   opacity: number
   zoom: ZoomMode
   zoomIntensity: number
+  transitionDuration?: number
   row: number
   muted: boolean
   cropAspect?: string
@@ -52,6 +53,7 @@ export class VideoClass {
     opacity?: number,
     zoom?: ZoomMode,
     zoomIntensity?: number,
+    transitionDuration?: number,
     row?: number,
     muted?: boolean,
     cropAspect?: string,
@@ -79,11 +81,12 @@ export class VideoClass {
     this.isOverlay = isOverlay ?? (this.row > 0)
     this.x = x ?? 0
     this.y = y ?? 0
-    this.width = width ?? 480
-    this.height = height ?? 270
+    this.width = width ?? 270
+    this.height = height ?? 480
     this.opacity = opacity ?? 1
     this.zoom = zoom ?? 'none'
     this.zoomIntensity = zoomIntensity ?? 0.5
+    this.transitionDuration = transitionDuration
     this.muted = muted ?? false
     this.cropAspect = cropAspect
     this.cropSx = cropSx ?? 0
@@ -117,6 +120,7 @@ export class VideoClass {
       updates.opacity ?? this.opacity,
       updates.zoom ?? this.zoom,
       updates.zoomIntensity ?? this.zoomIntensity,
+      updates.transitionDuration ?? this.transitionDuration,
       updates.row ?? this.row,
       updates.muted ?? this.muted,
       updates.cropAspect ?? this.cropAspect,

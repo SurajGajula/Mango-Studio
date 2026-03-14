@@ -96,21 +96,21 @@ export function resolveVideoMetadata(url: string): Promise<{ duration: number; w
     const probe = document.createElement('video')
     const timeout = window.setTimeout(() => {
       probe.src = ''
-      resolve({ duration: 8, width: 1920, height: 1080 })
+      resolve({ duration: 8, width: 1080, height: 1920 })
     }, 8000)
     probe.preload = 'metadata'
     probe.onloadedmetadata = () => {
       window.clearTimeout(timeout)
       const dur = Number.isFinite(probe.duration) && probe.duration > 0 ? probe.duration : 8
-      const width = probe.videoWidth || 1920
-      const height = probe.videoHeight || 1080
+      const width = probe.videoWidth || 1080
+      const height = probe.videoHeight || 1920
       probe.src = ''
       resolve({ duration: dur, width, height })
     }
     probe.onerror = () => {
       window.clearTimeout(timeout)
       probe.src = ''
-      resolve({ duration: 8, width: 1920, height: 1080 })
+      resolve({ duration: 8, width: 1080, height: 1920 })
     }
     probe.src = url
   })
@@ -188,7 +188,7 @@ export function computeImageDimensions(
       resolve(computeMediaDimensions(img.naturalWidth, img.naturalHeight, aspectRatio, isMainTrack))
     }
     img.onerror = () => {
-      resolve({ x: 0, y: 0, width: 1920, height: 1080 })
+      resolve({ x: 0, y: 0, width: 1080, height: 1920 })
     }
     img.src = url
   })
@@ -201,59 +201,7 @@ export function computeCropForAspect(
   targetH: number,
   cropAspectLabel: string
 ): Promise<Partial<ImageClass>> {
-  const canvasW = canvasAspectRatio === '16:9' ? 1920 : 1080
-  const canvasH = canvasAspectRatio === '16:9' ? 1080 : 1920
-
-  return new Promise((resolve) => {
-    const img = new Image()
-    img.onload = () => {
-      const nw = img.naturalWidth
-      const nh = img.naturalHeight
-      const naturalAspect = nw / nh
-      const targetAspect = targetW / targetH
-
-      let sx: number, sy: number, sw: number, sh: number
-      if (Math.abs(targetAspect - naturalAspect) < 0.001) {
-        sx = 0; sy = 0; sw = nw; sh = nh
-      } else if (targetAspect > naturalAspect) {
-        sw = nw
-        sh = Math.round(nw / targetAspect)
-        sx = 0
-        sy = Math.round((nh - sh) / 2)
-      } else {
-        sh = nh
-        sw = Math.round(nh * targetAspect)
-        sx = Math.round((nw - sw) / 2)
-        sy = 0
-      }
-
-      const canvasAspect = canvasW / canvasH
-      let dw: number, dh: number
-      if (targetAspect >= canvasAspect) {
-        dw = canvasW
-        dh = Math.round(canvasW / targetAspect)
-      } else {
-        dh = canvasH
-        dw = Math.round(canvasH * targetAspect)
-      }
-      const ddx = Math.round((canvasW - dw) / 2)
-      const ddy = Math.round((canvasH - dh) / 2)
-
-      resolve({
-        x: ddx,
-        y: ddy,
-        width: dw,
-        height: dh,
-        cropAspect: cropAspectLabel,
-        cropSx: sx / nw,
-        cropSy: sy / nh,
-        cropSw: sw / nw,
-        cropSh: sh / nh,
-      })
-    }
-    img.onerror = () => resolve({})
-    img.src = image.url
-  })
+  return computeMediaCropForAspect(image.url, 'image', canvasAspectRatio, targetW, targetH, cropAspectLabel) as Promise<Partial<ImageClass>>
 }
 
 export async function generateVideoThumbnails(

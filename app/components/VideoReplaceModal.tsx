@@ -1,11 +1,13 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { generateVideoThumbnails } from '@/app/lib/mediaUtils'
+import { terminateFFmpeg } from '@/app/lib/videoExporter'
 import { useAudioStore } from '@/app/stores/audioStore'
 import styles from './VideoReplaceModal.module.css'
 
 const PIXELS_PER_SECOND = 60
+const VIRTUALIZATION_BUFFER = 5 // Number of extra thumbnails to render on each side
 
 interface Props {
   videoUrl: string
@@ -40,6 +42,7 @@ export default function VideoReplaceModal({
   const [isLoadingThumbnails, setIsLoadingThumbnails] = useState(true)
   const [currentTime, setCurrentTime] = useState(initialTrimStart)
   const [containerWidth, setContainerWidth] = useState(0)
+  const [scrollLeft, setScrollLeft] = useState(initialTrimStart * PIXELS_PER_SECOND)
   const isScrollingProgrammatically = useRef(false)
   const requestRef = useRef<number>()
 
@@ -49,6 +52,35 @@ export default function VideoReplaceModal({
   const audioPlayPromiseRef = useRef<Promise<void> | null>(null)
 
   const maxTrimStart = Math.max(0, videoDuration - windowDuration)
+
+  // Memoize sorted thumbnail times for efficient lookup
+  const sortedThumbTimes = useMemo(() => {
+    return Array.from(thumbnails.keys()).sort((a, b) => a - b)
+  }, [thumbnails])
+
+  // Efficiently find the closest thumbnail for any given second
+  const getThumbnailForSecond = useCallback((second: number) => {
+    if (sortedThumbTimes.length === 0) return null
+    
+    // Binary search for the closest time would be even faster, but for 
+    // a few hundred thumbnails, a simple find/reduce is usually fine if memoized.
+    // Let's use a slightly faster approach than reduce for very long videos.
+    let closest = sortedThumbTimes[0]
+    let minDiff = Math.abs(closest - second)
+    
+    for (let i = 1; i < sortedThumbTimes.length; i++) {
+      const diff = Math.abs(sortedThumbTimes[i] - second)
+      if (diff < minDiff) {
+        minDiff = diff
+        closest = sortedThumbTimes[i]
+      } else if (sortedThumbTimes[i] > second) {
+        // Since it's sorted, we can stop early
+        break
+      }
+    }
+    
+    return thumbnails.get(closest)
+  }, [sortedThumbTimes, thumbnails])
 
   // Measure container width
   useEffect(() => {
@@ -68,6 +100,10 @@ export default function VideoReplaceModal({
   const timelineWidth = videoDuration * PIXELS_PER_SECOND
   const activeWindowWidth = windowDuration * PIXELS_PER_SECOND
   const centerOffset = Math.max(0, (containerWidth - activeWindowWidth) / 2)
+
+  // Virtualization range
+  const visibleStartSecond = Math.max(0, Math.floor((scrollLeft - centerOffset) / PIXELS_PER_SECOND) - VIRTUALIZATION_BUFFER)
+  const visibleEndSecond = Math.min(Math.ceil(videoDuration), Math.ceil((scrollLeft + containerWidth + centerOffset) / PIXELS_PER_SECOND) + VIRTUALIZATION_BUFFER)
 
   // Smoothly update current time during playback
   const animate = useCallback(() => {
@@ -218,7 +254,9 @@ export default function VideoReplaceModal({
     if (scrollContainerRef.current) {
       scrollContainerRef.current.focus()
       isScrollingProgrammatically.current = true
-      scrollContainerRef.current.scrollLeft = initialTrimStart * PIXELS_PER_SECOND
+      const initialScroll = initialTrimStart * PIXELS_PER_SECOND
+      scrollContainerRef.current.scrollLeft = initialScroll
+      setScrollLeft(initialScroll)
       setTimeout(() => {
         isScrollingProgrammatically.current = false
       }, 50)
@@ -237,6 +275,8 @@ export default function VideoReplaceModal({
         audioRef.current.src = ''
         audioRef.current.load()
       }
+      // Terminate FFmpeg to free memory when modal unmounts
+      terminateFFmpeg()
     }
   }, [])
 
@@ -268,10 +308,14 @@ export default function VideoReplaceModal({
   }
 
   const handleScroll = useCallback(() => {
-    if (isPlaying || isScrollingProgrammatically.current || !scrollContainerRef.current) return
+    if (isPlaying || !scrollContainerRef.current) return
     
-    const scrollLeft = scrollContainerRef.current.scrollLeft
-    const newTrimStart = Math.max(0, Math.min(maxTrimStart, scrollLeft / PIXELS_PER_SECOND))
+    const sLeft = scrollContainerRef.current.scrollLeft
+    setScrollLeft(sLeft)
+    
+    if (isScrollingProgrammatically.current) return
+
+    const newTrimStart = Math.max(0, Math.min(maxTrimStart, sLeft / PIXELS_PER_SECOND))
     
     setTrimStart(newTrimStart)
     if (!isPlaying && videoRef.current) {
@@ -394,13 +438,12 @@ export default function VideoReplaceModal({
                     <div className={styles.loadingThumbnails}>Loading thumbnails...</div>
                   )}
                   {Array.from({ length: Math.ceil(videoDuration) }).map((_, i) => {
-                    const thumbTimes = Array.from(thumbnails.keys()).sort((a, b) => a - b)
-                    if (thumbTimes.length === 0) {
+                    // Virtualization: only render if in range
+                    if (i < visibleStartSecond || i > visibleEndSecond) {
                       return <div key={i} className={styles.thumbnailFrame} style={{ width: PIXELS_PER_SECOND }} />
                     }
-                    const closestTime = thumbTimes.reduce((prev, curr) => 
-                      Math.abs(curr - i) < Math.abs(prev - i) ? curr : prev, thumbTimes[0])
-                    const thumbUrl = thumbnails.get(closestTime)
+
+                    const thumbUrl = getThumbnailForSecond(i)
                     
                     return (
                       <div 

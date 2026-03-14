@@ -92,8 +92,9 @@ export default function ChatWindow() {
 
   const applyTransitions = (transitions: TransitionInstruction[]) => {
     for (const t of transitions) {
-      const updates: { zoom: typeof t.zoom; zoomIntensity?: number } = { zoom: t.zoom }
+      const updates: { zoom: typeof t.zoom; zoomIntensity?: number; transitionDuration?: number } = { zoom: t.zoom }
       if (t.zoomIntensity !== undefined) updates.zoomIntensity = t.zoomIntensity
+      if (t.transitionDuration !== undefined) updates.transitionDuration = t.transitionDuration
       if (t.type === 'image') updateImage(t.id, updates)
       else if (t.type === 'video') updateVideo(t.id, updates)
     }
@@ -121,20 +122,27 @@ export default function ChatWindow() {
     for (const r of replacements) {
       const file = files[r.fileIndex]
       if (!file) continue
-      const original = images.find((i) => i.id === r.targetId)
       const blob = new Blob(
         [Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0))],
         { type: file.mimeType }
       )
       const url = URL.createObjectURL(blob)
-      replaceImageSource(r.targetId, url, file.name)
-      if (original?.cropAspect) {
+      
+      const original = images.find((i) => i.id === r.targetId)
+      if (!original) continue
+
+      if (original.cropAspect) {
         const ratio = ASPECT_RATIOS[original.cropAspect]
         if (ratio) {
           const tempImage = new ImageClass('tmp', '', url, 0, 1)
           const patch = await computeCropForAspect(tempImage, aspectRatio, ratio[0], ratio[1], original.cropAspect)
-          updateImage(r.targetId, patch)
+          updateImage(r.targetId, { ...patch, url, name: file.name })
+        } else {
+          replaceImageSource(r.targetId, url, file.name)
         }
+      } else {
+        const dims = await computeImageDimensions(url, aspectRatio, original.isMainTrack)
+        updateImage(r.targetId, { ...dims, url, name: file.name })
       }
     }
   }
@@ -169,8 +177,8 @@ export default function ChatWindow() {
     try {
       const { videos, images, texts, audios } = useManifestStore.getState()
       const manifest = {
-        images: images.map((i) => ({ id: i.id, name: i.name, startTime: i.startTime, endTime: i.endTime, zoom: i.zoom, cropAspect: i.cropAspect })),
-        videos: videos.map((v) => ({ id: v.id, title: v.title, timestamp: v.timestamp, duration: v.duration, isOverlay: v.isOverlay, zoom: v.zoom })),
+        images: images.map((i) => ({ id: i.id, name: i.name, startTime: i.startTime, endTime: i.endTime, zoom: i.zoom, zoomIntensity: i.zoomIntensity, transitionDuration: i.transitionDuration, cropAspect: i.cropAspect })),
+        videos: videos.map((v) => ({ id: v.id, title: v.title, timestamp: v.timestamp, duration: v.duration, isOverlay: v.isOverlay, zoom: v.zoom, zoomIntensity: v.zoomIntensity, transitionDuration: v.transitionDuration })),
         texts: texts.map((t) => ({ id: t.id, content: t.content, startTime: t.startTime, endTime: t.endTime })),
         audios: audios.map((a) => ({ id: a.id, name: a.name, startTime: a.startTime, endTime: a.endTime, originalDuration: a.originalDuration, trimStart: a.trimStart, trimEnd: a.trimEnd, marks: a.marks })),
       }

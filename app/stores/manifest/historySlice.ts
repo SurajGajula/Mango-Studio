@@ -8,7 +8,10 @@ function collectUrls(entries: BlobEntry[]): Set<string> {
   const urls = new Set<string>()
   for (const entry of entries) {
     if (!entry) continue
-    for (const v of entry.videos) if (v.url) urls.add(v.url)
+    for (const v of entry.videos) {
+      if (v.url) urls.add(v.url)
+      if (v.sourceUrl) urls.add(v.sourceUrl)
+    }
     for (const img of entry.images) if (img.url) urls.add(img.url)
   }
   return urls

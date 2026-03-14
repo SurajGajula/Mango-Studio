@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
-import { resolveVideoMetadata } from '@/app/lib/mediaUtils'
+import { resolveVideoMetadata, computeCropForAspect, computeImageDimensions, ASPECT_RATIOS } from '@/app/lib/mediaUtils'
 import { extractVideoClip } from '@/app/lib/videoExporter'
 import { useManifestStore } from '@/app/stores/manifestStore'
 
@@ -52,7 +52,21 @@ export function useTimelineReplace({
       if (file.type.startsWith('image/')) {
         const newUrl = URL.createObjectURL(file)
         const newName = file.name
-        replaceImageSource(replaceTargetId, newUrl, newName)
+        
+        const { aspectRatio, updateImage } = useManifestStore.getState()
+        if (image.cropAspect) {
+          const ratio = ASPECT_RATIOS[image.cropAspect]
+          if (ratio) {
+            const tempImage = new ImageClass('tmp', '', newUrl, 0, 1)
+            const patch = await computeCropForAspect(tempImage, aspectRatio, ratio[0], ratio[1], image.cropAspect)
+            updateImage(image.id, { ...patch, url: newUrl, name: newName })
+          } else {
+            replaceImageSource(replaceTargetId, newUrl, newName)
+          }
+        } else {
+          const dims = await computeImageDimensions(newUrl, aspectRatio, image.isMainTrack)
+          updateImage(image.id, { ...dims, url: newUrl, name: newName })
+        }
         setReplaceTargetId(null)
       } else if (file.type.startsWith('video/')) {
         const url = URL.createObjectURL(file)
@@ -81,6 +95,7 @@ export function useTimelineReplace({
             image.opacity,
             image.zoom,
             image.zoomIntensity,
+            undefined,
             image.row,
             false,
             undefined,
@@ -222,6 +237,7 @@ export function useTimelineReplace({
           image.opacity,
           image.zoom,
           image.zoomIntensity,
+          undefined,
           image.row,
           false,
           undefined, undefined, undefined, undefined, undefined,

@@ -8,7 +8,7 @@ export const createGeneralSlice = (set: any, get: any) => ({
   playbackTime: 0,
   isPlaying: false,
   playbackRate: 1,
-  aspectRatio: '16:9' as AspectRatio,
+  aspectRatio: '9:16' as AspectRatio,
   pendingPrompt: null,
 
   setPendingPrompt: (prompt: string | null) => set({ pendingPrompt: prompt }),

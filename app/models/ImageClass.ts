@@ -1,4 +1,4 @@
-export type ZoomMode = 'none' | 'in' | 'out' | 'shake'
+export type ZoomMode = 'none' | 'in' | 'out' | 'shake' | 'split-horizontal' | 'split-vertical' | 'jitter'
 
 export class ImageClass {
   id: string
@@ -15,6 +15,7 @@ export class ImageClass {
   isMainTrack: boolean
   zoom: ZoomMode
   zoomIntensity: number
+  transitionDuration?: number
   cropAspect?: string
   cropSx: number
   cropSy: number
@@ -42,6 +43,7 @@ export class ImageClass {
     cropSw?: number,
     cropSh?: number,
     zoomIntensity?: number,
+    transitionDuration?: number,
     row?: number
   ) {
     this.id = id
@@ -59,6 +61,7 @@ export class ImageClass {
     this.isMainTrack = isMainTrack ?? (this.row === 0)
     this.zoom = zoom ?? 'none'
     this.zoomIntensity = zoomIntensity ?? 0.5
+    this.transitionDuration = transitionDuration
     this.cropAspect = cropAspect
     this.cropSx = cropSx ?? 0
     this.cropSy = cropSy ?? 0
@@ -87,6 +90,7 @@ export class ImageClass {
       updates.cropSw ?? this.cropSw,
       updates.cropSh ?? this.cropSh,
       updates.zoomIntensity ?? this.zoomIntensity,
+      updates.transitionDuration ?? this.transitionDuration,
       updates.row ?? this.row
     )
   }

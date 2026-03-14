@@ -2,7 +2,7 @@
 
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { ImageClass } from '@/app/models/ImageClass'
-import styles from './PreviewArea.module.css'
+import { useEffect, useRef } from 'react'
 
 interface CropEditorProps {
   cropEditId: string
@@ -29,60 +29,162 @@ export default function CropEditor({
   handleCropPanStart,
   exitCropEdit,
 }: CropEditorProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const mediaRef = useRef<HTMLImageElement | HTMLVideoElement | null>(null)
   const images = useManifestStore((state) => state.images)
   const videos = useManifestStore((state) => state.videos)
 
   const img = images.find((i) => i.id === cropEditId)
   const vid = videos.find((v) => v.id === cropEditId)
   const item = img || vid
+
+  useEffect(() => {
+    if (!item?.url) return
+    const el = item instanceof ImageClass ? new Image() : document.createElement('video')
+    el.src = item.url
+    mediaRef.current = el
+    
+    if (el instanceof HTMLVideoElement) {
+      el.muted = true
+      el.playsInline = true
+    }
+
+    return () => {
+      mediaRef.current = null
+      if (el instanceof HTMLVideoElement) {
+        el.pause()
+        el.src = ''
+        el.load()
+      }
+    }
+  }, [item?.url, item instanceof ImageClass])
+
+  useEffect(() => {
+    if (!item || !canvasRef.current || !mediaRef.current) return
+
+    const canvas = canvasRef.current
+    const ctx = canvas.getContext('2d')
+    const mediaEl = mediaRef.current
+    if (!ctx || !mediaEl) return
+
+    let active = true
+
+    const render = () => {
+      if (!active || !mediaRef.current) return
+      const mNw = mediaEl instanceof HTMLImageElement ? mediaEl.naturalWidth : (mediaEl as HTMLVideoElement).videoWidth
+      const mNh = mediaEl instanceof HTMLImageElement ? mediaEl.naturalHeight : (mediaEl as HTMLVideoElement).videoHeight
+      
+      if (mNw === 0 || mNh === 0) return
+
+      const destX = item.x * xScale + offsetX
+      const destY = item.y * yScale + offsetY
+      const destW = item.width * xScale
+      const destH = item.height * yScale
+
+      const fullImgW = destW / item.cropSw
+      const fullImgH = destH / item.cropSh
+      const fullImgLeft = destX - item.cropSx * fullImgW
+      const fullImgTop = destY - item.cropSy * fullImgH
+
+      canvas.width = contentRect.width
+      canvas.height = contentRect.height
+      ctx.fillStyle = '#000'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+      const imgOnCanvasX = fullImgLeft - offsetX
+      const imgOnCanvasY = fullImgTop - offsetY
+
+      const drawSubImage = (opacity: number, clipBox?: {x:number, y:number, w:number, h:number}) => {
+        ctx.save()
+        if (clipBox) {
+          ctx.beginPath()
+          ctx.rect(clipBox.x, clipBox.y, clipBox.w, clipBox.h)
+          ctx.clip()
+        }
+        ctx.globalAlpha = opacity
+
+        // Only draw the intersection of the image and the viewport
+        const ix = Math.max(0, imgOnCanvasX)
+        const iy = Math.max(0, imgOnCanvasY)
+        const iw = Math.min(canvas.width, imgOnCanvasX + fullImgW) - ix
+        const ih = Math.min(canvas.height, imgOnCanvasY + fullImgH) - iy
+
+        if (iw > 0 && ih > 0) {
+          const isx = (ix - imgOnCanvasX) * (mNw / fullImgW)
+          const isy = (iy - imgOnCanvasY) * (mNh / fullImgH)
+          const isw = iw * (mNw / fullImgW)
+          const ish = ih * (mNh / fullImgH)
+          ctx.drawImage(mediaEl, isx, isy, isw, ish, ix, iy, iw, ih)
+        }
+        ctx.restore()
+      }
+
+      // 1. Draw dimmed full image
+      drawSubImage(0.45)
+      
+      // 2. Draw highlighted crop box
+      const cropBoxLeft = destX - offsetX
+      const cropBoxTop = destY - offsetY
+      drawSubImage(1.0, { x: cropBoxLeft, y: cropBoxTop, w: destW, h: destH })
+
+      // 3. Draw border
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)'
+      ctx.lineWidth = 1.5
+      ctx.strokeRect(cropBoxLeft, cropBoxTop, destW, destH)
+      ctx.strokeStyle = 'rgba(0,0,0,0.4)'
+      ctx.lineWidth = 1
+      ctx.strokeRect(cropBoxLeft - 1, cropBoxTop - 1, destW + 2, destH + 2)
+    }
+
+    if (mediaEl instanceof HTMLImageElement) {
+      if (mediaEl.complete) render()
+      else mediaEl.onload = render
+    } else {
+      const vid = mediaEl as HTMLVideoElement
+      const onMetadata = () => {
+        const itemStartTime = item instanceof ImageClass ? item.startTime : item.timestamp
+        const trimStart = item instanceof ImageClass ? 0 : (item.trimStart ?? 0)
+        vid.currentTime = playbackTime - itemStartTime + trimStart
+        vid.onseeked = render
+      }
+      if (vid.readyState >= 1) onMetadata()
+      else vid.onloadedmetadata = onMetadata
+    }
+
+    return () => { active = false }
+  }, [item, xScale, yScale, offsetX, offsetY, contentRect, playbackTime])
+
   if (!item) return null
-
-  let destX = item.x * xScale + offsetX
-  let destY = item.y * yScale + offsetY
-  let destW = item.width * xScale
-  let destH = item.height * yScale
-
-  const fullImgW = destW / item.cropSw
-  const fullImgH = destH / item.cropSh
-  const fullImgLeft = destX - item.cropSx * fullImgW
-  const fullImgTop = destY - item.cropSy * fullImgH
 
   const clipLeft = offsetX
   const clipTop = offsetY
   const clipW = contentRect.width
   const clipH = contentRect.height
 
-  const cropBoxLeft = destX - clipLeft
-  const cropBoxTop = destY - clipTop
-
   return (
     <>
-      <div style={{ position: 'absolute', left: clipLeft, top: clipTop, width: clipW, height: clipH, overflow: 'hidden', pointerEvents: 'none', zIndex: 10 }}>
-        {item instanceof ImageClass ? (
-          <img
-            src={item.url}
-            style={{ position: 'absolute', left: fullImgLeft - clipLeft, top: fullImgTop - clipTop, width: fullImgW, height: fullImgH, userSelect: 'none' }}
-            draggable={false}
-          />
-        ) : (
-          <video
-            src={item.url}
-            style={{ position: 'absolute', left: fullImgLeft - clipLeft, top: fullImgTop - clipTop, width: fullImgW, height: fullImgH, userSelect: 'none' }}
-            muted
-            onLoadedMetadata={(e) => {
-              const v = e.target as HTMLVideoElement
-              v.currentTime = playbackTime - item.timestamp + (item.trimStart ?? 0)
-            }}
-          />
-        )}
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: cropBoxTop, background: 'rgba(0,0,0,0.55)' }} />
-        <div style={{ position: 'absolute', left: 0, right: 0, top: cropBoxTop + destH, bottom: 0, background: 'rgba(0,0,0,0.55)' }} />
-        <div style={{ position: 'absolute', top: cropBoxTop, left: 0, width: cropBoxLeft, height: destH, background: 'rgba(0,0,0,0.55)' }} />
-        <div style={{ position: 'absolute', top: cropBoxTop, left: cropBoxLeft + destW, right: 0, height: destH, background: 'rgba(0,0,0,0.55)' }} />
-      </div>
-      <div style={{ position: 'absolute', left: destX, top: destY, width: destW, height: destH, border: '1.5px solid rgba(255,255,255,0.85)', outline: '1px solid rgba(0,0,0,0.4)', pointerEvents: 'none', zIndex: 11 }} />
+      <canvas
+        ref={canvasRef}
+        style={{
+          position: 'absolute',
+          left: clipLeft,
+          top: clipTop,
+          width: clipW,
+          height: clipH,
+          pointerEvents: 'none',
+          zIndex: 10
+        }}
+      />
       <div
-        style={{ position: 'absolute', left: clipLeft, top: clipTop, width: clipW, height: clipH, cursor: cropPanState ? 'grabbing' : 'grab', zIndex: 60 }}
+        style={{
+          position: 'absolute',
+          left: clipLeft,
+          top: clipTop,
+          width: clipW,
+          height: clipH,
+          cursor: cropPanState ? 'grabbing' : 'grab',
+          zIndex: 60
+        }}
         onMouseDown={handleCropPanStart}
         onDoubleClick={exitCropEdit}
       />
