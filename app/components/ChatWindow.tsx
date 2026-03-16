@@ -5,7 +5,7 @@ import { useManifestStore } from '@/app/stores/manifestStore'
 import type { ManifestMutation, SplitInstruction, ReplaceInstruction, AddTextInstruction, TransitionInstruction, CropInstruction } from '@/app/api/route-prompt/route'
 import { TextClass } from '@/app/models/TextClass'
 import { ImageClass } from '@/app/models/ImageClass'
-import { computeCropForAspect, computeImageDimensions, ASPECT_RATIOS } from '@/app/lib/mediaUtils'
+import { computeCropForAspect, computeImageDimensions, ASPECT_RATIOS, computeVideoDimensions, computeVideoCropForAspect } from '@/app/lib/mediaUtils'
 import styles from './ChatWindow.module.css'
 
 interface Message {
@@ -101,18 +101,32 @@ export default function ChatWindow() {
   }
 
   const applyCrops = async (crops: CropInstruction[]) => {
-    const { images, aspectRatio } = useManifestStore.getState()
+    const { images, videos, aspectRatio } = useManifestStore.getState()
     for (const c of crops) {
-      const image = images.find((i) => i.id === c.id)
-      if (!image) continue
-      if (c.cropAspect === 'none') {
-        const dims = await computeImageDimensions(image.url, aspectRatio, image.isMainTrack)
-        updateImage(c.id, { ...dims, cropAspect: undefined, cropSx: 0, cropSy: 0, cropSw: 1, cropSh: 1 })
-      } else {
-        const ratio = ASPECT_RATIOS[c.cropAspect]
-        if (!ratio) continue
-        const patch = await computeCropForAspect(image, aspectRatio, ratio[0], ratio[1], c.cropAspect)
-        updateImage(c.id, patch)
+      if (c.type === 'image') {
+        const image = images.find((i) => i.id === c.id)
+        if (!image) continue
+        if (c.cropAspect === 'none') {
+          const dims = await computeImageDimensions(image.url, aspectRatio, image.isMainTrack)
+          updateImage(c.id, { ...dims, cropAspect: undefined, cropSx: 0, cropSy: 0, cropSw: 1, cropSh: 1 })
+        } else {
+          const ratio = ASPECT_RATIOS[c.cropAspect]
+          if (!ratio) continue
+          const patch = await computeCropForAspect(image, aspectRatio, ratio[0], ratio[1], c.cropAspect)
+          updateImage(c.id, patch)
+        }
+      } else if (c.type === 'video') {
+        const video = videos.find((v) => v.id === c.id)
+        if (!video) continue
+        if (c.cropAspect === 'none') {
+          const dims = await computeVideoDimensions(video.url || '', aspectRatio, video.row === 0)
+          updateVideo(c.id, { ...dims, cropAspect: undefined, cropSx: 0, cropSy: 0, cropSw: 1, cropSh: 1 })
+        } else {
+          const ratio = ASPECT_RATIOS[c.cropAspect]
+          if (!ratio) continue
+          const patch = await computeVideoCropForAspect(video, aspectRatio, ratio[0], ratio[1], c.cropAspect)
+          updateVideo(c.id, patch)
+        }
       }
     }
   }
@@ -178,7 +192,7 @@ export default function ChatWindow() {
       const { videos, images, texts, audios } = useManifestStore.getState()
       const manifest = {
         images: images.map((i) => ({ id: i.id, name: i.name, startTime: i.startTime, endTime: i.endTime, zoom: i.zoom, zoomIntensity: i.zoomIntensity, transitionDuration: i.transitionDuration, cropAspect: i.cropAspect })),
-        videos: videos.map((v) => ({ id: v.id, title: v.title, timestamp: v.timestamp, duration: v.duration, isOverlay: v.isOverlay, zoom: v.zoom, zoomIntensity: v.zoomIntensity, transitionDuration: v.transitionDuration })),
+        videos: videos.map((v) => ({ id: v.id, title: v.title, timestamp: v.timestamp, duration: v.duration, isOverlay: v.isOverlay, zoom: v.zoom, zoomIntensity: v.zoomIntensity, transitionDuration: v.transitionDuration, cropAspect: v.cropAspect })),
         texts: texts.map((t) => ({ id: t.id, content: t.content, startTime: t.startTime, endTime: t.endTime })),
         audios: audios.map((a) => ({ id: a.id, name: a.name, startTime: a.startTime, endTime: a.endTime, originalDuration: a.originalDuration, trimStart: a.trimStart, trimEnd: a.trimEnd, marks: a.marks })),
       }

@@ -599,7 +599,6 @@
 .timelineItem {
   display: flex;
   flex-direction: column;
-  min-width: 100px;
   height: 100%;
   background-color: #000000;
   border: 1px solid #333333;

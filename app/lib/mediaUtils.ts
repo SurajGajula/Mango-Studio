@@ -204,6 +204,25 @@ export function computeCropForAspect(
   return computeMediaCropForAspect(image.url, 'image', canvasAspectRatio, targetW, targetH, cropAspectLabel) as Promise<Partial<ImageClass>>
 }
 
+export async function computeVideoDimensions(
+  url: string,
+  aspectRatio: AspectRatio,
+  isMainTrack = false
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  const { width, height } = await resolveVideoMetadata(url)
+  return computeMediaDimensions(width, height, aspectRatio, isMainTrack)
+}
+
+export function computeVideoCropForAspect(
+  video: VideoClass,
+  canvasAspectRatio: AspectRatio,
+  targetW: number,
+  targetH: number,
+  cropAspectLabel: string
+): Promise<Partial<VideoClass>> {
+  return computeMediaCropForAspect(video.url || '', 'video', canvasAspectRatio, targetW, targetH, cropAspectLabel) as Promise<Partial<VideoClass>>
+}
+
 export async function generateVideoThumbnails(
   url: string, 
   seconds: number[], 

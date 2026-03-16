@@ -190,31 +190,35 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'set_crop',
-    description: 'Set the aspect ratio crop on one or more images. Use this when the user asks to change, set, or apply an aspect ratio to images — for example "make images 2-25 16:9" or "set image 1 to 1:1". The cropAspect must be one of: "16:9", "4:3", "1:1", "3:4", "9:16", or "none" (to remove the crop).',
+    description: 'Set the aspect ratio crop on one or more images or videos. Use this when the user asks to change, set, or apply an aspect ratio to images or videos — for example "make images 2-25 16:9" or "set video 1 to 1:1". The cropAspect must be one of: "16:9", "4:3", "1:1", "3:4", "9:16", or "none" (to remove the crop).',
     parameters: {
       type: Type.OBJECT,
       properties: {
         crops: {
           type: Type.ARRAY,
-          description: 'List of images to update with a crop aspect ratio.',
+          description: 'List of items to update with a crop aspect ratio.',
           items: {
             type: Type.OBJECT,
             properties: {
+              type: {
+                type: Type.STRING,
+                description: 'The type of item: "image" or "video".',
+              },
               id: {
                 type: Type.STRING,
-                description: 'The id of the image to crop.',
+                description: 'The id of the image or video to crop.',
               },
               cropAspect: {
                 type: Type.STRING,
                 description: 'The target aspect ratio: "16:9", "4:3", "1:1", "3:4", "9:16", or "none" to remove the crop.',
               },
             },
-            required: ['id', 'cropAspect'],
+            required: ['type', 'id', 'cropAspect'],
           },
         },
         message: {
           type: Type.STRING,
-          description: 'A short confirmation message, e.g. "Set 24 images to 16:9."',
+          description: 'A short confirmation message, e.g. "Set 24 items to 16:9."',
         },
       },
       required: ['crops', 'message'],
@@ -263,7 +267,7 @@ export const systemInstruction =
   '- add_text: when the user asks to add text overlays to the timeline at a computed time range\n' +
   '- replace_images: when the user has attached files and asks to replace, swap, or update existing timeline images with them\n' +
   '- set_transitions: when the user asks to set, apply, add, or remove zoom transitions (none, in, out, shake, split-horizontal, split-vertical, or jitter) on images or videos; include zoomIntensity (0.05–1.0) if specified, or transitionDuration (default 1.0s) if specified\n' +
-  '- set_crop: when the user asks to set or change the aspect ratio of images (e.g. "make images 2-25 16:9"); cropAspect must be one of "16:9", "4:3", "1:1", "3:4", "9:16", or "none"\n' +
+  '- set_crop: when the user asks to set or change the aspect ratio of images or videos (e.g. "make images 2-25 16:9"); cropAspect must be one of "16:9", "4:3", "1:1", "3:4", "9:16", or "none"\n' +
   '- no_op: for anything else\n' +
   'Always call exactly one function. Compute exact numeric values from the timeline data provided.\n' +
   'When the user refers to "image 3", "video 2", etc., the number refers to the item\'s position when all items of that type are sorted by startTime — so "image 1" is the one with the earliest startTime, "image 2" is the next earliest, and so on. This ordering is reflected by the #N labels in the manifest context.'

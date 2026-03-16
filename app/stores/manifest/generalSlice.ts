@@ -3,6 +3,7 @@ import { ImageClass } from '@/app/models/ImageClass'
 import { TextClass } from '@/app/models/TextClass'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { ManifestStore, AspectRatio } from './types'
+import { calculateTotalDuration } from '@/app/lib/timeUtils'
 
 export const createGeneralSlice = (set: any, get: any) => ({
   playbackTime: 0,
@@ -22,13 +23,7 @@ export const createGeneralSlice = (set: any, get: any) => ({
 
   getTotalDuration: () => {
     const state = get()
-    const videoEnd = state.videos
-      .filter((v: VideoClass) => !v.isOverlay)
-      .reduce((max: number, v: VideoClass) => Math.max(max, (v.timestamp ?? 0) + (v.duration ?? 0)), 0)
-    const imageEnd = state.images
-      .filter((img: ImageClass) => img.isMainTrack)
-      .reduce((max: number, img: ImageClass) => Math.max(max, img.endTime), 0)
-    return Math.max(videoEnd, imageEnd)
+    return calculateTotalDuration(state.videos, state.images, state.texts, state.audios)
   },
 
   recalculateTimestamps: () => {},

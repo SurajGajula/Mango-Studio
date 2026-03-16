@@ -177,8 +177,8 @@ export default function VideoReplaceModal({
       
       if (targetProjectTime >= 0) {
         const drift = Math.abs(audio.currentTime - targetProjectTime)
-        // Tight drift correction
-        if (drift > 0.1 && !audio.seeking) {
+        // Relaxed drift correction for replacement modal to avoid "rough" audio
+        if (drift > 0.25 && !audio.seeking) {
           audio.currentTime = targetProjectTime
         }
         

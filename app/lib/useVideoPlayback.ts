@@ -183,7 +183,7 @@ export function useVideoPlayback(
     const container = containerRef.current
     if (!canvas || !container) return null
 
-    if (videoEl.readyState < 2 || videoEl.videoWidth === 0 || videoEl.videoHeight === 0) return null
+    if (videoEl.readyState < 2 || videoEl.seeking || videoEl.videoWidth === 0 || videoEl.videoHeight === 0) return null
 
     const ctx = canvas.getContext('2d')
     if (!ctx) return null
@@ -341,8 +341,16 @@ export function useVideoPlayback(
         if (res) {
           const { ctx, cr } = res
           let transActive = false
-          ctx.fillStyle = '#000000'
-          ctx.fillRect(0, 0, canvas.width, canvas.height)
+          
+          // Only clear to black if we are playing or if there is no main clip.
+          // During scrubbing, we hold the previous frame until the new one is ready
+          // to prevent black flickering.
+          const shouldClear = isPlaying || !activeClip
+          
+          if (shouldClear) {
+            ctx.fillStyle = '#000000'
+            ctx.fillRect(0, 0, canvas.width, canvas.height)
+          }
 
           if (transitionActive) {
             const prog = transProgress
@@ -357,7 +365,7 @@ export function useVideoPlayback(
             if (nextClip!.type === 'video') {
               const nv = nextClip!.item as VideoClass
               nextEl = videoElementsRef.current.get(nextClip!.id) || null
-              if (nextEl && nextEl.readyState >= 2) {
+              if (nextEl && nextEl.readyState >= 2 && (!isPlaying ? !nextEl.seeking : true)) {
                 const local = nv.trimStart ?? 0
                 if (Math.abs(nextEl.currentTime - local) > 0.25) nextEl.currentTime = local
                 nextParams = { x: cr.x + (nv.x ?? 0) * xScale, y: cr.y + (nv.y ?? 0) * yScale, w: (nv.width ?? logicalW) * xScale, h: (nv.height ?? logicalH) * yScale, sx: nextEl.videoWidth * nv.cropSx, sy: nextEl.videoHeight * nv.cropSy, sw: nextEl.videoWidth * nv.cropSw, sh: nextEl.videoHeight * nv.cropSh }
@@ -382,7 +390,7 @@ export function useVideoPlayback(
               if (activeClip!.type === 'video') {
                 const av = activeClip!.item as VideoClass
                 curEl = videoElementsRef.current.get(activeClip!.id) || null
-                if (curEl && curEl.readyState >= 2) {
+                if (curEl && curEl.readyState >= 2 && (!isPlaying ? !curEl.seeking : true)) {
                   const target = (av.trimStart ?? 0) + Math.max(0, newTime - activeClip!.startTime) * (av.playbackSpeed ?? 1)
                   if (Math.abs(curEl.currentTime - target) > 0.25) curEl.currentTime = target
                   curParams = { x: drawX, y: drawY, w: drawW, h: drawH, sx: curEl.videoWidth * (av.cropSx ?? 0), sy: curEl.videoHeight * (av.cropSy ?? 0), sw: curEl.videoWidth * (av.cropSw ?? 1), sh: curEl.videoHeight * (av.cropSh ?? 1) }
@@ -409,16 +417,18 @@ export function useVideoPlayback(
                 if (vEl) {
                   const target = (v.trimStart ?? 0) + Math.max(0, newTime - activeClip.startTime) * (v.playbackSpeed ?? 1)
                   if (currentVideoId !== activeClip.id) {
-                    if (currentVideoId) {
-                      const old = videoElementsRef.current.get(currentVideoId)
-                      if (old && !old.paused) {
-                        const p = videoPlayPromisesRef.current.get(currentVideoId)
-                        if (p) p.then(() => old.pause()).catch(() => {})
-                        else old.pause()
+                    // Pause ALL video elements that are not the current one
+                    videoElementsRef.current.forEach((el, id) => {
+                      if (id !== activeClip.id && !el.paused) {
+                        const p = videoPlayPromisesRef.current.get(id)
+                        if (p) p.then(() => { el.pause(); el.playbackRate = 1 }).catch(() => {})
+                        else { el.pause(); el.playbackRate = 1 }
                       }
-                    }
+                    })
+
                     currentVideoId = activeClip.id
                     if (getSelectionState().selectedVideoId !== activeClip.id) getSelectionState().setSelectedVideoId(activeClip.id)
+                    
                     vEl.currentTime = target
                   }
                   if (isPlaying) {
@@ -435,32 +445,34 @@ export function useVideoPlayback(
                       if (p) p.then(() => { vEl.pause(); vEl.playbackRate = 1 }).catch(() => {})
                       else { vEl.pause(); vEl.playbackRate = 1 }
                     }
-                    if (Math.abs(vEl.currentTime - target) > 0.05) vEl.currentTime = target
+                    if (Math.abs(vEl.currentTime - target) > 0.05) {
+                      vEl.currentTime = target
+                    }
                   }
                   drawVideoToCanvas(vEl, activeClip.item as VideoClass, newTime)
                 }
               } else {
-                if (currentVideoId) {
-                  const old = videoElementsRef.current.get(currentVideoId)
-                  if (old && !old.paused) {
-                    const p = videoPlayPromisesRef.current.get(currentVideoId)
-                    if (p) p.then(() => old.pause()).catch(() => {})
-                    else old.pause()
+                // If switching from video to image, pause ALL videos
+                videoElementsRef.current.forEach((el, id) => {
+                  if (!el.paused) {
+                    const p = videoPlayPromisesRef.current.get(id)
+                    if (p) p.then(() => { el.pause(); el.playbackRate = 1 }).catch(() => {})
+                    else { el.pause(); el.playbackRate = 1 }
                   }
-                  currentVideoId = null
-                }
+                })
+                currentVideoId = null
                 drawImages(ctx, cr, newTime, true)
               }
             } else {
-              if (currentVideoId) {
-                const old = videoElementsRef.current.get(currentVideoId)
-                if (old && !old.paused) {
-                  const p = videoPlayPromisesRef.current.get(currentVideoId)
-                  if (p) p.then(() => old.pause()).catch(() => {})
-                  else old.pause()
+              // If no active clip, pause ALL videos
+              videoElementsRef.current.forEach((el, id) => {
+                if (!el.paused) {
+                  const p = videoPlayPromisesRef.current.get(id)
+                  if (p) p.then(() => { el.pause(); el.playbackRate = 1 }).catch(() => {})
+                  else { el.pause(); el.playbackRate = 1 }
                 }
-                currentVideoId = null
-              }
+              })
+              currentVideoId = null
               ctx.fillStyle = '#000000'
               ctx.fillRect(0, 0, canvas.width, canvas.height)
               drawImages(ctx, cr, newTime, true)

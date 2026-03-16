@@ -77,6 +77,7 @@ export interface TransitionInstruction {
 }
 
 export interface CropInstruction {
+  type: 'image' | 'video'
   id: string
   cropAspect: '16:9' | '4:3' | '1:1' | '3:4' | '9:16' | 'none'
 }
@@ -118,7 +119,7 @@ function buildManifestContext(manifest: SerializedManifest): string {
     const sorted = [...manifest.videos].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
     lines.push(`Videos (${sorted.length}):`)
     sorted.forEach((vid, i) => {
-      lines.push(`  - #${i + 1} id="${vid.id}" title="${vid.title}" timestamp=${vid.timestamp}s duration=${vid.duration}s isOverlay=${vid.isOverlay} zoom=${vid.zoom ?? 'none'}${vid.zoomIntensity ? ` zoomIntensity=${vid.zoomIntensity}` : ''}${vid.transitionDuration ? ` transitionDuration=${vid.transitionDuration}s` : ''}`)
+      lines.push(`  - #${i + 1} id="${vid.id}" title="${vid.title}" timestamp=${vid.timestamp}s duration=${vid.duration}s isOverlay=${vid.isOverlay} zoom=${vid.zoom ?? 'none'}${vid.zoomIntensity ? ` zoomIntensity=${vid.zoomIntensity}` : ''}${vid.transitionDuration ? ` transitionDuration=${vid.transitionDuration}s` : ''} cropAspect=${vid.cropAspect ?? 'none'}`)
     })
   }
   if (manifest.texts?.length) {
