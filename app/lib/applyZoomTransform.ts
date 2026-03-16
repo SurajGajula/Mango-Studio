@@ -40,8 +40,8 @@ export function applyZoomTransform(
   }
 
   if (zoom === 'jitter') {
-    const jitterDuration = 0.4 // Increased from 0.25s for a longer-lasting impact
-    const scale = 1.4 // Increased zoom to 40% for even more displacement room
+    const jitterDuration = 0.4
+    const scale = 1.5 // 50% zoom ensures a massive safety margin for cardinal movement
     const zoomedSw = sw / scale
     const zoomedSh = sh / scale
     const maxShiftX = (sw - zoomedSw) / 2
@@ -53,31 +53,24 @@ export function applyZoomTransform(
       const t = elapsedTime / jitterDuration
       const pulse = Math.sin(t * Math.PI)
       
-      // Layered frequencies tuned for "heavy mass" impact
-      // Primary vibration (harsh vibration)
-      const freqX1 = 24; const freqY1 = 18
-      // Secondary heavy impact (weighted thudding)
-      const freqX2 = 8;  const freqY2 = 6
+      // Cardinal oscillations (no rotation)
+      // Layered frequencies for weight and "violent" feel
+      const freqX1 = 26; const freqY1 = 20
+      const freqX2 = 10; const freqY2 = 8
       
-      // Wider displacement for a more massive shake feel
-      const totalShakeIntensity = 1.5 * zoomIntensity
-      const shakeX = (Math.sin(t * Math.PI * freqX1) * 0.5 + Math.sin(t * Math.PI * freqX2) * 0.5) * pulse * maxShiftX * totalShakeIntensity
-      const shakeY = (Math.cos(t * Math.PI * freqY1) * 0.5 + Math.cos(t * Math.PI * freqY2) * 0.5) * pulse * maxShiftY * totalShakeIntensity
-      
-      // Heavier rotational swing
-      const rotAmplitude = (5.5 * (Math.PI / 180)) * zoomIntensity * pulse
-      const rotAngle = Math.sin(t * Math.PI * 12) * rotAmplitude
+      // Calculate shake offsets strictly within [ -maxShift, maxShift ]
+      // By using a combined amplitude of 1.0 and multiplying by maxShift,
+      // we guarantee we never exit the source image bounds.
+      const intensity = Math.min(1.0, zoomIntensity * 1.2)
+      const shakeX = (Math.sin(t * Math.PI * freqX1) * 0.6 + Math.sin(t * Math.PI * freqX2) * 0.4) * pulse * maxShiftX * intensity
+      const shakeY = (Math.cos(t * Math.PI * freqY1) * 0.6 + Math.cos(t * Math.PI * freqY2) * 0.4) * pulse * maxShiftY * intensity
 
       ctx.save()
       ctx.beginPath()
       ctx.rect(x, y, w, h)
       ctx.clip()
-
-      const cx = x + w / 2
-      const cy = y + h / 2
-      ctx.translate(cx, cy)
-      ctx.rotate(rotAngle)
-      ctx.drawImage(imgEl, centerSx + shakeX, centerSy + shakeY, zoomedSw, zoomedSh, -w / 2, -h / 2, w, h)
+      // Directly draw using the calculated cardinal offsets
+      ctx.drawImage(imgEl, centerSx + shakeX, centerSy + shakeY, zoomedSw, zoomedSh, x, y, w, h)
       ctx.restore()
     } else {
       // Stay zoomed in at the target scale after jitter is done
