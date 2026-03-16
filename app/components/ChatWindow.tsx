@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { useAuth } from './AuthProvider'
+import { createClient } from '@/app/utils/supabase/client'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import type { ManifestMutation, SplitInstruction, ReplaceInstruction, AddTextInstruction, TransitionInstruction, CropInstruction } from '@/app/api/route-prompt/route'
 import { TextClass } from '@/app/models/TextClass'
@@ -44,6 +46,12 @@ export default function ChatWindow() {
   const pushHistory = useManifestStore((state) => state.pushHistory)
   const pendingPrompt = useManifestStore((state) => state.pendingPrompt)
   const setPendingPrompt = useManifestStore((state) => state.setPendingPrompt)
+  const { user } = useAuth()
+  const supabase = createClient()
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut()
+  }
 
   useEffect(() => {
     if (pendingPrompt) {
@@ -292,6 +300,21 @@ export default function ChatWindow() {
 
   return (
     <div className={styles.container}>
+      {user && (
+        <div className={styles.header}>
+          <div className={styles.userInfo}>
+            <span className={styles.userEmail}>{user.email}</span>
+          </div>
+          <button className={styles.signOutButton} onClick={handleSignOut} title="Sign Out">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+            Sign Out
+          </button>
+        </div>
+      )}
       <div className={styles.messages}>
         {messages.map((message) => (
           <div
