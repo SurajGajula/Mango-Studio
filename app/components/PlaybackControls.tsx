@@ -7,7 +7,7 @@ import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { ASPECT_RATIOS, computeMediaCropForAspect } from '@/app/lib/mediaUtils'
 import { ExportProgress } from '@/app/lib/videoExporter'
-import styles from './Timeline.module.css'
+import styles from './tracks/Timeline.module.css'
 
 interface PlaybackControlsProps {
   playbackTime: number

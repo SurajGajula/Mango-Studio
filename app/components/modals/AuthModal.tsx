@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useAuth } from './AuthProvider'
+import { useAuth } from '../AuthProvider'
 import styles from './AuthModal.module.css'
 
 export default function AuthModal() {
