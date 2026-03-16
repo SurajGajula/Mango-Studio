@@ -21,6 +21,8 @@ interface ManifestItem {
   originalDuration?: number
   trimStart?: number
   trimEnd?: number
+  playbackSpeed?: number
+  muted?: boolean
 }
 
 interface SerializedManifest {
@@ -50,6 +52,8 @@ export interface ManifestMutation {
   duration?: number
   trimStart?: number
   trimEnd?: number
+  playbackSpeed?: number
+  muted?: boolean
 }
 
 export interface SplitInstruction {
@@ -120,7 +124,7 @@ function buildManifestContext(manifest: SerializedManifest): string {
     const sorted = [...manifest.videos].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
     lines.push(`Videos (${sorted.length}):`)
     sorted.forEach((vid, i) => {
-      lines.push(`  - #${i + 1} id="${vid.id}" title="${vid.title}" timestamp=${vid.timestamp}s duration=${vid.duration}s isOverlay=${vid.isOverlay} zoom=${vid.zoom ?? 'none'}${vid.zoomIntensity ? ` zoomIntensity=${vid.zoomIntensity}` : ''}${vid.transitionDuration ? ` transitionDuration=${vid.transitionDuration}s` : ''} cropAspect=${vid.cropAspect ?? 'none'}`)
+      lines.push(`  - #${i + 1} id="${vid.id}" title="${vid.title}" timestamp=${vid.timestamp}s duration=${vid.duration}s playbackSpeed=${vid.playbackSpeed ?? 1}x muted=${vid.muted ?? false} isOverlay=${vid.isOverlay} zoom=${vid.zoom ?? 'none'}${vid.zoomIntensity ? ` zoomIntensity=${vid.zoomIntensity}` : ''}${vid.transitionDuration ? ` transitionDuration=${vid.transitionDuration}s` : ''} cropAspect=${vid.cropAspect ?? 'none'}`)
     })
   }
   if (manifest.texts?.length) {
@@ -139,7 +143,7 @@ function buildManifestContext(manifest: SerializedManifest): string {
       const ts = aud.trimStart ?? 0
       const te = aud.trimEnd ?? 0
       const activeDur = Math.max(0, origDur - ts - te)
-      lines.push(`  - #${i + 1} id="${aud.id}" name="${aud.name}" activeStartTime=${aud.startTime}s originalDuration=${origDur}s trimStart=${ts}s trimEnd=${te}s activeDuration=${activeDur.toFixed(3)}s (to restore to originalDuration set trimStart=0 trimEnd=0) marks=[${markStr}]`)
+      lines.push(`  - #${i + 1} id="${aud.id}" name="${aud.name}" activeStartTime=${aud.startTime}s originalDuration=${origDur}s trimStart=${ts}s trimEnd=${te}s playbackSpeed=${aud.playbackSpeed ?? 1}x activeDuration=${activeDur.toFixed(3)}s (to restore to originalDuration set trimStart=0 trimEnd=0) marks=[${markStr}]`)
     })
   }
 

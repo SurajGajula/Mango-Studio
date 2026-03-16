@@ -17,11 +17,7 @@ export const createAudioSlice = (set: any, get: any) => ({
   },
 
   removeAudio: (id: string) => {
-    set((state: ManifestStore) => {
-      const audio = state.audios.find((a) => a.id === id)
-      if (audio?.url.startsWith('blob:')) URL.revokeObjectURL(audio.url)
-      return { audios: state.audios.filter((a) => a.id !== id) }
-    })
+    set((state: ManifestStore) => ({ audios: state.audios.filter((a) => a.id !== id) }))
     get().pushHistory()
   },
 

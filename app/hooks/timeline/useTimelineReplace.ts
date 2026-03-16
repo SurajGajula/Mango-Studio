@@ -36,8 +36,10 @@ export function useTimelineReplace({
     width: number
     height: number
     windowDuration: number
+    playbackSpeed: number
     initialTrimStart: number
     projectStartTime?: number
+    isNew?: boolean
   } | null>(null)
   const [isReplacingClip, setIsReplacingClip] = useState(false)
 
@@ -118,8 +120,10 @@ export function useTimelineReplace({
             width,
             height,
             windowDuration,
+            playbackSpeed: 1,
             initialTrimStart: 0,
             projectStartTime: image.startTime,
+            isNew: true,
           })
         }
       }
@@ -167,8 +171,10 @@ export function useTimelineReplace({
             width,
             height,
             windowDuration,
+            playbackSpeed: video.playbackSpeed ?? 1,
             initialTrimStart: 0,
             projectStartTime: video.timestamp,
+            isNew: true,
           })
         }
       }
@@ -182,9 +188,10 @@ export function useTimelineReplace({
     setIsReplacingClip(true)
 
     try {
+      const sourceWindowDuration = replaceVideoData.windowDuration * replaceVideoData.playbackSpeed
       let finalUrl = replaceVideoData.url
       let finalTrimStart = trimStart
-      let finalTrimEnd = replaceVideoData.duration - (trimStart + replaceVideoData.windowDuration)
+      let finalTrimEnd = replaceVideoData.duration - (trimStart + sourceWindowDuration)
       let finalOriginalDuration = replaceVideoData.duration
 
       const originalSourceUrl = replaceVideoData.url
@@ -198,13 +205,13 @@ export function useTimelineReplace({
           const clipBlob = await extractVideoClip(
             replaceVideoData.url,
             trimStart,
-            replaceVideoData.windowDuration,
+            sourceWindowDuration,
             (msg) => setExportProgress({ phase: 'rendering', progress: 50, message: msg })
           )
           finalUrl = URL.createObjectURL(clipBlob)
           finalTrimStart = 0
           finalTrimEnd = 0
-          finalOriginalDuration = replaceVideoData.windowDuration
+          finalOriginalDuration = sourceWindowDuration
           
           sourceUrl = originalSourceUrl
           sourceTrimStart = trimStart
@@ -247,15 +254,9 @@ export function useTimelineReplace({
           1
         )
         replaceImageWithVideo(replaceVideoData.targetId, videoInstance)
-        if (oldUrl.startsWith('blob:')) {
-          const stillUsed = useManifestStore.getState().images.some(img => img.url === oldUrl) ||
-                            useManifestStore.getState().videos.some(v => v.url === oldUrl || v.sourceUrl === oldUrl)
-          if (!stillUsed) URL.revokeObjectURL(oldUrl)
-        }
       } else {
         const video = videos.find((v) => v.id === replaceVideoData.targetId)
         if (!video) return
-        const oldUrl = video.url
         updateVideo(video.id, {
           url: finalUrl,
           title: replaceVideoData.title,
@@ -267,10 +268,6 @@ export function useTimelineReplace({
           sourceTrimStart,
           sourceDuration
         })
-        if (oldUrl && oldUrl !== finalUrl && oldUrl.startsWith('blob:')) {
-          const stillUsed = useManifestStore.getState().videos.some(v => v.url === oldUrl || v.sourceUrl === oldUrl)
-          if (!stillUsed) URL.revokeObjectURL(oldUrl)
-        }
       }
       setReplaceVideoData(null)
       setReplaceTargetId(null)
@@ -295,6 +292,7 @@ export function useTimelineReplace({
       width: video.width,
       height: video.height,
       windowDuration: video.duration!,
+      playbackSpeed: video.playbackSpeed ?? 1,
       initialTrimStart: initialTrimStart,
       projectStartTime: video.timestamp
     })

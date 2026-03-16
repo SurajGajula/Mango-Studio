@@ -278,13 +278,16 @@ export default function Timeline({ onOpenTransitions, onOpenFont, onOpenEffects 
           videoUrl={replaceVideoData.url}
           windowDuration={replaceVideoData.windowDuration}
           videoDuration={replaceVideoData.duration}
+          playbackSpeed={replaceVideoData.playbackSpeed}
           initialTrimStart={replaceVideoData.initialTrimStart}
           projectStartTime={replaceVideoData.projectStartTime}
           confirmLabel={replaceVideoData.targetType === 'image' ? 'Replace' : 'Update'}
           isProcessing={isReplacingClip}
           onConfirm={handleConfirmReplaceVideo}
           onCancel={() => {
-            URL.revokeObjectURL(replaceVideoData.url)
+            if (replaceVideoData.isNew) {
+              URL.revokeObjectURL(replaceVideoData.url)
+            }
             setReplaceVideoData(null)
             setReplaceTargetId(null)
           }}

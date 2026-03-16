@@ -17,6 +17,7 @@ export function useVideoPlayback(
   const videoElementsRef = useRef<Map<string, HTMLVideoElement>>(new Map())
   const imageElementsRef = useRef<Map<string, HTMLImageElement>>(new Map())
   const urlCacheRef = useRef<Map<string, HTMLImageElement>>(new Map())
+  const persistenceCanvasesRef = useRef<Map<string, { current: HTMLCanvasElement; accumulation: HTMLCanvasElement }>>(new Map())
   const audioElementRef = useRef<HTMLAudioElement | null>(null)
   const rafRef = useRef<number | null>(null)
   const videoPlayPromisesRef = useRef<Map<string, Promise<void>>>(new Map())
@@ -37,12 +38,12 @@ export function useVideoPlayback(
     const sortedVideos = [...videos].sort((a, b) => a.timestamp - b.timestamp)
     const currentIds = new Set(sortedVideos.map((v) => v.id))
 
+    const removedElements = new Map<string, HTMLVideoElement>()
     videoElementsRef.current.forEach((el, id) => {
       if (!currentIds.has(id)) {
-        el.pause()
-        el.src = ''
-        el.load()
+        removedElements.set(el.src, el)
         videoElementsRef.current.delete(id)
+        persistenceCanvasesRef.current.delete(id)
       }
     })
 
@@ -52,20 +53,25 @@ export function useVideoPlayback(
                              (playbackTime >= clip.timestamp && playbackTime < clip.timestamp + (clip.duration ?? 0))
 
       if (!video && clip.url && isNearPlayhead) {
-        video = document.createElement('video')
-        video.preload = 'auto'
-        video.playsInline = true
-        video.src = clip.url
-
-        video.onloadedmetadata = () => {
-          const currentClip = useManifestStore.getState().videos.find((v) => v.id === clip.id)
-          if (!currentClip) return
-          const hasTrim = currentClip.trimStart > 0 || currentClip.trimEnd > 0
-          if (!hasTrim && video!.duration && (!currentClip.duration || Math.abs(currentClip.duration - video!.duration) > 0.1)) {
-            useManifestStore.getState().updateVideo(clip.id, { duration: video!.duration })
+        const fullUrl = clip.url.startsWith('http') ? clip.url : window.location.origin + clip.url
+        video = removedElements.get(fullUrl) || removedElements.get(clip.url)
+        
+        if (video) {
+          removedElements.delete(video.src)
+        } else {
+          video = document.createElement('video')
+          video.preload = 'auto'
+          video.playsInline = true
+          video.src = clip.url
+          video.onloadedmetadata = () => {
+            const currentClip = useManifestStore.getState().videos.find((v) => v.id === clip.id)
+            if (!currentClip) return
+            const hasTrim = currentClip.trimStart > 0 || currentClip.trimEnd > 0
+            if (!hasTrim && video!.duration && (!currentClip.duration || Math.abs(currentClip.duration - video!.duration) > 0.1)) {
+              useManifestStore.getState().updateVideo(clip.id, { duration: video!.duration })
+            }
           }
         }
-
         videoElementsRef.current.set(clip.id, video)
       } else if (video && clip.url && video.src !== clip.url && isNearPlayhead) {
         video.pause()
@@ -76,12 +82,19 @@ export function useVideoPlayback(
         video.src = ''
         video.load()
         videoElementsRef.current.delete(clip.id)
+        persistenceCanvasesRef.current.delete(clip.id)
         video = undefined
       }
 
       if (video && video.muted !== clip.muted) {
         video.muted = clip.muted
       }
+    })
+
+    removedElements.forEach((el) => {
+      el.pause()
+      el.src = ''
+      el.load()
     })
   }, [videos, Math.floor(playbackTime / 2)])
 
@@ -213,7 +226,41 @@ export function useVideoPlayback(
       progress = videoClip.duration && videoClip.duration > 0 ? (currentTime - videoClip.timestamp) / videoClip.duration : 0
     }
 
-    applyZoomTransform(ctx, videoClip.zoom, progress, videoEl, drawX, drawY, drawWidth, drawHeight, videoClip.cropSx, videoClip.cropSy, videoClip.cropSw, videoClip.cropSh, videoClip.zoomIntensity, currentTime - videoClip.timestamp)
+    const isPlaying = getState().isPlaying
+    if (videoClip.playbackSpeed < 1.0 && isPlaying) {
+      let pCanvases = persistenceCanvasesRef.current.get(videoClip.id)
+      if (!pCanvases) {
+        const current = document.createElement('canvas')
+        const accumulation = document.createElement('canvas')
+        current.width = canvas.width
+        current.height = canvas.height
+        accumulation.width = canvas.width
+        accumulation.height = canvas.height
+        pCanvases = { current, accumulation }
+        persistenceCanvasesRef.current.set(videoClip.id, pCanvases)
+      } else if (pCanvases.current.width !== canvas.width || pCanvases.current.height !== canvas.height) {
+        pCanvases.current.width = canvas.width
+        pCanvases.current.height = canvas.height
+        pCanvases.accumulation.width = canvas.width
+        pCanvases.accumulation.height = canvas.height
+      }
+
+      const curCtx = pCanvases.current.getContext('2d')
+      const accCtx = pCanvases.accumulation.getContext('2d')
+      if (curCtx && accCtx) {
+        curCtx.clearRect(0, 0, pCanvases.current.width, pCanvases.current.height)
+        applyZoomTransform(curCtx, videoClip.zoom, progress, videoEl, drawX, drawY, drawWidth, drawHeight, videoClip.cropSx, videoClip.cropSy, videoClip.cropSw, videoClip.cropSh, videoClip.zoomIntensity, currentTime - videoClip.timestamp)
+
+        accCtx.save()
+        accCtx.globalAlpha = 0.45 // Persistence factor
+        accCtx.drawImage(pCanvases.current, 0, 0)
+        accCtx.restore()
+
+        ctx.drawImage(pCanvases.accumulation, 0, 0)
+      }
+    } else {
+      applyZoomTransform(ctx, videoClip.zoom, progress, videoEl, drawX, drawY, drawWidth, drawHeight, videoClip.cropSx, videoClip.cropSy, videoClip.cropSw, videoClip.cropSh, videoClip.zoomIntensity, currentTime - videoClip.timestamp)
+    }
 
     return { x: Math.round(drawX), y: Math.round(drawY), width: Math.round(drawWidth), height: Math.round(drawHeight) }
   }, [canvasRef, containerRef, applyCanvasSize, aspectRatio])
@@ -308,6 +355,7 @@ export function useVideoPlayback(
 
   useEffect(() => {
     let currentVideoId: string | null = null; let lastKnownIsPlaying = false
+    let lastStateKey = ''
     const drawOverlays = (ctx: CanvasRenderingContext2D, cr: {x:number,y:number,width:number,height:number}, t: number) => { drawImages(ctx, cr, t, false); drawOverlayVideos(ctx, cr, t) }
     const setupCanvas = (canvas: HTMLCanvasElement, container: HTMLDivElement) => { const rect = container.getBoundingClientRect(); if (rect.width === 0 || rect.height === 0) return null; const cw = Math.round(rect.width); const ch = Math.round(rect.height); const cr = applyCanvasSize(canvas, cw, ch); const ctx = canvas.getContext('2d'); return ctx ? { ctx, cr } : null }
     let lastTimestamp: number | null = null
@@ -342,14 +390,43 @@ export function useVideoPlayback(
           const { ctx, cr } = res
           let transActive = false
           
-          // Only clear to black if we are playing or if there is no main clip.
-          // During scrubbing, we hold the previous frame until the new one is ready
-          // to prevent black flickering.
-          const shouldClear = isPlaying || !activeClip
+          const stateKey = activeClip ? `${activeClip.id}-${activeClip.type}-${activeClip.item.x}-${activeClip.item.y}-${activeClip.item.width}-${activeClip.item.height}-${cr.width}-${cr.height}-${state.videos.length}-${state.images.length}-${state.texts.length}` : 'none'
+          const stateChanged = stateKey !== lastStateKey
+
+          const activeEl = activeClip?.type === 'video' 
+            ? videoElementsRef.current.get(activeClip.id) 
+            : activeClip?.type === 'image' 
+              ? imageElementsRef.current.get(activeClip.id) 
+              : null;
+          
+          const isActiveReady = activeClip?.type === 'video'
+            ? (activeEl instanceof HTMLVideoElement && activeEl.readyState >= 2 && !activeEl.seeking)
+            : activeClip?.type === 'image'
+              ? (activeEl instanceof HTMLImageElement && activeEl.complete && activeEl.naturalWidth > 0)
+              : true;
+
+          let isNextReady = true;
+          if (transitionActive && nextClip) {
+            const nextEl = nextClip.type === 'video'
+              ? videoElementsRef.current.get(nextClip.id)
+              : imageElementsRef.current.get(nextClip.id);
+            isNextReady = nextClip.type === 'video'
+              ? (nextEl instanceof HTMLVideoElement && nextEl.readyState >= 2 && !nextEl.seeking)
+              : nextClip.type === 'image'
+                ? (nextEl instanceof HTMLImageElement && nextEl.complete && nextEl.naturalWidth > 0)
+                : true;
+          }
+
+          const isReady = isActiveReady && isNextReady;
+
+          // Only clear to black if we are playing (and ready) or if there is no main clip, or if the layout/state changed (and ready).
+          // If the new frame isn't ready yet, we hold the previous frame to prevent black flickering.
+          const shouldClear = !activeClip || (isPlaying && isReady) || (stateChanged && isReady)
           
           if (shouldClear) {
             ctx.fillStyle = '#000000'
             ctx.fillRect(0, 0, canvas.width, canvas.height)
+            lastStateKey = stateKey
           }
 
           if (transitionActive) {
@@ -489,6 +566,10 @@ export function useVideoPlayback(
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
   }, [getState, getSelectionState, drawVideoToCanvas, drawImages, drawOverlayVideos, canvasRef, applyCanvasSize, aspectRatio])
 
-  useEffect(() => { return () => { videoElementsRef.current.forEach((video) => { video.pause(); video.src = ''; video.load() }); videoElementsRef.current.clear() } }, [])
+  useEffect(() => { return () => { 
+    videoElementsRef.current.forEach((video) => { video.pause(); video.src = ''; video.load() }); 
+    videoElementsRef.current.clear();
+    persistenceCanvasesRef.current.clear();
+  } }, [])
   return { contentRect }
 }

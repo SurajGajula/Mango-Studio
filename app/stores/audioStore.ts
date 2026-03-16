@@ -33,14 +33,10 @@ export const useAudioStore = create<AudioStore>((set, get) => ({
   setAnalysis: (result) => set({ analysis: result, isAnalyzing: false }),
 
   setAudio: (audio) => {
-    const prev = get().audioUrl
-    if (prev && prev !== audio.url) URL.revokeObjectURL(prev)
     set({ audio, audioUrl: audio.url })
   },
 
   removeAudio: () => {
-    const prev = get().audioUrl
-    if (prev) URL.revokeObjectURL(prev)
     set({ audio: null, audioUrl: null, analysis: null, isAnalyzing: false, userMarks: [] })
   },
 

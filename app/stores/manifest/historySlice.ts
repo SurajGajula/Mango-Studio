@@ -1,29 +1,38 @@
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
+import { AudioClass } from '@/app/models/AudioClass'
 import { ManifestStore, HistoryEntry, BlobEntry } from './types'
 
 let historyPaused = false
 
-function collectUrls(entries: BlobEntry[]): Set<string> {
+function collectUrls(entries: HistoryEntry[]): Set<string> {
   const urls = new Set<string>()
   for (const entry of entries) {
     if (!entry) continue
-    for (const v of entry.videos) {
-      if (v.url) urls.add(v.url)
-      if (v.sourceUrl) urls.add(v.sourceUrl)
+    if (entry.videos) {
+      for (const v of entry.videos) {
+        if (v.url) urls.add(v.url)
+        if (v.sourceUrl) urls.add(v.sourceUrl)
+      }
     }
-    for (const img of entry.images) if (img.url) urls.add(img.url)
+    if (entry.images) {
+      for (const img of entry.images) if (img.url) urls.add(img.url)
+    }
+    if (entry.audios) {
+      for (const a of entry.audios) if (a.url) urls.add(a.url)
+    }
   }
   return urls
 }
 
 function pruneUrls(
-  oldHistory: BlobEntry[],
-  currentHistory: BlobEntry[],
+  oldHistory: HistoryEntry[],
+  currentHistory: HistoryEntry[],
   liveVideos: VideoClass[],
-  liveImages: ImageClass[]
+  liveImages: ImageClass[],
+  liveAudios: AudioClass[]
 ) {
-  const live: BlobEntry = { videos: liveVideos, images: liveImages }
+  const live: HistoryEntry = { videos: liveVideos, images: liveImages, audios: liveAudios, texts: [], effects: [] }
   const recentHistory = currentHistory.slice(-5)
   const kept = collectUrls([...recentHistory, live])
   const candidates = collectUrls(oldHistory)
@@ -62,7 +71,7 @@ export const createHistorySlice = (set: any, get: any) => ({
     const historyToKeep = next.slice(-5)
     const evictedFromHistory = next.slice(0, -5)
     if (evictedFromHistory.length > 0) {
-      pruneUrls(evictedFromHistory, historyToKeep, state.videos, state.images)
+      pruneUrls(evictedFromHistory, historyToKeep, state.videos, state.images, state.audios)
     }
 
     const trimmed = next.slice(-MAX_HISTORY)

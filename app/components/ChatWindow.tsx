@@ -45,6 +45,7 @@ export default function ChatWindow() {
   const pushHistory = useManifestStore((state) => state.pushHistory)
   const pendingPrompt = useManifestStore((state) => state.pendingPrompt)
   const setPendingPrompt = useManifestStore((state) => state.setPendingPrompt)
+  const setItemPlaybackSpeed = useManifestStore((state) => state.setItemPlaybackSpeed)
   const { user, supabase } = useAuth()
 
   const handleSignOut = async () => {
@@ -64,9 +65,16 @@ export default function ChatWindow() {
   const applyMutations = (mutations: ManifestMutation[]) => {
     for (const m of mutations) {
       if (m.type === 'updateImage') updateImage(m.id, { startTime: m.startTime, endTime: m.endTime })
-      else if (m.type === 'updateVideo') updateVideo(m.id, { timestamp: m.timestamp, duration: m.duration })
-      else if (m.type === 'updateText') updateText(m.id, { startTime: m.startTime, endTime: m.endTime })
+      else if (m.type === 'updateVideo') {
+        if (m.playbackSpeed !== undefined) {
+          setItemPlaybackSpeed(m.id, m.playbackSpeed)
+        }
+        updateVideo(m.id, { timestamp: m.timestamp, duration: m.duration, muted: m.muted })
+      } else if (m.type === 'updateText') updateText(m.id, { startTime: m.startTime, endTime: m.endTime })
       else if (m.type === 'updateAudio') {
+        if (m.playbackSpeed !== undefined) {
+          setItemPlaybackSpeed(m.id, m.playbackSpeed)
+        }
         const audio = useManifestStore.getState().audios.find((a) => a.id === m.id)
         if (audio) {
           let newTrimStart = m.trimStart ?? audio.trimStart
@@ -200,9 +208,9 @@ export default function ChatWindow() {
       const { videos, images, texts, audios } = useManifestStore.getState()
       const manifest = {
         images: images.map((i) => ({ id: i.id, name: i.name, startTime: i.startTime, endTime: i.endTime, zoom: i.zoom, zoomIntensity: i.zoomIntensity, transitionDuration: i.transitionDuration, cropAspect: i.cropAspect })),
-        videos: videos.map((v) => ({ id: v.id, title: v.title, timestamp: v.timestamp, duration: v.duration, isOverlay: v.isOverlay, zoom: v.zoom, zoomIntensity: v.zoomIntensity, transitionDuration: v.transitionDuration, cropAspect: v.cropAspect })),
+        videos: videos.map((v) => ({ id: v.id, title: v.title, timestamp: v.timestamp, duration: v.duration, playbackSpeed: v.playbackSpeed, muted: v.muted, isOverlay: v.isOverlay, zoom: v.zoom, zoomIntensity: v.zoomIntensity, transitionDuration: v.transitionDuration, cropAspect: v.cropAspect })),
         texts: texts.map((t) => ({ id: t.id, content: t.content, startTime: t.startTime, endTime: t.endTime })),
-        audios: audios.map((a) => ({ id: a.id, name: a.name, startTime: a.startTime, endTime: a.endTime, originalDuration: a.originalDuration, trimStart: a.trimStart, trimEnd: a.trimEnd, marks: a.marks })),
+        audios: audios.map((a) => ({ id: a.id, name: a.name, startTime: a.startTime, endTime: a.endTime, originalDuration: a.originalDuration, trimStart: a.trimStart, trimEnd: a.trimEnd, playbackSpeed: a.playbackSpeed, marks: a.marks })),
       }
 
       const filesSnapshot = uploadedFiles

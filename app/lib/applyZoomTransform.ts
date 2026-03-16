@@ -40,36 +40,48 @@ export function applyZoomTransform(
   }
 
   if (zoom === 'jitter') {
-    const jitterDuration = 0.25
+    const jitterDuration = 0.4 // Increased from 0.25s for a longer-lasting impact
+    const scale = 1.4 // Increased zoom to 40% for even more displacement room
+    const zoomedSw = sw / scale
+    const zoomedSh = sh / scale
+    const maxShiftX = (sw - zoomedSw) / 2
+    const maxShiftY = (sh - zoomedSh) / 2
+    const centerSx = sx + maxShiftX
+    const centerSy = sy + maxShiftY
+
     if (elapsedTime < jitterDuration + 0.001) {
       const t = elapsedTime / jitterDuration
       const pulse = Math.sin(t * Math.PI)
       
-      // Smoothly zoom in and out
-      const currentScale = 1 + (0.12 * pulse)
-      const zoomedSw = sw / currentScale
-      const zoomedSh = sh / currentScale
+      // Layered frequencies tuned for "heavy mass" impact
+      // Primary vibration (harsh vibration)
+      const freqX1 = 24; const freqY1 = 18
+      // Secondary heavy impact (weighted thudding)
+      const freqX2 = 8;  const freqY2 = 6
       
-      const maxShiftX = (sw - zoomedSw) / 2
-      const maxShiftY = (sh - zoomedSh) / 2
+      // Wider displacement for a more massive shake feel
+      const totalShakeIntensity = 1.5 * zoomIntensity
+      const shakeX = (Math.sin(t * Math.PI * freqX1) * 0.5 + Math.sin(t * Math.PI * freqX2) * 0.5) * pulse * maxShiftX * totalShakeIntensity
+      const shakeY = (Math.cos(t * Math.PI * freqY1) * 0.5 + Math.cos(t * Math.PI * freqY2) * 0.5) * pulse * maxShiftY * totalShakeIntensity
       
-      // Lower frequencies to avoid aliasing and ensure smooth motion at 30fps
-      // Using 3 and 2 cycles results in a more organic, weighted shake
-      const jitterIntensity = 0.5 * zoomIntensity
-      const shakeX = Math.sin(t * Math.PI * 3) * pulse * jitterIntensity * maxShiftX
-      const shakeY = Math.cos(t * Math.PI * 2) * pulse * jitterIntensity * maxShiftY
-      
-      const centerSx = sx + (sw - zoomedSw) / 2
-      const centerSy = sy + (sh - zoomedSh) / 2
-      
+      // Heavier rotational swing
+      const rotAmplitude = (5.5 * (Math.PI / 180)) * zoomIntensity * pulse
+      const rotAngle = Math.sin(t * Math.PI * 12) * rotAmplitude
+
       ctx.save()
       ctx.beginPath()
       ctx.rect(x, y, w, h)
       ctx.clip()
-      ctx.drawImage(imgEl, centerSx + shakeX, centerSy + shakeY, zoomedSw, zoomedSh, x, y, w, h)
+
+      const cx = x + w / 2
+      const cy = y + h / 2
+      ctx.translate(cx, cy)
+      ctx.rotate(rotAngle)
+      ctx.drawImage(imgEl, centerSx + shakeX, centerSy + shakeY, zoomedSw, zoomedSh, -w / 2, -h / 2, w, h)
       ctx.restore()
     } else {
-      ctx.drawImage(imgEl, sx, sy, sw, sh, x, y, w, h)
+      // Stay zoomed in at the target scale after jitter is done
+      ctx.drawImage(imgEl, centerSx, centerSy, zoomedSw, zoomedSh, x, y, w, h)
     }
     return
   }

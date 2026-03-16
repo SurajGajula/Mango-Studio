@@ -13,6 +13,7 @@ interface Props {
   videoUrl: string
   windowDuration: number
   videoDuration: number
+  playbackSpeed?: number
   initialTrimStart?: number
   projectStartTime?: number
   confirmLabel?: string
@@ -25,6 +26,7 @@ export default function VideoReplaceModal({
   videoUrl,
   windowDuration,
   videoDuration,
+  playbackSpeed = 1,
   initialTrimStart = 0,
   projectStartTime,
   confirmLabel = 'Replace',
@@ -51,7 +53,14 @@ export default function VideoReplaceModal({
   const videoPlayPromiseRef = useRef<Promise<void> | null>(null)
   const audioPlayPromiseRef = useRef<Promise<void> | null>(null)
 
-  const maxTrimStart = Math.max(0, videoDuration - windowDuration)
+  const sourceWindowDuration = windowDuration * playbackSpeed
+  const maxTrimStart = Math.max(0, videoDuration - sourceWindowDuration)
+
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.playbackRate = playbackSpeed
+    }
+  }, [playbackSpeed])
 
   // Memoize sorted thumbnail times for efficient lookup
   const sortedThumbTimes = useMemo(() => {
@@ -98,7 +107,7 @@ export default function VideoReplaceModal({
   }, [])
 
   const timelineWidth = videoDuration * PIXELS_PER_SECOND
-  const activeWindowWidth = windowDuration * PIXELS_PER_SECOND
+  const activeWindowWidth = sourceWindowDuration * PIXELS_PER_SECOND
   const centerOffset = Math.max(0, (containerWidth - activeWindowWidth) / 2)
 
   // Virtualization range
@@ -131,7 +140,7 @@ export default function VideoReplaceModal({
 
     // 1. Loop-back detection: increase epsilon to 0.15s to jump BEFORE hitches
     // and only if we aren't already seeking to the start.
-    const isAtEnd = vTime >= trimStart + windowDuration - 0.15 || video.ended
+    const isAtEnd = vTime >= trimStart + sourceWindowDuration - 0.15 || video.ended
     const isWayBeforeStart = vTime < trimStart - 0.3
     
     if (!isVideoSeeking && (isAtEnd || isWayBeforeStart)) {
@@ -172,8 +181,8 @@ export default function VideoReplaceModal({
     
     // Sync audio with video
     if (audio && projectStartTime !== undefined) {
-      const offsetInClip = vTime - trimStart
-      const targetProjectTime = projectStartTime + offsetInClip
+      const timelineOffset = (vTime - trimStart) / playbackSpeed
+      const targetProjectTime = projectStartTime + timelineOffset
       
       if (targetProjectTime >= 0) {
         const drift = Math.abs(audio.currentTime - targetProjectTime)
@@ -200,7 +209,7 @@ export default function VideoReplaceModal({
     }
 
     requestRef.current = requestAnimationFrame(animate)
-  }, [isPlaying, projectStartTime, trimStart, windowDuration])
+  }, [isPlaying, projectStartTime, trimStart, sourceWindowDuration])
 
   useEffect(() => {
     requestRef.current = requestAnimationFrame(animate)
@@ -384,7 +393,7 @@ export default function VideoReplaceModal({
       <div className={styles.modal}>
         <div className={styles.header}>
           <h3>Select Video Window</h3>
-          <p>Choose a {windowDuration.toFixed(1)}s segment from the video.</p>
+          <p>Choose a {windowDuration.toFixed(1)}s segment from the video{playbackSpeed !== 1 ? ` (playing at ${playbackSpeed}x speed)` : ''}.</p>
         </div>
 
         <div className={styles.videoContainer}>
@@ -412,7 +421,7 @@ export default function VideoReplaceModal({
         <div className={styles.controls}>
           <div className={styles.sliderLabel}>
             <span>Start: {trimStart.toFixed(1)}s</span>
-            <span>End: {(trimStart + windowDuration).toFixed(1)}s</span>
+            <span>End: {(trimStart + sourceWindowDuration).toFixed(1)}s</span>
           </div>
           
           <div className={styles.timelineContainer} ref={timelineContainerRef}>

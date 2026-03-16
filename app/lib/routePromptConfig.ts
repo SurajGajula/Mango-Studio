@@ -17,7 +17,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'edit_manifest',
-    description: 'Edit, rearrange, resize, or synchronise existing items on the timeline. Use this when the user asks to change timing, duration, or position of existing images, videos, texts, or audio tracks — for example "make the image the same length as the audio" or "move the video to start at 5 seconds". For audio, you can also set trimStart and trimEnd to trim the audio file, or set both to 0 to restore the full original length.',
+    description: 'Edit, rearrange, resize, or synchronise existing items on the timeline. Use this when the user asks to change timing, duration, position, playback speed, or mute status of existing images, videos, texts, or audio tracks — for example "make the image the same length as the audio", "move the video to start at 5 seconds", "slow down the video to 0.5x speed", or "mute all videos". For audio, you can also set trimStart and trimEnd to trim the audio file, or set both to 0 to restore the full original length.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -58,6 +58,14 @@ export const functionDeclarations: FunctionDeclaration[] = [
               trimEnd: {
                 type: Type.NUMBER,
                 description: 'Seconds to hide from the end of the audio file (updateAudio only). Set to 0 to restore full original length.',
+              },
+              playbackSpeed: {
+                type: Type.NUMBER,
+                description: 'Playback speed as a multiplier (e.g. 0.5 for half speed, 2.0 for double speed). Only for videos and audios.',
+              },
+              muted: {
+                type: Type.BOOLEAN,
+                description: 'Whether the video should be muted. Only for videos.',
               },
             },
             required: ['type', 'id'],
@@ -262,7 +270,7 @@ export const tools: Tool[] = [{ functionDeclarations }]
 
 export const systemInstruction =
   'You are a timeline editing assistant for a media studio. Your only job is to call the correct function:\n' +
-  '- edit_manifest: when the user asks to change timing, duration, or position of existing items. You MUST include all affected items as separate entries in the mutations array in a SINGLE call — never call edit_manifest multiple times. For audio mutations (type=updateAudio): ALWAYS use trimStart and trimEnd fields (not endTime). To restore an audio to its full original length set trimStart=0 and trimEnd=0. The active playing duration of an audio is: originalDuration - trimStart - trimEnd. ALWAYS use the exact id strings from the manifest (e.g. "audio-1234-abc") — never make up or shorten ids.\n' +
+    '- edit_manifest: when the user asks to change timing, duration, position, playback speed, or mute status of existing items. You MUST include all affected items as separate entries in the mutations array in a SINGLE call — never call edit_manifest multiple times. For audio mutations (type=updateAudio): ALWAYS use trimStart and trimEnd fields (not endTime). To restore an audio to its full original length set trimStart=0 and trimEnd=0. The active playing duration of an audio is: originalDuration - trimStart - trimEnd. Use playbackSpeed for video and audio playback speed changes (e.g. 0.5 for half speed), and muted for video mute status (true to mute, false to unmute). ALWAYS use the exact id strings from the manifest (e.g. "audio-1234-abc") — never make up or shorten ids.\n' +
   '- split_at_marks: when the user asks to split, cut, or divide images or videos at audio mark positions (use the marks listed in the audio data)\n' +
   '- add_text: when the user asks to add text overlays to the timeline at a computed time range\n' +
   '- replace_images: when the user has attached files and asks to replace, swap, or update existing timeline images with them\n' +
