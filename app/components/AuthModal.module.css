@@ -25,20 +25,16 @@
 }
 
 .modalHeader {
-  margin-bottom: 2rem;
+  margin-bottom: 2.5rem;
   text-align: center;
 }
 
 .modalHeader h2 {
-  font-family: var(--font-antonio);
-  font-size: 2rem;
-  margin-bottom: 0.5rem;
+  font-size: 2.25rem;
+  font-weight: 700;
+  margin-bottom: 0;
   color: #fff;
-}
-
-.modalHeader p {
-  color: #888;
-  font-size: 0.9rem;
+  letter-spacing: -0.02em;
 }
 
 .formGroup {
@@ -80,6 +76,7 @@
   cursor: pointer;
   margin-top: 1rem;
   transition: transform 0.1s, opacity 0.2s;
+  width: 100%;
 }
 
 .submitButton:hover:not(:disabled) {
@@ -93,6 +90,56 @@
 .submitButton:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  margin: 1.5rem 0;
+  color: #666;
+  font-size: 0.8rem;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background-color: #333;
+}
+
+.divider span {
+  padding: 0 0.75rem;
+}
+
+.googleButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.8rem;
+  background-color: transparent;
+  color: #fff;
+  border: 1px solid #333;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.googleButton:hover:not(:disabled) {
+  background-color: #222;
+  border-color: #444;
+}
+
+.googleButton:active:not(:disabled) {
+  transform: scale(0.99);
+}
+
+.googleButton svg {
+  color: #fff;
 }
 
 .toggleText {

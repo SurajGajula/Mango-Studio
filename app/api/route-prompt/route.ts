@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@/app/utils/supabase/server'
 import { getGenAIClient } from '@/app/lib/genaiClient'
 import { tools, systemInstruction, FunctionCallingConfigMode } from '@/app/lib/routePromptConfig'
 
@@ -149,6 +150,13 @@ function buildManifestContext(manifest: SerializedManifest): string {
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const body: RoutePromptRequest = await request.json()
 
     if (!body.prompt || typeof body.prompt !== 'string' || body.prompt.trim().length === 0) {

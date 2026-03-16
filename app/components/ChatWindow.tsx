@@ -2,7 +2,6 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useAuth } from './AuthProvider'
-import { createClient } from '@/app/utils/supabase/client'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import type { ManifestMutation, SplitInstruction, ReplaceInstruction, AddTextInstruction, TransitionInstruction, CropInstruction } from '@/app/api/route-prompt/route'
 import { TextClass } from '@/app/models/TextClass'
@@ -46,11 +45,12 @@ export default function ChatWindow() {
   const pushHistory = useManifestStore((state) => state.pushHistory)
   const pendingPrompt = useManifestStore((state) => state.pendingPrompt)
   const setPendingPrompt = useManifestStore((state) => state.setPendingPrompt)
-  const { user } = useAuth()
-  const supabase = createClient()
+  const { user, supabase } = useAuth()
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut()
+    if (supabase) {
+      await supabase.auth.signOut()
+    }
   }
 
   useEffect(() => {
