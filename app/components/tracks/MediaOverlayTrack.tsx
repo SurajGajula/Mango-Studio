@@ -1,5 +1,6 @@
 'use client'
 
+import { memo } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import styles from './Timeline.module.css'
@@ -20,7 +21,7 @@ interface MediaOverlayTrackProps {
   replaceInputRef: React.RefObject<HTMLInputElement>
 }
 
-export default function MediaOverlayTrack({
+const MediaOverlayTrackComponent = ({
   rowIndex,
   getContentPosition,
   totalDuration,
@@ -34,7 +35,7 @@ export default function MediaOverlayTrack({
   replaceTargetId,
   setReplaceTargetId,
   replaceInputRef,
-}: MediaOverlayTrackProps) {
+}: MediaOverlayTrackProps) => {
   const images = useManifestStore((state) => state.images)
   const videos = useManifestStore((state) => state.videos)
   const updateVideo = useManifestStore((state) => state.updateVideo)
@@ -137,3 +138,5 @@ export default function MediaOverlayTrack({
     </div>
   )
 }
+
+export default memo(MediaOverlayTrackComponent)

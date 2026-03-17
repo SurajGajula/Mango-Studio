@@ -15,8 +15,9 @@ export function useVideoPlayback(
   containerRef: React.RefObject<HTMLDivElement>
 ) {
   const videoElementsRef = useRef<Map<string, HTMLVideoElement>>(new Map())
-  const imageElementsRef = useRef<Map<string, HTMLImageElement>>(new Map())
-  const urlCacheRef = useRef<Map<string, HTMLImageElement>>(new Map())
+  const imageBitmapsRef = useRef<Map<string, ImageBitmap>>(new Map())
+  const urlCacheRef = useRef<Map<string, ImageBitmap>>(new Map())
+  const loadingUrlsRef = useRef<Set<string>>(new Set())
   const persistenceCanvasesRef = useRef<Map<string, { current: HTMLCanvasElement; accumulation: HTMLCanvasElement }>>(new Map())
   const audioElementRef = useRef<HTMLAudioElement | null>(null)
   const rafRef = useRef<number | null>(null)
@@ -33,6 +34,19 @@ export function useVideoPlayback(
   const audioUrl = useAudioStore((state) => state.audioUrl)
   const getState = useManifestStore.getState
   const getSelectionState = useSelectionStore.getState
+
+  // Cache sorted items and overlay videos to avoid re-calculating in the high-frequency loop
+  const sortedMainItemsRef = useRef<any[]>([])
+  const overlayVideosRef = useRef<VideoClass[]>([])
+  const overlayImagesRef = useRef<ImageClass[]>([])
+  const mainTrackImagesRef = useRef<ImageClass[]>([])
+  
+  useEffect(() => {
+    sortedMainItemsRef.current = getSortedMainItems(videos, images)
+    overlayVideosRef.current = videos.filter(v => v.isOverlay)
+    overlayImagesRef.current = images.filter(img => !img.isMainTrack)
+    mainTrackImagesRef.current = images.filter(img => img.isMainTrack)
+  }, [videos, images])
 
   useEffect(() => {
     const sortedVideos = [...videos].sort((a, b) => a.timestamp - b.timestamp)
@@ -101,39 +115,51 @@ export function useVideoPlayback(
   useEffect(() => {
     const currentIds = new Set(images.map((o) => o.id))
 
-    imageElementsRef.current.forEach((_, id) => {
+    imageBitmapsRef.current.forEach((_, id) => {
       if (!currentIds.has(id)) {
-        imageElementsRef.current.delete(id)
+        imageBitmapsRef.current.delete(id)
       }
     })
 
     if (urlCacheRef.current.size > 200) {
       const activeUrls = new Set(images.map(img => img.url))
-      urlCacheRef.current.forEach((_, url) => {
-        if (!activeUrls.has(url)) urlCacheRef.current.delete(url)
+      urlCacheRef.current.forEach((bitmap, url) => {
+        if (!activeUrls.has(url)) {
+          bitmap.close()
+          urlCacheRef.current.delete(url)
+        }
       })
     }
 
-    images.forEach((image) => {
+    images.forEach(async (image) => {
       const isNearPlayhead = Math.abs(image.startTime - playbackTime) < 60 || 
                              (playbackTime >= image.startTime && playbackTime < image.endTime)
 
       if (!isNearPlayhead) return
 
-      let img = imageElementsRef.current.get(image.id)
-      if (!img || img.getAttribute('data-url') !== image.url) {
-        img = urlCacheRef.current.get(image.url)
-        if (!img) {
-          img = new Image()
-          img.src = image.url
-          img.setAttribute('data-url', image.url)
-          img.decode().catch(() => {})
-          urlCacheRef.current.set(image.url, img)
+      let bitmap = imageBitmapsRef.current.get(image.id)
+      if (!bitmap) {
+        bitmap = urlCacheRef.current.get(image.url)
+        if (!bitmap) {
+          if (loadingUrlsRef.current.has(image.url)) return
+          loadingUrlsRef.current.add(image.url)
+          try {
+            const response = await fetch(image.url)
+            const blob = await response.blob()
+            const newBitmap = await createImageBitmap(blob)
+            urlCacheRef.current.set(image.url, newBitmap)
+            imageBitmapsRef.current.set(image.id, newBitmap)
+          } catch (e) {
+            console.error('Failed to load image bitmap', image.url, e)
+          } finally {
+            loadingUrlsRef.current.delete(image.url)
+          }
+        } else {
+          imageBitmapsRef.current.set(image.id, bitmap)
         }
-        imageElementsRef.current.set(image.id, img)
       }
     })
-  }, [images, Math.floor(playbackTime)])
+  }, [images, Math.floor(playbackTime * 4)])
 
   useEffect(() => {
     if (audioElementRef.current) {
@@ -266,12 +292,11 @@ export function useVideoPlayback(
   }, [canvasRef, containerRef, applyCanvasSize, aspectRatio])
 
   const drawImages = useCallback((ctx: CanvasRenderingContext2D, cr: {x:number,y:number,width:number,height:number}, currentTime: number, mainTrackOnly: boolean) => {
-    const state = getState()
-    const allImages = state.images
-    let visibleImages = allImages.filter(img => currentTime >= img.startTime && currentTime < img.endTime && img.isMainTrack === mainTrackOnly)
+    const allImages = mainTrackOnly ? mainTrackImagesRef.current : overlayImagesRef.current
+    let visibleImages = allImages.filter(img => currentTime >= img.startTime && currentTime < img.endTime)
 
     if (mainTrackOnly && visibleImages.length === 0) {
-      const lastEnded = allImages.filter(img => img.isMainTrack && img.endTime <= currentTime).sort((a, b) => b.endTime - a.endTime)[0]
+      const lastEnded = allImages.filter(img => img.endTime <= currentTime).sort((a, b) => b.endTime - a.endTime)[0]
       if (lastEnded) visibleImages = [lastEnded]
     }
 
@@ -280,23 +305,23 @@ export function useVideoPlayback(
     const xScale = cr.width / logicalW; const yScale = cr.height / logicalH
 
     visibleImages.forEach((image) => {
-      let img = imageElementsRef.current.get(image.id)
+      let bitmap = imageBitmapsRef.current.get(image.id)
       
-      if (mainTrackOnly && (!img || !img.complete || img.naturalWidth === 0)) {
-        const lastEnded = allImages.filter(i => i.isMainTrack && i.endTime <= image.startTime).sort((a, b) => b.endTime - a.endTime)[0]
+      if (mainTrackOnly && !bitmap) {
+        const lastEnded = allImages.filter(i => i.endTime <= image.startTime).sort((a, b) => b.endTime - a.endTime)[0]
         if (lastEnded) {
-          const prevImg = imageElementsRef.current.get(lastEnded.id)
-          if (prevImg && prevImg.complete && prevImg.naturalWidth > 0) {
+          const prevBitmap = imageBitmapsRef.current.get(lastEnded.id)
+          if (prevBitmap) {
             ctx.save()
             ctx.globalAlpha = image.opacity
-            applyZoomTransform(ctx, 'none', 0, prevImg, cr.x + image.x * xScale, cr.y + image.y * yScale, image.width * xScale, image.height * yScale, lastEnded.cropSx, lastEnded.cropSy, lastEnded.cropSw, lastEnded.cropSh, 0, 0)
+            applyZoomTransform(ctx, 'none', 0, prevBitmap, cr.x + image.x * xScale, cr.y + image.y * yScale, image.width * xScale, image.height * yScale, lastEnded.cropSx, lastEnded.cropSy, lastEnded.cropSw, lastEnded.cropSh, 0, 0)
             ctx.restore()
             return
           }
         }
       }
 
-      if (!img || !img.complete || img.naturalWidth === 0) return
+      if (!bitmap) return
       
       const isSplit = image.zoom === 'split-horizontal' || image.zoom === 'split-vertical'
       let progress = 0
@@ -310,13 +335,13 @@ export function useVideoPlayback(
         progress = image.duration > 0 ? (currentTime - image.startTime) / image.duration : 0
       }
       ctx.save(); ctx.globalAlpha = image.opacity
-      applyZoomTransform(ctx, image.zoom, progress, img, cr.x + image.x * xScale, cr.y + image.y * yScale, image.width * xScale, image.height * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, currentTime - image.startTime)
+      applyZoomTransform(ctx, image.zoom, progress, bitmap, cr.x + image.x * xScale, cr.y + image.y * yScale, image.width * xScale, image.height * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, currentTime - image.startTime)
       ctx.restore()
     })
-  }, [getState, aspectRatio])
+  }, [aspectRatio])
 
   const drawOverlayVideos = useCallback((ctx: CanvasRenderingContext2D, cr: {x:number,y:number,width:number,height:number}, currentTime: number) => {
-    const state = getState(); const rate = state.playbackRate ?? 1; const overlayVideos = state.videos.filter(v => v.isOverlay)
+    const state = getState(); const rate = state.playbackRate ?? 1; const overlayVideos = overlayVideosRef.current
     const logicalW = aspectRatio === '16:9' ? 1920 : 1080; const logicalH = aspectRatio === '16:9' ? 1080 : 1920
     const xScale = cr.width / logicalW; const yScale = cr.height / logicalH
 
@@ -366,7 +391,7 @@ export function useVideoPlayback(
       let newTime = playbackTime
       if (isPlaying) { newTime = playbackTime + delta * rate; const totalDur = state.getTotalDuration(); if (newTime >= totalDur) { state.setIsPlaying(false); state.setPlaybackTime(0); newTime = 0; lastTimestamp = null } else state.setPlaybackTime(newTime) } else lastTimestamp = null
 
-      const sorted = getSortedMainItems(state.videos, state.images)
+      const sorted = sortedMainItemsRef.current
       const { activeItem: activeClip, nextItem: nextClip } = findActiveAndNextItems(sorted, newTime)
       const { transitionActive, progress: transProgress } = checkTransition(activeClip, nextClip, newTime)
 
@@ -396,24 +421,24 @@ export function useVideoPlayback(
           const activeEl = activeClip?.type === 'video' 
             ? videoElementsRef.current.get(activeClip.id) 
             : activeClip?.type === 'image' 
-              ? imageElementsRef.current.get(activeClip.id) 
+              ? imageBitmapsRef.current.get(activeClip.id) 
               : null;
           
           const isActiveReady = activeClip?.type === 'video'
             ? (activeEl instanceof HTMLVideoElement && activeEl.readyState >= 2 && !activeEl.seeking)
             : activeClip?.type === 'image'
-              ? (activeEl instanceof HTMLImageElement && activeEl.complete && activeEl.naturalWidth > 0)
+              ? (!!activeEl)
               : true;
 
           let isNextReady = true;
           if (transitionActive && nextClip) {
             const nextEl = nextClip.type === 'video'
               ? videoElementsRef.current.get(nextClip.id)
-              : imageElementsRef.current.get(nextClip.id);
+              : imageBitmapsRef.current.get(nextClip.id);
             isNextReady = nextClip.type === 'video'
               ? (nextEl instanceof HTMLVideoElement && nextEl.readyState >= 2 && !nextEl.seeking)
               : nextClip.type === 'image'
-                ? (nextEl instanceof HTMLImageElement && nextEl.complete && nextEl.naturalWidth > 0)
+                ? (!!nextEl)
                 : true;
           }
 
@@ -437,27 +462,27 @@ export function useVideoPlayback(
             const xScale = cr.width / logicalW
             const yScale = cr.height / logicalH
             
-            let nextEl: HTMLVideoElement | HTMLImageElement | null = null
+            let nextEl: HTMLVideoElement | HTMLImageElement | ImageBitmap | null = null
             let nextParams: any = undefined
             if (nextClip!.type === 'video') {
               const nv = nextClip!.item as VideoClass
               nextEl = videoElementsRef.current.get(nextClip!.id) || null
-              if (nextEl && nextEl.readyState >= 2 && (!isPlaying ? !nextEl.seeking : true)) {
+              if (nextEl instanceof HTMLVideoElement && nextEl.readyState >= 2 && (!isPlaying ? !nextEl.seeking : true)) {
                 const local = nv.trimStart ?? 0
                 if (Math.abs(nextEl.currentTime - local) > 0.25) nextEl.currentTime = local
                 nextParams = { x: cr.x + (nv.x ?? 0) * xScale, y: cr.y + (nv.y ?? 0) * yScale, w: (nv.width ?? logicalW) * xScale, h: (nv.height ?? logicalH) * yScale, sx: nextEl.videoWidth * nv.cropSx, sy: nextEl.videoHeight * nv.cropSy, sw: nextEl.videoWidth * nv.cropSw, sh: nextEl.videoHeight * nv.cropSh }
               }
             } else {
               const ni = nextClip!.item as ImageClass
-              nextEl = imageElementsRef.current.get(nextClip!.id) || null
-              if (nextEl && nextEl.complete) {
-                nextParams = { x: cr.x + ni.x * xScale, y: cr.y + ni.y * yScale, w: ni.width * xScale, h: ni.height * yScale, sx: nextEl.naturalWidth * ni.cropSx, sy: nextEl.naturalHeight * ni.cropSy, sw: nextEl.naturalWidth * ni.cropSw, sh: nextEl.naturalHeight * ni.cropSh }
+              nextEl = imageBitmapsRef.current.get(nextClip!.id) || null
+              if (nextEl) {
+                nextParams = { x: cr.x + ni.x * xScale, y: cr.y + ni.y * yScale, w: ni.width * xScale, h: ni.height * yScale, sx: nextEl.width * ni.cropSx, sy: nextEl.height * ni.cropSy, sw: nextEl.width * ni.cropSw, sh: nextEl.height * ni.cropSh }
               }
             }
 
             if (nextEl && nextParams) {
               ctx.drawImage(nextEl, nextParams.sx, nextParams.sy, nextParams.sw, nextParams.sh, nextParams.x, nextParams.y, nextParams.w, nextParams.h)
-              let curEl: HTMLVideoElement | HTMLImageElement | null = null
+              let curEl: HTMLVideoElement | HTMLImageElement | ImageBitmap | null = null
               let curParams: any = undefined
               const drawX = cr.x + (activeClip!.item.x ?? 0) * xScale
               const drawY = cr.y + (activeClip!.item.y ?? 0) * yScale
@@ -467,16 +492,16 @@ export function useVideoPlayback(
               if (activeClip!.type === 'video') {
                 const av = activeClip!.item as VideoClass
                 curEl = videoElementsRef.current.get(activeClip!.id) || null
-                if (curEl && curEl.readyState >= 2 && (!isPlaying ? !curEl.seeking : true)) {
+                if (curEl instanceof HTMLVideoElement && curEl.readyState >= 2 && (!isPlaying ? !curEl.seeking : true)) {
                   const target = (av.trimStart ?? 0) + Math.max(0, newTime - activeClip!.startTime) * (av.playbackSpeed ?? 1)
                   if (Math.abs(curEl.currentTime - target) > 0.25) curEl.currentTime = target
                   curParams = { x: drawX, y: drawY, w: drawW, h: drawH, sx: curEl.videoWidth * (av.cropSx ?? 0), sy: curEl.videoHeight * (av.cropSy ?? 0), sw: curEl.videoWidth * (av.cropSw ?? 1), sh: curEl.videoHeight * (av.cropSh ?? 1) }
                 }
               } else {
                 const ai = activeClip!.item as ImageClass
-                curEl = imageElementsRef.current.get(activeClip!.id) || null
-                if (curEl && curEl.complete) {
-                  curParams = { x: drawX, y: drawY, w: drawW, h: drawH, sx: curEl.naturalWidth * ai.cropSx, sy: curEl.naturalHeight * ai.cropSy, sw: curEl.naturalWidth * ai.cropSw, sh: curEl.naturalHeight * ai.cropSh }
+                curEl = imageBitmapsRef.current.get(activeClip!.id) || null
+                if (curEl) {
+                  curParams = { x: drawX, y: drawY, w: drawW, h: drawH, sx: curEl.width * ai.cropSx, sy: curEl.height * ai.cropSy, sw: curEl.width * ai.cropSw, sh: curEl.height * ai.cropSh }
                 }
               }
               
@@ -569,6 +594,10 @@ export function useVideoPlayback(
   useEffect(() => { return () => { 
     videoElementsRef.current.forEach((video) => { video.pause(); video.src = ''; video.load() }); 
     videoElementsRef.current.clear();
+    imageBitmapsRef.current.forEach((bitmap) => bitmap.close())
+    imageBitmapsRef.current.clear()
+    urlCacheRef.current.forEach((bitmap) => bitmap.close())
+    urlCacheRef.current.clear()
     persistenceCanvasesRef.current.clear();
   } }, [])
   return { contentRect }

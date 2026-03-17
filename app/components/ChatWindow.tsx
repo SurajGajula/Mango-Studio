@@ -107,10 +107,19 @@ export default function ChatWindow() {
   }
 
   const applyTransitions = (transitions: TransitionInstruction[]) => {
+    const { images, videos } = useManifestStore.getState()
     for (const t of transitions) {
       const updates: { zoom: typeof t.zoom; zoomIntensity?: number; transitionDuration?: number } = { zoom: t.zoom }
       if (t.zoomIntensity !== undefined) updates.zoomIntensity = t.zoomIntensity
-      if (t.transitionDuration !== undefined) updates.transitionDuration = t.transitionDuration
+      
+      const item = t.type === 'image' ? images.find(i => i.id === t.id) : videos.find(v => v.id === t.id)
+      
+      if (t.transitionDuration !== undefined) {
+        updates.transitionDuration = t.transitionDuration
+      } else if (t.zoom !== 'none' && item && (!item.transitionDuration || item.transitionDuration === 0)) {
+        updates.transitionDuration = 1.0
+      }
+
       if (t.type === 'image') updateImage(t.id, updates)
       else if (t.type === 'video') updateVideo(t.id, updates)
     }

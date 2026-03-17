@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo, memo } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { wrapTextToLines } from '@/app/lib/textUtils'
@@ -24,7 +25,7 @@ interface TextOverlayProps {
   textRefs: React.MutableRefObject<Map<string, HTMLDivElement | null>>
 }
 
-export default function TextOverlay({
+function TextOverlayComponent({
   text,
   xScale,
   yScale,
@@ -48,9 +49,32 @@ export default function TextOverlay({
   const isSelected = selectedTextId === text.id
   const isEditing = editingTextId === text.id
 
+  const displayContent = useMemo(() => {
+    if (isEditing) return null
+    let content = text.content || 'Text'
+    
+    if (text.animation === 'keyboard') {
+      const words = content.split(/\s+/)
+      const duration = text.endTime - text.startTime
+      if (duration > 0 && words.length > 0) {
+        const wordDuration = duration / words.length
+        const elapsed = playbackTime - text.startTime
+        const visibleCount = Math.max(1, Math.min(words.length, Math.floor(elapsed / wordDuration) + 1))
+        content = words.slice(0, visibleCount).join(' ')
+      }
+    }
+    return content
+  }, [text.content, text.animation, text.startTime, text.endTime, playbackTime, isEditing])
+
+  const lines = useMemo(() => {
+    if (isEditing || !displayContent) return []
+    const mCtx = getMeasureCtx()
+    mCtx.font = `${text.fontWeight} ${text.fontSize * xScale}px ${text.fontFamily}`
+    return wrapTextToLines(mCtx, displayContent, text.width * xScale)
+  }, [displayContent, text.fontWeight, text.fontSize, xScale, text.fontFamily, text.width, getMeasureCtx, isEditing])
+
   return (
     <div
-      key={text.id}
       ref={(el) => { textRefs.current.set(text.id, el) }}
       className={`${styles.textOverlay} ${isSelected ? styles.textOverlaySelected : ''}`}
       style={{
@@ -103,25 +127,37 @@ export default function TextOverlay({
           }}
           onClick={(e) => e.stopPropagation()}
         />
-      ) : (() => {
-        const mCtx = getMeasureCtx()
-        mCtx.font = `${text.fontWeight} ${text.fontSize * xScale}px ${text.fontFamily}`
-        let content = text.content || 'Text'
-        
-        if (text.animation === 'keyboard' && !isEditing) {
-          const words = content.split(/\s+/)
-          const duration = text.endTime - text.startTime
-          if (duration > 0 && words.length > 0) {
-            const wordDuration = duration / words.length
-            const elapsed = playbackTime - text.startTime
-            const visibleCount = Math.min(words.length, Math.floor(elapsed / wordDuration) + 1)
-            content = words.slice(0, visibleCount).join(' ')
-          }
-        }
-
-        const lines = wrapTextToLines(mCtx, content, text.width * xScale)
-        return lines.join('\n')
-      })()}
+      ) : lines.join('\n')}
     </div>
   )
 }
+
+export default memo(TextOverlayComponent, (prev, next) => {
+  // Only re-render if playbackTime actually changes the visible content for keyboard animation
+  if (prev.text.animation === 'keyboard') {
+    const words = prev.text.content.split(/\s+/)
+    const duration = prev.text.endTime - prev.text.startTime
+    const wordDuration = duration / words.length
+    
+    const prevElapsed = prev.playbackTime - prev.text.startTime
+    const nextElapsed = next.playbackTime - next.text.startTime
+    
+    const prevVisible = Math.max(1, Math.min(words.length, Math.floor(prevElapsed / wordDuration) + 1))
+    const nextVisible = Math.max(1, Math.min(words.length, Math.floor(nextElapsed / wordDuration) + 1))
+    
+    if (prevVisible !== nextVisible) return false
+  }
+  
+  // If not keyboard animation or no change in visible words, check other props
+  return (
+    prev.text === next.text &&
+    prev.xScale === next.xScale &&
+    prev.yScale === next.yScale &&
+    prev.offsetX === next.offsetX &&
+    prev.offsetY === next.offsetY &&
+    prev.editingTextId === next.editingTextId &&
+    prev.editingContent === next.editingContent &&
+    // We intentionally ignore playbackTime if it doesn't affect visible content
+    true 
+  )
+})

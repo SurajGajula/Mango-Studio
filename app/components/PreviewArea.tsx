@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useCallback, useState } from 'react'
+import { useEffect, useRef, useCallback, useState, useMemo, memo } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useVideoPlayback } from '@/app/lib/useVideoPlayback'
@@ -9,6 +9,57 @@ import styles from './PreviewArea.module.css'
 import TextOverlay from './TextOverlay'
 import CropEditor from './CropEditor'
 import gsap from 'gsap'
+
+interface OverlayItemProps {
+  itemId: string
+  itemType: 'image' | 'video'
+  x: number
+  y: number
+  w: number
+  h: number
+  isSelected: boolean
+  offsetX: number
+  offsetY: number
+  xScale: number
+  yScale: number
+  handleOverlayMouseDown: (itemId: string, itemType: 'image' | 'video', mode: any, e: React.MouseEvent) => void
+  hasCrop: boolean
+  cropEditId: string | null
+  enterCropEdit: (id: string, type: 'image' | 'video') => void
+  exitCropEdit: () => void
+  children?: React.ReactNode
+}
+
+const OverlayItem = memo(({
+  itemId, itemType, x, y, w, h, isSelected,
+  offsetX, offsetY, xScale, yScale,
+  handleOverlayMouseDown, hasCrop, cropEditId,
+  enterCropEdit, exitCropEdit, children
+}: OverlayItemProps) => {
+  const px = offsetX + x * xScale
+  const py = offsetY + y * yScale
+  const pw = w * xScale
+  const ph = h * yScale
+
+  const handleDoubleClick = useCallback(() => {
+    if (!hasCrop) return
+    if (cropEditId === itemId) exitCropEdit()
+    else enterCropEdit(itemId, itemType)
+  }, [hasCrop, cropEditId, itemId, itemType, enterCropEdit, exitCropEdit])
+
+  return (
+    <div
+      className={`${styles.imageOverlay} ${isSelected ? styles.selected : ''}`}
+      style={{ left: px, top: py, width: pw, height: ph }}
+      onMouseDown={(e) => handleOverlayMouseDown(itemId, itemType, 'move', e)}
+      onDoubleClick={handleDoubleClick}
+    >
+      {children}
+    </div>
+  )
+})
+
+OverlayItem.displayName = 'OverlayItem'
 
 export default function PreviewArea() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -75,17 +126,17 @@ export default function PreviewArea() {
     canvasRef, textRefs, getMeasureCtx
   )
 
-  const activeImages = images.filter(
+  const activeImages = useMemo(() => images.filter(
     (image) => !image.isMainTrack && playbackTime >= image.startTime && playbackTime < image.endTime
-  )
+  ), [images, playbackTime])
 
-  const activeOverlayVideos = videos.filter(
+  const activeOverlayVideos = useMemo(() => videos.filter(
     (v) => v.isOverlay && playbackTime >= v.timestamp && playbackTime < v.timestamp + (v.duration ?? 0)
-  )
+  ), [videos, playbackTime])
 
-  const activeTexts = texts.filter(
+  const activeTexts = useMemo(() => texts.filter(
     (t) => playbackTime >= t.startTime && playbackTime < t.endTime
-  )
+  ), [texts, playbackTime])
 
   const handleCropPanStart = useCallback((e: React.MouseEvent) => {
     if (!cropEditId) return
@@ -191,32 +242,6 @@ export default function PreviewArea() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [textAnimKey])
 
-  const renderOverlayItem = (
-    itemId: string,
-    itemType: 'image' | 'video',
-    x: number, y: number, w: number, h: number,
-    isSelected: boolean,
-    children: React.ReactNode,
-    onDoubleClick?: () => void
-  ) => {
-    const px = offsetX + x * xScale
-    const py = offsetY + y * yScale
-    const pw = w * xScale
-    const ph = h * yScale
-
-    return (
-      <div
-        key={itemId}
-        className={`${styles.imageOverlay} ${isSelected ? styles.selected : ''}`}
-        style={{ left: px, top: py, width: pw, height: ph }}
-        onMouseDown={(e) => handleOverlayMouseDown(itemId, itemType, 'move', e)}
-        onDoubleClick={onDoubleClick}
-      >
-        {children}
-      </div>
-    )
-  }
-
   return (
     <div className={styles.container}>
       <div className={styles.content}>
@@ -230,25 +255,48 @@ export default function PreviewArea() {
                 onDoubleClick={handleCanvasDoubleClick}
               />
               <div className={styles.overlayLayer}>
-                {activeImages.map((image) =>
-                  renderOverlayItem(
-                    image.id, 'image',
-                    image.x, image.y, image.width, image.height,
-                    selectedImageId === image.id,
-                    null,
-                    image.cropAspect
-                      ? () => { if (cropEditId === image.id) exitCropEdit(); else enterCropEdit(image.id, 'image') }
-                      : undefined
-                  )
-                )}
-                {activeOverlayVideos.map((video) =>
-                  renderOverlayItem(
-                    video.id, 'video',
-                    video.x, video.y, video.width, video.height,
-                    selectedVideoId === video.id,
-                    null
-                  )
-                )}
+                {activeImages.map((image) => (
+                  <OverlayItem
+                    key={image.id}
+                    itemId={image.id}
+                    itemType="image"
+                    x={image.x}
+                    y={image.y}
+                    w={image.width}
+                    h={image.height}
+                    isSelected={selectedImageId === image.id}
+                    offsetX={offsetX}
+                    offsetY={offsetY}
+                    xScale={xScale}
+                    yScale={yScale}
+                    handleOverlayMouseDown={handleOverlayMouseDown}
+                    hasCrop={!!image.cropAspect}
+                    cropEditId={cropEditId}
+                    enterCropEdit={enterCropEdit}
+                    exitCropEdit={exitCropEdit}
+                  />
+                ))}
+                {activeOverlayVideos.map((video) => (
+                  <OverlayItem
+                    key={video.id}
+                    itemId={video.id}
+                    itemType="video"
+                    x={video.x}
+                    y={video.y}
+                    w={video.width}
+                    h={video.height}
+                    isSelected={selectedVideoId === video.id}
+                    offsetX={offsetX}
+                    offsetY={offsetY}
+                    xScale={xScale}
+                    yScale={yScale}
+                    handleOverlayMouseDown={handleOverlayMouseDown}
+                    hasCrop={false}
+                    cropEditId={cropEditId}
+                    enterCropEdit={enterCropEdit}
+                    exitCropEdit={exitCropEdit}
+                  />
+                ))}
                 {activeTexts.map((text) => (
                   <TextOverlay
                     key={text.id}

@@ -21,4 +21,19 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
   ...createAudioSlice(set, get),
   ...createEffectSlice(set, get),
   ...createHistorySlice(set, get),
+  resetStore: () =>
+    set({
+      videos: [],
+      images: [],
+      texts: [],
+      audios: [],
+      effects: [],
+      playbackTime: 0,
+      isPlaying: false,
+      playbackRate: 1,
+      aspectRatio: '9:16',
+      pendingPrompt: null,
+      history: [{ videos: [], images: [], texts: [], audios: [], effects: [] }],
+      historyIndex: 0,
+    }),
 }))

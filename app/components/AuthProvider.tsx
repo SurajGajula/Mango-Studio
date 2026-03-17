@@ -3,6 +3,9 @@
 import { createContext, useContext, useEffect, useState, useMemo } from 'react'
 import { createClient } from '@/app/utils/supabase/client'
 import type { User, SupabaseClient } from '@supabase/supabase-js'
+import { useManifestStore } from '@/app/stores/manifestStore'
+import { useSelectionStore } from '@/app/stores/selectionStore'
+import { useAudioStore } from '@/app/stores/audioStore'
 
 interface AuthContextType {
   user: User | null
@@ -34,7 +37,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     getUser()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+      (event, session) => {
+        if (event === 'SIGNED_OUT') {
+          useManifestStore.getState().resetStore()
+          useSelectionStore.getState().clearSelection()
+          useAudioStore.getState().removeAudio()
+        }
         setUser(session?.user ?? null)
         setLoading(false)
       }

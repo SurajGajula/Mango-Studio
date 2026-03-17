@@ -4,7 +4,7 @@ export function applyZoomTransform(
   ctx: CanvasRenderingContext2D,
   zoom: ZoomMode | undefined,
   progress: number,
-  imgEl: HTMLImageElement | HTMLVideoElement,
+  imgEl: HTMLImageElement | HTMLVideoElement | ImageBitmap,
   x: number,
   y: number,
   w: number,
@@ -15,7 +15,7 @@ export function applyZoomTransform(
   cropSh = 1,
   zoomIntensity = 0.5,
   elapsedTime = 0,
-  prevEl?: HTMLImageElement | HTMLVideoElement,
+  prevEl?: HTMLImageElement | HTMLVideoElement | ImageBitmap,
   prevParams?: {
     x: number;
     y: number;
@@ -27,8 +27,18 @@ export function applyZoomTransform(
     sh: number;
   }
 ): void {
-  const nw = imgEl instanceof HTMLImageElement ? imgEl.naturalWidth : imgEl.videoWidth
-  const nh = imgEl instanceof HTMLImageElement ? imgEl.naturalHeight : imgEl.videoHeight
+  let nw = 0
+  let nh = 0
+  if (imgEl instanceof HTMLImageElement) {
+    nw = imgEl.naturalWidth
+    nh = imgEl.naturalHeight
+  } else if (imgEl instanceof HTMLVideoElement) {
+    nw = imgEl.videoWidth
+    nh = imgEl.videoHeight
+  } else {
+    nw = imgEl.width
+    nh = imgEl.height
+  }
   const sx = nw * cropSx
   const sy = nh * cropSy
   const sw = nw * cropSw

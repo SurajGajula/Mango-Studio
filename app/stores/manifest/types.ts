@@ -78,6 +78,7 @@ export interface ManifestStore {
   updateEffect: (id: string, updates: Partial<EffectClass>) => void
   removeEffect: (id: string) => void
   removeAllEffects: () => void
+  resetStore: () => void
 }
 
 export type BlobEntry = { videos: VideoClass[]; images: ImageClass[] }

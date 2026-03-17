@@ -1,5 +1,6 @@
 'use client'
 
+import { memo } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import styles from './Timeline.module.css'
@@ -15,7 +16,7 @@ interface TextTrackProps {
   handleTextDragStart: (textId: string, handle: 'move' | 'start' | 'end', e: React.MouseEvent) => void
 }
 
-export default function TextTrack({
+const TextTrackComponent = ({
   rowIndex,
   getContentPosition,
   totalDuration,
@@ -24,7 +25,7 @@ export default function TextTrack({
   setSelectedVideoId,
   setSelectedImageId,
   handleTextDragStart,
-}: TextTrackProps) {
+}: TextTrackProps) => {
   const texts = useManifestStore((state) => state.texts)
   const selectedTextId = useSelectionStore((state) => state.selectedTextId)
   const selectText = useSelectionStore((state) => state.selectText)
@@ -64,3 +65,5 @@ export default function TextTrack({
     </div>
   )
 }
+
+export default memo(TextTrackComponent)

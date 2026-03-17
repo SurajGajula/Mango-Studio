@@ -4,37 +4,144 @@
   left: 0;
   width: 100vw;
   height: 100vh;
-  background-color: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(8px);
+  background-color: #0a0a0a;
+  display: flex;
+  z-index: 2000;
+}
+
+.showcaseSection {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem;
+  background: #000;
+  border-right: 1px solid #222;
+  position: relative;
+  overflow: hidden;
+}
+
+.showcaseContent {
+  max-width: 1000px;
+  position: relative;
+  z-index: 2;
+  text-align: center;
+}
+
+.showcaseContent h1 {
+  font-size: 3.5rem;
+  font-weight: 800;
+  margin-bottom: 0.5rem;
+  color: #fff;
+  letter-spacing: -0.04em;
+}
+
+.showcaseTagline {
+  font-size: 1.25rem;
+  color: #888;
+  margin-bottom: 2rem;
+  line-height: 1.6;
+}
+
+.imageContainer {
+  margin: 1rem 0;
+  width: 100%;
   display: flex;
   justify-content: center;
+  position: relative;
+}
+
+.showcaseImage {
+  width: 100%;
+  max-width: 900px;
+  height: auto;
+  border-radius: 12px;
+  border: 1px solid #444;
+  box-shadow: 0 0 60px rgba(255, 255, 255, 0.08);
+  transition: transform 0.4s ease;
+}
+
+.featureList {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+  max-width: 850px;
+  height: calc(100% - 4rem);
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 1.5rem;
+  padding: 0 2rem;
+}
+
+.featureItem {
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: left;
+  transition: transform 0.3s ease;
+  /* Strong multi-layered shadow for maximum readability on any background */
+  text-shadow: 
+    0 1px 2px rgba(0, 0, 0, 0.9),
+    0 4px 12px rgba(0, 0, 0, 1),
+    0 0 20px rgba(0, 0, 0, 0.5);
+}
+
+.featureItem:hover {
+  transform: translateY(-4px) scale(1.02);
+}
+
+.featureItem h3 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 0.6rem;
+  letter-spacing: -0.01em;
+  /* Soft outer glow to the text */
+  filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.15));
+}
+
+.featureItem p {
+  font-size: 1rem;
+  color: #ddd;
+  line-height: 1.5;
+  font-weight: 400;
+  max-width: 320px;
+}
+
+.authSection {
+  width: 500px;
+  display: flex;
   align-items: center;
-  z-index: 1000;
+  justify-content: center;
+  background-color: #111;
+  padding: 2rem;
 }
 
 .modalContent {
-  background-color: #1a1a1a;
-  padding: 2.5rem;
-  border-radius: 12px;
   width: 100%;
   max-width: 400px;
-  border: 1px solid #333;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
   display: flex;
   flex-direction: column;
 }
 
 .modalHeader {
-  margin-bottom: 2.5rem;
-  text-align: center;
+  margin-bottom: 2rem;
 }
 
 .modalHeader h2 {
-  font-size: 2.25rem;
+  font-size: 1.75rem;
   font-weight: 700;
-  margin-bottom: 0;
+  margin-bottom: 0.5rem;
   color: #fff;
-  letter-spacing: -0.02em;
+}
+
+.modalHeader p {
+  color: #666;
+  font-size: 0.9rem;
 }
 
 .formGroup {
@@ -52,8 +159,8 @@
 
 .formGroup input {
   padding: 0.8rem 1rem;
-  background: #2a2a2a;
-  border: 1px solid #444;
+  background: #1a1a1a;
+  border: 1px solid #333;
   border-radius: 6px;
   color: #fff;
   font-size: 1rem;
@@ -62,7 +169,7 @@
 
 .formGroup input:focus {
   outline: none;
-  border-color: #0070f3;
+  border-color: #444;
 }
 
 .submitButton {
@@ -96,7 +203,7 @@
   display: flex;
   align-items: center;
   margin: 1.5rem 0;
-  color: #666;
+  color: #444;
   font-size: 0.8rem;
 }
 
@@ -105,7 +212,7 @@
   content: '';
   flex: 1;
   height: 1px;
-  background-color: #333;
+  background-color: #222;
 }
 
 .divider span {
@@ -130,7 +237,7 @@
 }
 
 .googleButton:hover:not(:disabled) {
-  background-color: #222;
+  background-color: #1a1a1a;
   border-color: #444;
 }
 
@@ -145,14 +252,14 @@
 .toggleText {
   margin-top: 1.5rem;
   text-align: center;
-  color: #888;
+  color: #666;
   font-size: 0.9rem;
 }
 
 .toggleButton {
   background: none;
   border: none;
-  color: #0070f3;
+  color: #fff;
   cursor: pointer;
   padding: 0;
   font-size: 0.9rem;
@@ -161,12 +268,33 @@
 }
 
 .errorMessage {
-  background-color: rgba(255, 0, 0, 0.1);
+  background-color: rgba(255, 0, 0, 0.05);
   color: #ff4d4d;
   padding: 0.8rem;
   border-radius: 6px;
   font-size: 0.85rem;
   margin-bottom: 1.5rem;
   text-align: center;
-  border: 1px solid rgba(255, 0, 0, 0.2);
+  border: 1px solid rgba(255, 0, 0, 0.1);
+}
+
+@media (max-width: 1024px) {
+  .modalOverlay {
+    flex-direction: column;
+  }
+  
+  .showcaseSection {
+    padding: 2rem;
+    border-right: none;
+    border-bottom: 1px solid #222;
+  }
+  
+  .showcaseContent h1 {
+    font-size: 2.5rem;
+  }
+  
+  .authSection {
+    width: 100%;
+    flex: 1;
+  }
 }

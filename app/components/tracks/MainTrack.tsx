@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo, memo } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import styles from './Timeline.module.css'
@@ -20,7 +21,7 @@ interface MainTrackProps {
   handleImageDragStart: (imageId: string, handle: 'move' | 'start' | 'end', e: React.MouseEvent) => void
 }
 
-export default function MainTrack({
+const MainTrackComponent = ({
   getContentPosition,
   totalDuration,
   effectivePadding,
@@ -34,7 +35,7 @@ export default function MainTrack({
   videoThumbnails,
   scrollContainerRef,
   handleImageDragStart,
-}: MainTrackProps) {
+}: MainTrackProps) => {
   const videos = useManifestStore((state) => state.videos)
   const images = useManifestStore((state) => state.images)
   const updateVideo = useManifestStore((state) => state.updateVideo)
@@ -50,6 +51,48 @@ export default function MainTrack({
         const widthPercent = totalDuration > 0 && video.duration ? (video.duration / (totalDuration + effectivePadding * 2)) * 100 : 0
         const isSelected = selectedVideoId === video.id
         const hasTrim = video.trimStart > 0 || video.trimEnd > 0
+
+        // Memoize the thumbnails calculation
+        const thumbnails = useMemo(() => {
+          if (!video.url) return null
+          const allThumbs = videoThumbnails.get(video.url)
+          if (!allThumbs || allThumbs.size === 0) return null
+          
+          const startIdx = Math.floor(video.trimStart)
+          const duration = video.duration ?? 0
+          const endIdx = Math.ceil(video.trimStart + duration)
+          
+          const thumbs: string[] = []
+          for (let s = startIdx; s < endIdx; s++) {
+            const data = allThumbs.get(s)
+            if (data) thumbs.push(data)
+          }
+          
+          if (thumbs.length === 0) return null
+          
+          const thumbWidth = 85
+          // itemWidthPx depends on widthPercent and scrollContainerRef.current?.scrollWidth
+          // which can change. We'll use a rough estimate if scrollWidth isn't available
+          // or we can pass the scrollWidth as a prop if we want to be perfect.
+          // For now, let's keep it simple.
+          const itemWidthPx = (widthPercent / 100) * (scrollContainerRef.current?.scrollWidth || 1000)
+          const totalThumbsWidth = thumbs.length * thumbWidth
+          const repeatCount = Math.max(1, Math.ceil(itemWidthPx / totalThumbsWidth))
+          const repeatedThumbs: string[] = []
+          for (let r = 0; r < repeatCount; r++) {
+            repeatedThumbs.push(...thumbs)
+          }
+          return repeatedThumbs.map((thumb, idx) => (
+            <img
+              key={idx}
+              src={thumb}
+              alt=""
+              className={styles.thumbnail}
+              draggable={false}
+            />
+          ))
+        }, [video.url, video.trimStart, video.duration, videoThumbnails, widthPercent])
+
         return (
           <div
             key={video.id}
@@ -105,41 +148,7 @@ export default function MainTrack({
                 )}
               </button>
               <div className={styles.thumbnailStrip}>
-                {(() => {
-                  if (!video.url) return null
-                  const allThumbs = videoThumbnails.get(video.url)
-                  if (!allThumbs || allThumbs.size === 0) return null
-                  
-                  const startIdx = Math.floor(video.trimStart)
-                  const duration = video.duration ?? 0
-                  const endIdx = Math.ceil(video.trimStart + duration)
-                  
-                  const thumbs: string[] = []
-                  for (let s = startIdx; s < endIdx; s++) {
-                    const data = allThumbs.get(s)
-                    if (data) thumbs.push(data)
-                  }
-                  
-                  if (thumbs.length === 0) return null
-                  
-                  const thumbWidth = 85
-                  const itemWidthPx = (widthPercent / 100) * (scrollContainerRef.current?.scrollWidth || 1000)
-                  const totalThumbsWidth = thumbs.length * thumbWidth
-                  const repeatCount = Math.max(1, Math.ceil(itemWidthPx / totalThumbsWidth))
-                  const repeatedThumbs: string[] = []
-                  for (let r = 0; r < repeatCount; r++) {
-                    repeatedThumbs.push(...thumbs)
-                  }
-                  return repeatedThumbs.map((thumb, idx) => (
-                    <img
-                      key={idx}
-                      src={thumb}
-                      alt=""
-                      className={styles.thumbnail}
-                      draggable={false}
-                    />
-                  ))
-                })()}
+                {thumbnails}
               </div>
               {hasTrim && (
                 <div className={styles.videoOverlayText}>
@@ -206,3 +215,5 @@ export default function MainTrack({
     </div>
   )
 }
+
+export default memo(MainTrackComponent)
