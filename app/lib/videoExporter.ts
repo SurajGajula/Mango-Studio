@@ -8,7 +8,7 @@ import { fetchFile, toBlobURL } from '@ffmpeg/util'
 import { wrapTextToLines } from '@/app/lib/textUtils'
 import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
 import { applyEffect } from '@/app/lib/applyEffect'
-import { getSortedMainItems, findActiveAndNextItems, checkTransition } from '@/app/lib/renderUtils'
+import { getSortedMainItems, findActiveAndNextItems, checkTransition, calculateAnimationProgress } from '@/app/lib/renderUtils'
 import { calculateTotalDuration } from '@/app/lib/timeUtils'
 import { audioBufferToWav } from '@/app/lib/audioUtils'
 
@@ -220,38 +220,65 @@ export async function exportVideo(
       ctx.fillRect(0, 0, width, height)
 
       let transitionActiveState = false
-      if (transitionActive) {
+      if (transitionActive && nextMain) {
         transitionActiveState = true
         let nextEl: HTMLVideoElement | HTMLImageElement | null = null
         let nextParams: any = undefined
-        if (nextMain!.type === 'video') {
-          const nv = nextMain!.item as VideoClass
+        if (nextMain.type === 'video') {
+          const nv = nextMain.item as VideoClass
           nextEl = videoElements.get(nv.id) || null
           if (nextEl && nextEl.readyState >= 2) {
             nextParams = { x: (nv.x ?? 0) * xScale, y: (nv.y ?? 0) * yScale, w: (nv.width ?? logicalW) * xScale, h: (nv.height ?? logicalH) * yScale, sx: nextEl.videoWidth * (nv.cropSx ?? 0), sy: nextEl.videoHeight * (nv.cropSy ?? 0), sw: nextEl.videoWidth * (nv.cropSw ?? 1), sh: nextEl.videoHeight * (nv.cropSh ?? 1) }
           }
         } else {
-          const ni = nextMain!.item as ImageClass
+          const ni = nextMain.item as ImageClass
           nextEl = imageElements.get(ni.id) || null
-          if (nextEl) nextParams = { x: ni.x * xScale, y: ni.y * yScale, w: ni.width * xScale, h: ni.height * yScale, sx: nextEl.naturalWidth * ni.cropSx, sy: nextEl.naturalHeight * ni.cropSy, sw: nextEl.naturalWidth * ni.cropSw, sh: nextEl.naturalWidth * ni.cropSh }
+          if (nextEl) nextParams = { x: ni.x * xScale, y: ni.y * yScale, w: ni.width * xScale, h: ni.height * yScale, sx: nextEl.naturalWidth * ni.cropSx, sy: nextEl.naturalHeight * ni.cropSy, sw: nextEl.naturalWidth * ni.cropSw, sh: nextEl.naturalHeight * ni.cropSh }
         }
 
         if (nextEl && nextParams) {
-          ctx.drawImage(nextEl, nextParams.sx, nextParams.sy, nextParams.sw, nextParams.sh, nextParams.x, nextParams.y, nextParams.w, nextParams.h)
-          let currentEl: HTMLVideoElement | HTMLImageElement | null = null
-          let currentParams: any = undefined
-          if (activeMain!.type === 'video') {
-            const av = activeMain!.item as VideoClass
-            currentEl = videoElements.get(av.id) || null
-            if (currentEl && currentEl.readyState >= 2) {
-              currentParams = { x: (av.x ?? 0) * xScale, y: (av.y ?? 0) * yScale, w: (av.width ?? logicalW) * xScale, h: (av.height ?? logicalH) * yScale, sx: currentEl.videoWidth * (av.cropSx ?? 0), sy: currentEl.videoHeight * (av.cropSy ?? 0), sw: currentEl.videoWidth * (av.cropSw ?? 1), sh: currentEl.videoHeight * (av.cropSh ?? 1) }
+          let curEl: HTMLVideoElement | HTMLImageElement | null = null
+          let curParams: any = undefined
+          if (activeMain && activeMain.type === 'video') {
+            const av = activeMain.item as VideoClass
+            curEl = videoElements.get(av.id) || null
+            if (curEl && curEl.readyState >= 2) {
+              const localNow = (av.trimStart ?? 0) + (t - activeMain.startTime) * (av.playbackSpeed ?? 1)
+              curParams = { x: (av.x ?? 0) * xScale, y: (av.y ?? 0) * yScale, w: (av.width ?? logicalW) * xScale, h: (av.height ?? logicalH) * yScale, sx: curEl.videoWidth * (av.cropSx ?? 0), sy: curEl.videoHeight * (av.cropSy ?? 0), sw: curEl.videoWidth * (av.cropSw ?? 1), sh: curEl.videoHeight * (av.cropSh ?? 1) }
             }
-          } else {
-            const ai = activeMain!.item as ImageClass
-            currentEl = imageElements.get(ai.id) || null
-            if (currentEl) currentParams = { x: ai.x * xScale, y: ai.y * yScale, w: ai.width * xScale, h: ai.height * yScale, sx: currentEl.naturalWidth * ai.cropSx, sy: currentEl.naturalHeight * ai.cropSy, sw: currentEl.naturalWidth * ai.cropSw, sh: currentEl.naturalWidth * ai.cropSh }
+          } else if (activeMain) {
+            const ai = activeMain.item as ImageClass
+            curEl = imageElements.get(ai.id) || null
+            if (curEl) curParams = { x: ai.x * xScale, y: ai.y * yScale, w: ai.width * xScale, h: ai.height * yScale, sx: curEl.naturalWidth * ai.cropSx, sy: curEl.naturalHeight * ai.cropSy, sw: curEl.naturalWidth * ai.cropSw, sh: curEl.naturalHeight * ai.cropSh }
           }
-          if (currentEl && currentParams) { applyZoomTransform(ctx, nextMain!.item.zoom, progress, nextEl, nextParams.x, nextParams.y, nextParams.w, nextParams.h, nextMain!.item.cropSx, nextMain!.item.cropSy, nextMain!.item.cropSw, nextMain!.item.cropSh, nextMain!.item.zoomIntensity, 0, currentEl, currentParams) }
+          
+          if (activeMain && curEl && curParams) {
+            const nextItem = nextMain.item
+            const activeItem = activeMain.item
+            const elapsedB = t - nextMain.startTime
+            const elapsedA = t - activeMain.startTime
+            
+            const progB = calculateAnimationProgress(nextItem, t, nextMain.startTime)
+            const progA = calculateAnimationProgress(activeItem, t, activeMain.startTime)
+
+            applyZoomTransform(
+              ctx,
+              nextItem.animation,
+              nextItem.transition,
+              progress,
+              nextEl,
+              nextParams.x, nextParams.y, nextParams.w, nextParams.h,
+              nextItem.cropSx, nextItem.cropSy, nextItem.cropSw, nextItem.cropSh,
+              nextItem.zoomIntensity,
+              elapsedB,
+              curEl,
+              activeItem.animation,
+              progA,
+              elapsedA,
+              activeItem.zoomIntensity,
+              curParams
+            )
+          }
         }
       }
 
@@ -260,29 +287,15 @@ export async function exportVideo(
           const v = activeMain.item as VideoClass
           const vEl = videoElements.get(v.id)
           if (vEl && vEl.readyState >= 2) {
-            const isSplit = v.zoom === 'split-horizontal' || v.zoom === 'split-vertical'
-            let prog = 0
-            if (isSplit) prog = 1
-            else if (v.zoom === 'in' || v.zoom === 'out') {
-              const transDur = Math.max(0.1, v.transitionDuration ?? 1.0)
-              const elapsed = t - v.timestamp
-              prog = Math.max(0, Math.min(1, elapsed / transDur))
-            } else prog = v.duration && v.duration > 0 ? (t - v.timestamp) / v.duration : 0
-            applyZoomTransform(ctx, v.zoom, prog, vEl, (v.x ?? 0) * xScale, (v.y ?? 0) * yScale, (v.width ?? logicalW) * xScale, (v.height ?? logicalH) * yScale, v.cropSx, v.cropSy, v.cropSw, v.cropSh, v.zoomIntensity, t - v.timestamp)
+            const prog = calculateAnimationProgress(v, t, v.timestamp)
+            applyZoomTransform(ctx, v.animation, v.transition, prog, vEl, (v.x ?? 0) * xScale, (v.y ?? 0) * yScale, (v.width ?? logicalW) * xScale, (v.height ?? logicalH) * yScale, v.cropSx, v.cropSy, v.cropSw, v.cropSh, v.zoomIntensity, t - v.timestamp)
           }
         } else {
           const img = activeMain.item as ImageClass
           const iEl = imageElements.get(img.id)
           if (iEl) {
-            const isSplit = img.zoom === 'split-horizontal' || img.zoom === 'split-vertical'
-            let prog = 0
-            if (isSplit) prog = 1
-            else if (img.zoom === 'in' || img.zoom === 'out') {
-              const transDur = Math.max(0.1, img.transitionDuration ?? 1.0)
-              const elapsed = t - img.startTime
-              prog = Math.max(0, Math.min(1, elapsed / transDur))
-            } else prog = img.duration > 0 ? (t - img.startTime) / img.duration : 0
-            applyZoomTransform(ctx, img.zoom, prog, iEl, img.x * xScale, img.y * yScale, img.width * xScale, img.height * yScale, img.cropSx, img.cropSy, img.cropSw, img.cropSh, img.zoomIntensity, t - img.startTime)
+            const prog = calculateAnimationProgress(img, t, img.startTime)
+            applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, img.x * xScale, img.y * yScale, img.width * xScale, img.height * yScale, img.cropSx, img.cropSy, img.cropSw, img.cropSh, img.zoomIntensity, t - img.startTime)
           }
         }
       }
@@ -290,26 +303,16 @@ export async function exportVideo(
       (images || []).filter(img => !img.isMainTrack && t >= img.startTime && t < img.endTime).forEach(img => {
         const iEl = imageElements.get(img.id); if (!iEl) return
         ctx.save(); ctx.globalAlpha = img.opacity
-        let prog = 0
-        if (img.zoom === 'in' || img.zoom === 'out') {
-          const transDur = Math.max(0.1, img.transitionDuration ?? 1.0)
-          const elapsed = t - img.startTime
-          prog = Math.max(0, Math.min(1, elapsed / transDur))
-        } else prog = img.duration > 0 ? (t - img.startTime) / img.duration : 0
-        applyZoomTransform(ctx, img.zoom, prog, iEl, img.x * xScale, img.y * yScale, img.width * xScale, img.height * yScale, img.cropSx, img.cropSy, img.cropSw, img.cropSh, img.zoomIntensity, t - img.startTime)
+        const prog = calculateAnimationProgress(img, t, img.startTime)
+        applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, img.x * xScale, img.y * yScale, img.width * xScale, img.height * yScale, img.cropSx, img.cropSy, img.cropSw, img.cropSh, img.zoomIntensity, t - img.startTime)
         ctx.restore()
       })
 
       for (const v of ovs) {
         const vEl = videoElements.get(v.id); if (!vEl || vEl.readyState < 2) continue
-        let prog = 0
-        if (v.zoom === 'in' || v.zoom === 'out') {
-          const transDur = Math.max(0.1, v.transitionDuration ?? 1.0)
-          const elapsed = t - v.timestamp
-          prog = Math.max(0, Math.min(1, elapsed / transDur))
-        } else prog = (v.duration ?? 0) > 0 ? (t - v.timestamp) / (v.duration ?? 1) : 0
+        const prog = calculateAnimationProgress(v, t, v.timestamp)
         ctx.save(); ctx.globalAlpha = v.opacity
-        applyZoomTransform(ctx, v.zoom, prog, vEl, v.x * xScale, v.y * yScale, v.width * xScale, v.height * yScale, v.cropSx, v.cropSy, v.cropSw, v.cropSh, v.zoomIntensity, t - v.timestamp)
+        applyZoomTransform(ctx, v.animation, v.transition, prog, vEl, v.x * xScale, v.y * yScale, v.width * xScale, v.height * yScale, v.cropSx, v.cropSy, v.cropSw, v.cropSh, v.zoomIntensity, t - v.timestamp)
         ctx.restore()
       }
 

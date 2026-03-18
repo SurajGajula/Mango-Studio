@@ -1,8 +1,13 @@
-import type { ZoomMode } from '@/app/models/ImageClass'
+import type { AnimationMode, TransitionMode } from '@/app/models/ImageClass'
+import { drawWithAnimation } from './transforms/animationUtils'
+import { applySplit } from './transforms/split'
+import { applyFade } from './transforms/fade'
+import type { TransformParams } from './transforms/types'
 
 export function applyZoomTransform(
   ctx: CanvasRenderingContext2D,
-  zoom: ZoomMode | undefined,
+  animation: AnimationMode | undefined,
+  transition: TransitionMode | undefined,
   progress: number,
   imgEl: HTMLImageElement | HTMLVideoElement | ImageBitmap,
   x: number,
@@ -16,6 +21,10 @@ export function applyZoomTransform(
   zoomIntensity = 0.5,
   elapsedTime = 0,
   prevEl?: HTMLImageElement | HTMLVideoElement | ImageBitmap,
+  prevAnimation?: AnimationMode,
+  prevAnimationProgress?: number,
+  prevElapsedTime?: number,
+  prevZoomIntensity?: number,
   prevParams?: {
     x: number;
     y: number;
@@ -39,155 +48,25 @@ export function applyZoomTransform(
     nw = imgEl.width
     nh = imgEl.height
   }
-  const sx = nw * cropSx
-  const sy = nh * cropSy
-  const sw = nw * cropSw
-  const sh = nh * cropSh
+  const sx = nw * (cropSx ?? 0)
+  const sy = nh * (cropSy ?? 0)
+  const sw = nw * (cropSw ?? 1)
+  const sh = nh * (cropSh ?? 1)
 
-  if (!zoom || zoom === 'none') {
-    ctx.drawImage(imgEl, sx, sy, sw, sh, x, y, w, h)
-    return
+  const params: TransformParams = {
+    ctx, animation: animation ?? 'none', transition: transition ?? 'none', progress, imgEl, x, y, w, h, sx, sy, sw, sh,
+    zoomIntensity: zoomIntensity ?? 0.5, elapsedTime, prevEl, prevAnimation, prevAnimationProgress, prevElapsedTime, prevZoomIntensity, prevParams
   }
 
-  if (zoom === 'jitter') {
-    const jitterDuration = 0.4
-    const scale = 1.5 // 50% zoom ensures a massive safety margin for cardinal movement
-    const zoomedSw = sw / scale
-    const zoomedSh = sh / scale
-    const maxShiftX = (sw - zoomedSw) / 2
-    const maxShiftY = (sh - zoomedSh) / 2
-    const centerSx = sx + maxShiftX
-    const centerSy = sy + maxShiftY
+  // Draw the current element with its animation
+  drawWithAnimation(params, imgEl, animation ?? 'none', progress, elapsedTime, zoomIntensity ?? 0.5)
 
-    if (elapsedTime < jitterDuration + 0.001) {
-      const t = elapsedTime / jitterDuration
-      const pulse = Math.sin(t * Math.PI)
-      
-      // Cardinal oscillations (no rotation)
-      // Layered frequencies for weight and "violent" feel
-      const freqX1 = 26; const freqY1 = 20
-      const freqX2 = 10; const freqY2 = 8
-      
-      // Calculate shake offsets strictly within [ -maxShift, maxShift ]
-      // By using a combined amplitude of 1.0 and multiplying by maxShift,
-      // we guarantee we never exit the source image bounds.
-      const intensity = Math.min(1.0, zoomIntensity * 1.2)
-      const shakeX = (Math.sin(t * Math.PI * freqX1) * 0.6 + Math.sin(t * Math.PI * freqX2) * 0.4) * pulse * maxShiftX * intensity
-      const shakeY = (Math.cos(t * Math.PI * freqY1) * 0.6 + Math.cos(t * Math.PI * freqY2) * 0.4) * pulse * maxShiftY * intensity
-
-      ctx.save()
-      ctx.beginPath()
-      ctx.rect(x, y, w, h)
-      ctx.clip()
-      // Directly draw using the calculated cardinal offsets
-      ctx.drawImage(imgEl, centerSx + shakeX, centerSy + shakeY, zoomedSw, zoomedSh, x, y, w, h)
-      ctx.restore()
+  // Handle transition overlay if active
+  if (transition && transition !== 'none' && prevEl && prevParams && progress < 1) {
+    if (transition === 'fade') {
+      applyFade(params)
     } else {
-      // Stay zoomed in at the target scale after jitter is done
-      ctx.drawImage(imgEl, centerSx, centerSy, zoomedSw, zoomedSh, x, y, w, h)
+      applySplit(params)
     }
-    return
   }
-
-  if (zoom === 'split-horizontal' || zoom === 'split-vertical') {
-    // Draw the new item (reveal target) first
-    ctx.drawImage(imgEl, sx, sy, sw, sh, x, y, w, h)
-
-    if (prevEl && prevParams && progress < 1) {
-      const { x: px, y: py, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh } = prevParams
-      const t = Math.max(0, Math.min(1, progress)) // Clamp progress
-      
-      ctx.save()
-      // Clip to the reveal target's bounds to ensure nothing shows outside
-      ctx.beginPath()
-      ctx.rect(x, y, w, h)
-      ctx.clip()
-
-      // Use cubic easing for a smoother, more natural slide
-      const ease = t * t * (3 - 2 * t)
-
-      if (zoom === 'split-horizontal') {
-        const halfW = pw / 2
-        const halfSw = psw / 2
-        
-        // Ensure pieces move far enough to clear the reveal target's entire width
-        // and its own width, whichever is larger.
-        const totalShift = Math.max(halfW, (px - x) + halfW, (x + w) - (px + halfW))
-        const shift = totalShift * ease
-        
-        // Left half
-        ctx.drawImage(prevEl, psx, psy, halfSw, psh, px - shift, py, halfW, ph)
-        // Right half
-        ctx.drawImage(prevEl, psx + halfSw, psy, halfSw, psh, px + halfW + shift, py, halfW, ph)
-      } else {
-        const halfH = ph / 2
-        const halfSh = psh / 2
-        
-        // Ensure pieces move far enough to clear the reveal target's entire height
-        // This is critical for vertical splits in 9:16 mode where ph is often < h
-        // and ensures the pieces exit the frame completely.
-        const totalShift = Math.max(halfH, (py - y) + halfH, (y + h) - (py + halfH))
-        const shift = totalShift * ease
-        
-        // Top half
-        ctx.drawImage(prevEl, psx, psy, psw, halfSh, px, py - shift, pw, halfH)
-        // Bottom half
-        ctx.drawImage(prevEl, psx, psy + halfSh, psw, halfSh, px, py + halfH + shift, pw, halfH)
-      }
-      ctx.restore()
-    }
-    return
-  }
-
-  if (zoom === 'shake') {
-    const scale = 1.15
-    const zoomedSw = sw / scale
-    const zoomedSh = sh / scale
-    
-    // Faster, more organic oscillation frequencies
-    const time = elapsedTime * 2.5
-    const angle = time * 2 * Math.PI
-    
-    // Keep translation extremely subtle to stabilize the center
-    const maxShiftX = (sw - zoomedSw) / 2
-    const maxShiftY = (sh - zoomedSh) / 2
-    const shakeIntensity = 0.15 * zoomIntensity
-    const shakeX = Math.sin(angle * 0.8) * maxShiftX * shakeIntensity
-    const shakeY = Math.cos(angle * 0.9) * maxShiftY * shakeIntensity
-    
-    // Use rotation as the primary "edge shake" mechanism
-    // Rotation moves the edges significantly while leaving the center (the pivot) stable
-    const rotAmplitude = (2.2 * (Math.PI / 180)) * zoomIntensity
-    const rotAngle = Math.sin(angle * 1.2) * rotAmplitude
-    
-    const centerSx = sx + (sw - zoomedSw) / 2
-    const centerSy = sy + (sh - zoomedSh) / 2
-    
-    const destCx = x + w / 2
-    const destCy = y + h / 2
-    
-    const maxRot = rotAmplitude
-    const coverScale = Math.cos(maxRot) + Math.max(w / h, h / w) * Math.sin(maxRot)
-    const dw = w * coverScale
-    const dh = h * coverScale
-    
-    ctx.save()
-    ctx.beginPath()
-    ctx.rect(x, y, w, h)
-    ctx.clip()
-    
-    ctx.translate(destCx, destCy)
-    ctx.rotate(rotAngle)
-    ctx.drawImage(imgEl, centerSx + shakeX, centerSy + shakeY, zoomedSw, zoomedSh, -dw / 2, -dh / 2, dw, dh)
-    ctx.restore()
-    return
-  }
-
-  const t = zoom === 'in' ? progress : 1 - progress
-  const scale = 1 + t * zoomIntensity
-  const zoomedSw = sw / scale
-  const zoomedSh = sh / scale
-  const zoomedSx = sx + (sw - zoomedSw) / 2
-  const zoomedSy = sy + (sh - zoomedSh) / 2
-  ctx.drawImage(imgEl, zoomedSx, zoomedSy, zoomedSw, zoomedSh, x, y, w, h)
 }

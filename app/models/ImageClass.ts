@@ -1,4 +1,5 @@
-export type ZoomMode = 'none' | 'in' | 'out' | 'shake' | 'split-horizontal' | 'split-vertical' | 'jitter'
+export type AnimationMode = 'none' | 'in' | 'out' | 'shake' | 'jitter'
+export type TransitionMode = 'none' | 'split-horizontal' | 'split-vertical' | 'fade'
 
 export class ImageClass {
   id: string
@@ -13,9 +14,11 @@ export class ImageClass {
   opacity: number
   createdAt: Date
   isMainTrack: boolean
-  zoom: ZoomMode
+  animation: AnimationMode
+  transition: TransitionMode
   zoomIntensity: number
   transitionDuration?: number
+  animationDuration?: number
   cropAspect?: string
   cropSx: number
   cropSy: number
@@ -36,7 +39,8 @@ export class ImageClass {
     opacity?: number,
     createdAt?: Date,
     isMainTrack?: boolean,
-    zoom?: ZoomMode,
+    animation?: AnimationMode,
+    transition?: TransitionMode,
     cropAspect?: string,
     cropSx?: number,
     cropSy?: number,
@@ -44,7 +48,9 @@ export class ImageClass {
     cropSh?: number,
     zoomIntensity?: number,
     transitionDuration?: number,
-    row?: number
+    animationDuration?: number,
+    row?: number,
+    zoom?: AnimationMode | TransitionMode // Migration field
   ) {
     this.id = id
     this.name = name
@@ -59,9 +65,27 @@ export class ImageClass {
     this.createdAt = createdAt || new Date()
     this.row = row ?? 0
     this.isMainTrack = isMainTrack ?? (this.row === 0)
-    this.zoom = zoom ?? 'none'
+    
+    // Migration logic
+    if (animation) {
+      this.animation = animation
+    } else if (zoom && ['none', 'in', 'out', 'shake', 'jitter'].includes(zoom)) {
+      this.animation = zoom as AnimationMode
+    } else {
+      this.animation = 'none'
+    }
+
+    if (transition) {
+      this.transition = transition
+    } else if (zoom && ['split-horizontal', 'split-vertical'].includes(zoom)) {
+      this.transition = zoom as TransitionMode
+    } else {
+      this.transition = 'none'
+    }
+
     this.zoomIntensity = zoomIntensity ?? 0.5
     this.transitionDuration = transitionDuration
+    this.animationDuration = animationDuration
     this.cropAspect = cropAspect
     this.cropSx = cropSx ?? 0
     this.cropSy = cropSy ?? 0
@@ -83,7 +107,8 @@ export class ImageClass {
       updates.opacity ?? this.opacity,
       updates.createdAt ?? this.createdAt,
       updates.isMainTrack ?? this.isMainTrack,
-      updates.zoom ?? this.zoom,
+      updates.animation ?? this.animation,
+      updates.transition ?? this.transition,
       updates.cropAspect ?? this.cropAspect,
       updates.cropSx ?? this.cropSx,
       updates.cropSy ?? this.cropSy,
@@ -91,6 +116,7 @@ export class ImageClass {
       updates.cropSh ?? this.cropSh,
       updates.zoomIntensity ?? this.zoomIntensity,
       updates.transitionDuration ?? this.transitionDuration,
+      updates.animationDuration ?? this.animationDuration,
       updates.row ?? this.row
     )
   }

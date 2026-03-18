@@ -1,4 +1,4 @@
-import type { ZoomMode } from './ImageClass'
+import type { AnimationMode, TransitionMode } from './ImageClass'
 
 export class VideoClass {
   id: string
@@ -18,9 +18,11 @@ export class VideoClass {
   width: number
   height: number
   opacity: number
-  zoom: ZoomMode
+  animation: AnimationMode
+  transition: TransitionMode
   zoomIntensity: number
   transitionDuration?: number
+  animationDuration?: number
   row: number
   muted: boolean
   cropAspect?: string
@@ -51,9 +53,11 @@ export class VideoClass {
     width?: number,
     height?: number,
     opacity?: number,
-    zoom?: ZoomMode,
+    animation?: AnimationMode,
+    transition?: TransitionMode,
     zoomIntensity?: number,
     transitionDuration?: number,
+    animationDuration?: number,
     row?: number,
     muted?: boolean,
     cropAspect?: string,
@@ -64,7 +68,8 @@ export class VideoClass {
     sourceUrl?: string,
     sourceTrimStart?: number,
     sourceDuration?: number,
-    playbackSpeed?: number
+    playbackSpeed?: number,
+    zoom?: AnimationMode | TransitionMode // Migration field
   ) {
     this.id = id
     this.title = title
@@ -84,9 +89,27 @@ export class VideoClass {
     this.width = width ?? 270
     this.height = height ?? 480
     this.opacity = opacity ?? 1
-    this.zoom = zoom ?? 'none'
+    
+    // Migration logic
+    if (animation) {
+      this.animation = animation
+    } else if (zoom && ['none', 'in', 'out', 'shake', 'jitter'].includes(zoom)) {
+      this.animation = zoom as AnimationMode
+    } else {
+      this.animation = 'none'
+    }
+
+    if (transition) {
+      this.transition = transition
+    } else if (zoom && ['split-horizontal', 'split-vertical'].includes(zoom)) {
+      this.transition = zoom as TransitionMode
+    } else {
+      this.transition = 'none'
+    }
+
     this.zoomIntensity = zoomIntensity ?? 0.5
     this.transitionDuration = transitionDuration
+    this.animationDuration = animationDuration
     this.muted = muted ?? false
     this.cropAspect = cropAspect
     this.cropSx = cropSx ?? 0
@@ -118,9 +141,11 @@ export class VideoClass {
       updates.width ?? this.width,
       updates.height ?? this.height,
       updates.opacity ?? this.opacity,
-      updates.zoom ?? this.zoom,
+      updates.animation ?? this.animation,
+      updates.transition ?? this.transition,
       updates.zoomIntensity ?? this.zoomIntensity,
       updates.transitionDuration ?? this.transitionDuration,
+      updates.animationDuration ?? this.animationDuration,
       updates.row ?? this.row,
       updates.muted ?? this.muted,
       updates.cropAspect ?? this.cropAspect,

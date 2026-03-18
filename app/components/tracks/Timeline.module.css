@@ -588,6 +588,35 @@
   border-radius: 1px;
 }
 
+.transitionButton {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background-color: #2a2a2a;
+  border: 1px solid #444444;
+  color: #888888;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 20;
+  transition: all 0.15s ease;
+}
+
+.transitionButton:hover {
+  background-color: #3a3a3a;
+  color: #ffffff;
+  border-color: #666666;
+  transform: translate(-50%, -50%) scale(1.1);
+}
+
+.transitionButton svg {
+  pointer-events: none;
+}
+
 .timelineRow {
   position: relative;
   height: 40px;

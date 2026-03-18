@@ -94,7 +94,7 @@ export const createImageSlice = (set: any, get: any) => ({
   splitImage: (id: string, playbackTime: number) => {
     const state = get()
     const image = state.images.find((img: ImageClass) => img.id === id)
-    if (!image || !image.isMainTrack) return
+    if (!image) return
 
     if (playbackTime <= image.startTime + 0.05 || playbackTime >= image.endTime - 0.05) return
 

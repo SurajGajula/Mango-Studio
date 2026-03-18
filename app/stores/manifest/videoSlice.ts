@@ -131,7 +131,7 @@ export const createVideoSlice = (set: any, get: any) => ({
   splitVideo: (id: string, playbackTime: number) => {
     const state = get()
     const video = state.videos.find((v: VideoClass) => v.id === id)
-    if (!video || video.isOverlay) return
+    if (!video) return
 
     const localTime = playbackTime - video.timestamp
     const duration = video.duration ?? 0
@@ -172,7 +172,7 @@ export const createVideoSlice = (set: any, get: any) => ({
   splitVideoAtTimes: (id: string, times: number[]) => {
     const state = get()
     const video = state.videos.find((v: VideoClass) => v.id === id)
-    if (!video || video.isOverlay) return
+    if (!video) return
 
     const duration = video.duration ?? 0
     const origDuration = video.originalDuration ?? duration

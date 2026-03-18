@@ -179,7 +179,7 @@ export default function PlaybackControls({
               return local <= 0.05 || local >= (v.duration ?? 0) - 0.05
             }
             if (selectedImageId) {
-              const img = images.find((img) => img.id === selectedImageId && img.isMainTrack)
+              const img = images.find((img) => img.id === selectedImageId)
               if (!img) return true
               return playbackTime <= img.startTime + 0.05 || playbackTime >= img.endTime - 0.05
             }
@@ -225,11 +225,12 @@ export default function PlaybackControls({
           className={styles.transitionsButton}
           onClick={onOpenTransitions}
           disabled={!selectedImageId && !selectedVideoId}
-          title="Transitions"
+          title="Animations"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="8" cy="12" r="5" />
-            <circle cx="16" cy="12" r="5" />
+            <path d="M12 2v20M2 12h20" />
+            <path d="m17 7-5-5-5 5" />
+            <path d="m17 17-5 5-5-5" />
           </svg>
         </button>
         <button

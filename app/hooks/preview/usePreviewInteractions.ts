@@ -85,32 +85,40 @@ export function usePreviewInteractions(
   const enterCropEdit = useCallback(async (id: string, type: 'image' | 'video') => {
     if (type === 'image') {
       let img = images.find((i) => i.id === id)
-      if (!img) return
-      if (!img.cropAspect) {
-        const currentAspect = img.width / img.height
-        const matchingLabel = Object.keys(ASPECT_RATIOS).find(label => {
-          const [rw, rh] = ASPECT_RATIOS[label]
-          return Math.abs(currentAspect - (rw / rh)) < 0.01
-        })
-        const finalLabel = matchingLabel || aspectRatio
-        const [rw, rh] = ASPECT_RATIOS[finalLabel]
-        const updates = await computeMediaCropForAspect(img.url, 'image', aspectRatio, rw, rh, finalLabel)
+      if (!img || img.cropAspect) {
+        setCropEditId(id)
+        return
+      }
+      const currentAspect = img.width / img.height
+      const matchingLabel = Object.keys(ASPECT_RATIOS).find(label => {
+        const [rw, rh] = ASPECT_RATIOS[label]
+        return Math.abs(currentAspect - (rw / rh)) < 0.01
+      })
+      if (matchingLabel) {
+        const [rw, rh] = ASPECT_RATIOS[matchingLabel]
+        const updates = await computeMediaCropForAspect(img.url, 'image', aspectRatio, rw, rh, matchingLabel)
         updateImage(id, updates as Partial<ImageClass>)
+      } else {
+        updateImage(id, { cropAspect: 'Original' })
       }
       setCropEditId(id)
     } else {
       let vid = videos.find((v) => v.id === id)
-      if (!vid) return
-      if (!vid.cropAspect) {
-        const currentAspect = vid.width / vid.height
-        const matchingLabel = Object.keys(ASPECT_RATIOS).find(label => {
-          const [rw, rh] = ASPECT_RATIOS[label]
-          return Math.abs(currentAspect - (rw / rh)) < 0.01
-        })
-        const finalLabel = matchingLabel || aspectRatio
-        const [rw, rh] = ASPECT_RATIOS[finalLabel]
-        const updates = await computeMediaCropForAspect(vid.url || '', 'video', aspectRatio, rw, rh, finalLabel)
+      if (!vid || vid.cropAspect) {
+        setCropEditId(id)
+        return
+      }
+      const currentAspect = vid.width / vid.height
+      const matchingLabel = Object.keys(ASPECT_RATIOS).find(label => {
+        const [rw, rh] = ASPECT_RATIOS[label]
+        return Math.abs(currentAspect - (rw / rh)) < 0.01
+      })
+      if (matchingLabel) {
+        const [rw, rh] = ASPECT_RATIOS[matchingLabel]
+        const updates = await computeMediaCropForAspect(vid.url || '', 'video', aspectRatio, rw, rh, matchingLabel)
         updateVideo(id, updates as Partial<VideoClass>)
+      } else {
+        updateVideo(id, { cropAspect: 'Original' })
       }
       setCropEditId(id)
     }

@@ -5,7 +5,7 @@ import { useAuth } from './AuthProvider'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import type { ManifestMutation, SplitInstruction, ReplaceInstruction, AddTextInstruction, TransitionInstruction, CropInstruction } from '@/app/api/route-prompt/route'
 import { TextClass } from '@/app/models/TextClass'
-import { ImageClass } from '@/app/models/ImageClass'
+import { ImageClass, AnimationMode, TransitionMode } from '@/app/models/ImageClass'
 import { computeCropForAspect, computeImageDimensions, ASPECT_RATIOS, computeVideoDimensions, computeVideoCropForAspect } from '@/app/lib/mediaUtils'
 import styles from './ChatWindow.module.css'
 
@@ -109,15 +109,23 @@ export default function ChatWindow() {
   const applyTransitions = (transitions: TransitionInstruction[]) => {
     const { images, videos } = useManifestStore.getState()
     for (const t of transitions) {
-      const updates: { zoom: typeof t.zoom; zoomIntensity?: number; transitionDuration?: number } = { zoom: t.zoom }
+      const updates: { animation?: AnimationMode; transition?: TransitionMode; zoomIntensity?: number; transitionDuration?: number; animationDuration?: number } = {}
+      if (t.animation !== undefined) updates.animation = t.animation
+      if (t.transition !== undefined) updates.transition = t.transition
       if (t.zoomIntensity !== undefined) updates.zoomIntensity = t.zoomIntensity
       
       const item = t.type === 'image' ? images.find(i => i.id === t.id) : videos.find(v => v.id === t.id)
       
       if (t.transitionDuration !== undefined) {
         updates.transitionDuration = t.transitionDuration
-      } else if (t.zoom !== 'none' && item && (!item.transitionDuration || item.transitionDuration === 0)) {
+      } else if (t.transition && t.transition !== 'none' && item && (!item.transitionDuration || item.transitionDuration === 0)) {
         updates.transitionDuration = 1.0
+      }
+
+      if (t.animationDuration !== undefined) {
+        updates.animationDuration = t.animationDuration
+      } else if (t.animation && t.animation !== 'none' && item && (!item.animationDuration || item.animationDuration === 0)) {
+        updates.animationDuration = 1.0
       }
 
       if (t.type === 'image') updateImage(t.id, updates)
@@ -216,8 +224,8 @@ export default function ChatWindow() {
     try {
       const { videos, images, texts, audios } = useManifestStore.getState()
       const manifest = {
-        images: images.map((i) => ({ id: i.id, name: i.name, startTime: i.startTime, endTime: i.endTime, zoom: i.zoom, zoomIntensity: i.zoomIntensity, transitionDuration: i.transitionDuration, cropAspect: i.cropAspect })),
-        videos: videos.map((v) => ({ id: v.id, title: v.title, timestamp: v.timestamp, duration: v.duration, playbackSpeed: v.playbackSpeed, muted: v.muted, isOverlay: v.isOverlay, zoom: v.zoom, zoomIntensity: v.zoomIntensity, transitionDuration: v.transitionDuration, cropAspect: v.cropAspect })),
+        images: images.map((i) => ({ id: i.id, name: i.name, startTime: i.startTime, endTime: i.endTime, animation: i.animation, transition: i.transition, zoomIntensity: i.zoomIntensity, transitionDuration: i.transitionDuration, animationDuration: i.animationDuration, cropAspect: i.cropAspect })),
+        videos: videos.map((v) => ({ id: v.id, title: v.title, timestamp: v.timestamp, duration: v.duration, playbackSpeed: v.playbackSpeed, muted: v.muted, isOverlay: v.isOverlay, animation: v.animation, transition: v.transition, zoomIntensity: v.zoomIntensity, transitionDuration: v.transitionDuration, animationDuration: v.animationDuration, cropAspect: v.cropAspect })),
         texts: texts.map((t) => ({ id: t.id, content: t.content, startTime: t.startTime, endTime: t.endTime })),
         audios: audios.map((a) => ({ id: a.id, name: a.name, startTime: a.startTime, endTime: a.endTime, originalDuration: a.originalDuration, trimStart: a.trimStart, trimEnd: a.trimEnd, playbackSpeed: a.playbackSpeed, marks: a.marks })),
       }

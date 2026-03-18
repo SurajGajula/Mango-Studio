@@ -14,6 +14,7 @@ interface TextTrackProps {
   setSelectedVideoId: (id: string | null) => void
   setSelectedImageId: (id: string | null) => void
   handleTextDragStart: (textId: string, handle: 'move' | 'start' | 'end', e: React.MouseEvent) => void
+  onCloseTransitions?: () => void
 }
 
 const TextTrackComponent = ({
@@ -25,6 +26,7 @@ const TextTrackComponent = ({
   setSelectedVideoId,
   setSelectedImageId,
   handleTextDragStart,
+  onCloseTransitions,
 }: TextTrackProps) => {
   const texts = useManifestStore((state) => state.texts)
   const selectedTextId = useSelectionStore((state) => state.selectedTextId)
@@ -51,6 +53,7 @@ const TextTrackComponent = ({
             onClick={(e) => {
               e.stopPropagation()
               selectText(isSelected ? null : text.id)
+              onCloseTransitions?.()
             }}
             onMouseDown={(e) => handleTextDragStart(text.id, 'move', e)}
           >

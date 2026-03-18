@@ -23,12 +23,14 @@ import { useTimelineDrag } from '@/app/hooks/timeline/useTimelineDrag'
 import styles from './tracks/Timeline.module.css'
 
 interface TimelineProps {
-  onOpenTransitions?: () => void
+  onOpenTransitions?: (id: string) => void
+  onCloseTransitions?: () => void
+  onOpenAnimations?: () => void
   onOpenFont?: () => void
   onOpenEffects?: () => void
 }
 
-export default function Timeline({ onOpenTransitions, onOpenFont, onOpenEffects }: TimelineProps) {
+export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpenAnimations, onOpenFont, onOpenEffects }: TimelineProps) {
   const videos = useManifestStore((state) => state.videos)
   const images = useManifestStore((state) => state.images)
   const texts = useManifestStore((state) => state.texts)
@@ -170,7 +172,8 @@ export default function Timeline({ onOpenTransitions, onOpenFont, onOpenEffects 
     setSelectedImageId(null)
     setSelectedTextId(null)
     setSelectedAudioId(null)
-  }, [setSelectedVideoId, setSelectedImageId, setSelectedTextId, setSelectedAudioId])
+    onCloseTransitions?.()
+  }, [setSelectedVideoId, setSelectedImageId, setSelectedTextId, setSelectedAudioId, onCloseTransitions])
 
   const handleAddText = () => {
     const id = `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
@@ -326,7 +329,7 @@ export default function Timeline({ onOpenTransitions, onOpenFont, onOpenEffects 
               totalDuration={totalDuration}
               formatTime={formatTime}
               uploadInputRef={uploadInputRef}
-              onOpenTransitions={onOpenTransitions}
+              onOpenTransitions={onOpenAnimations}
               onOpenFont={onOpenFont}
               onOpenEffects={onOpenEffects}
               isExporting={isExporting}
@@ -377,6 +380,7 @@ export default function Timeline({ onOpenTransitions, onOpenFont, onOpenEffects 
                         replaceTargetId={replaceTargetId}
                         setReplaceTargetId={setReplaceTargetId}
                         replaceInputRef={replaceInputRef}
+                        onCloseTransitions={onCloseTransitions}
                       />
                     ))
                   })()}
@@ -393,6 +397,7 @@ export default function Timeline({ onOpenTransitions, onOpenFont, onOpenEffects 
                         setSelectedVideoId={setSelectedVideoId}
                         setSelectedImageId={setSelectedImageId}
                         handleTextDragStart={handleTextDragStart}
+                        onCloseTransitions={onCloseTransitions}
                       />
                     ))
                   })()}
@@ -410,6 +415,8 @@ export default function Timeline({ onOpenTransitions, onOpenFont, onOpenEffects 
                     videoThumbnails={videoThumbnails}
                     scrollContainerRef={scrollContainerRef}
                     handleImageDragStart={handleImageDragStart}
+                    onOpenTransitions={onOpenTransitions}
+                    onCloseTransitions={onCloseTransitions}
                   />
                 </div>
               </div>

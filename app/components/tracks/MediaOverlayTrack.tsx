@@ -19,6 +19,7 @@ interface MediaOverlayTrackProps {
   replaceTargetId: string | null
   setReplaceTargetId: (id: string | null) => void
   replaceInputRef: React.RefObject<HTMLInputElement>
+  onCloseTransitions?: () => void
 }
 
 const MediaOverlayTrackComponent = ({
@@ -35,6 +36,7 @@ const MediaOverlayTrackComponent = ({
   replaceTargetId,
   setReplaceTargetId,
   replaceInputRef,
+  onCloseTransitions,
 }: MediaOverlayTrackProps) => {
   const images = useManifestStore((state) => state.images)
   const videos = useManifestStore((state) => state.videos)
@@ -55,7 +57,8 @@ const MediaOverlayTrackComponent = ({
       />
       {images.filter((img) => img.row === rowIndex).map((image) => {
         const leftPercent = getContentPosition(image.startTime)
-        const widthPercent = totalDuration > 0 ? (image.duration / (totalDuration + effectivePadding * 2)) * 100 : 0
+        const duration = image.endTime - image.startTime
+        const widthPercent = totalDuration > 0 ? (duration / (totalDuration + effectivePadding * 2)) * 100 : 0
         const isSelected = selectedImageId === image.id
         return (
           <div
@@ -65,6 +68,7 @@ const MediaOverlayTrackComponent = ({
             onClick={(e) => {
               e.stopPropagation()
               selectImage(isSelected ? null : image.id)
+              onCloseTransitions?.()
             }}
             onMouseDown={(e) => handleImageDragStart(image.id, 'move', e)}
           >
@@ -100,6 +104,7 @@ const MediaOverlayTrackComponent = ({
             onClick={(e) => {
               e.stopPropagation()
               selectVideo(isSelected ? null : video.id)
+              onCloseTransitions?.()
             }}
             onDoubleClick={(e) => { e.stopPropagation(); handleVideoDoubleClick(video.id) }}
             onMouseDown={(e) => handleOverlayVideoDragStart(video.id, e)}

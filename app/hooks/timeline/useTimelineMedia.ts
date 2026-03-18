@@ -81,7 +81,30 @@ export function useTimelineMedia({
           const dims = computeMediaDimensions(videoWidth, videoHeight, aspectRatio, isMainTrack)
           x = dims.x; y = dims.y; width = dims.width; height = dims.height
         }
-        addVideo(new VideoClass(id, title, blobUrl, duration, start, undefined, undefined, undefined, 0, 0, undefined, !isMainTrack, x, y, width, height, undefined, undefined, undefined, undefined, row, false, cropAspect, cropSx, cropSy, cropSw, cropSh, undefined, undefined, undefined, 1))
+        addVideo(new VideoClass(
+          id,
+          title,
+          blobUrl,
+          duration,
+          start,
+          undefined, undefined, undefined,
+          0, 0,
+          undefined,
+          !isMainTrack,
+          x, y, width, height,
+          1,
+          'none',
+          'none',
+          0.5,
+          1.0,
+          undefined,
+          row,
+          false,
+          cropAspect,
+          cropSx, cropSy, cropSw, cropSh,
+          undefined, undefined, undefined,
+          1
+        ))
       } else if (file.type.startsWith('image/')) {
         const url = URL.createObjectURL(file)
         const start = playbackTime
@@ -99,11 +122,18 @@ export function useTimelineMedia({
           url,
           start,
           end,
-          x, y, width, height, 1,
-          undefined,
+          x, y, width, height,
+          1,
+          new Date(),
           isMainTrack,
-          undefined, undefined, undefined, undefined, undefined, undefined, undefined,
-          row,
+          'none',
+          'none',
+          undefined,
+          0, 0, 1, 1,
+          0.5,
+          1.0,
+          undefined,
+          row
         ))
       } else if (file.type.startsWith('audio/')) {
         if (videos.length === 0 && images.length === 0) continue

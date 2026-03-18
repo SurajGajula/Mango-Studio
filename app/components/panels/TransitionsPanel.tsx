@@ -3,18 +3,21 @@
 import { useState, useEffect } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
-import type { ZoomMode } from '@/app/models/ImageClass'
+import { AnimationMode, TransitionMode, ImageClass } from '@/app/models/ImageClass'
+import { VideoClass } from '@/app/models/VideoClass'
 import styles from './TransitionsPanel.module.css'
 
 interface Props {
   onClose: () => void
+  mode: 'animation' | 'transition'
+  itemId?: string
 }
 
-const ZOOM_OPTIONS: { value: ZoomMode; label: string; desc: string; icon: React.ReactNode }[] = [
+const ANIMATION_OPTIONS: { value: AnimationMode; label: string; desc: string; icon: React.ReactNode }[] = [
   {
     value: 'none',
     label: 'None',
-    desc: 'No transition effect',
+    desc: 'No animation',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -24,7 +27,7 @@ const ZOOM_OPTIONS: { value: ZoomMode; label: string; desc: string; icon: React.
   {
     value: 'in',
     label: 'Zoom In',
-    desc: 'Slowly zooms into the image over its duration',
+    desc: 'Slowly zooms into the item',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="11" cy="11" r="8" />
@@ -37,7 +40,7 @@ const ZOOM_OPTIONS: { value: ZoomMode; label: string; desc: string; icon: React.
   {
     value: 'out',
     label: 'Zoom Out',
-    desc: 'Slowly zooms out from the image over its duration',
+    desc: 'Slowly zooms out from the item',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="11" cy="11" r="8" />
@@ -49,10 +52,33 @@ const ZOOM_OPTIONS: { value: ZoomMode; label: string; desc: string; icon: React.
   {
     value: 'shake',
     label: 'Shake',
-    desc: 'Zooms in and smoothly shakes the image throughout its duration',
+    desc: 'Zooms in and smoothly shakes the item',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M4 12 Q6 9 8 12 Q10 15 12 12 Q14 9 16 12 Q18 15 20 12" />
+      </svg>
+    ),
+  },
+  {
+    value: 'jitter',
+    label: 'Jitter',
+    desc: 'Quickly shakes the item once at the start',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M2 12l3-3 4 4 4-4 4 4 5-5" />
+      </svg>
+    ),
+  },
+]
+
+const TRANSITION_OPTIONS: { value: TransitionMode; label: string; desc: string; icon: React.ReactNode }[] = [
+  {
+    value: 'none',
+    label: 'None',
+    desc: 'No transition effect',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
       </svg>
     ),
   },
@@ -81,18 +107,19 @@ const ZOOM_OPTIONS: { value: ZoomMode; label: string; desc: string; icon: React.
     ),
   },
   {
-    value: 'jitter',
-    label: 'Jitter',
-    desc: 'Quickly shakes the item once at the very start',
+    value: 'fade',
+    label: 'Fade',
+    desc: 'The previous item smoothly fades into this item',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M2 12l3-3 4 4 4-4 4 4 5-5" />
+        <circle cx="12" cy="12" r="10" />
+        <path d="M12 2a10 10 0 0 1 0 20" fill="currentColor" opacity="0.3" />
       </svg>
     ),
   },
 ]
 
-export default function TransitionsPanel({ onClose }: Props) {
+export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
   const selectedImageId = useSelectionStore((s) => s.selectedImageId)
   const selectedVideoId = useSelectionStore((s) => s.selectedVideoId)
   const images = useManifestStore((s) => s.images)
@@ -102,10 +129,18 @@ export default function TransitionsPanel({ onClose }: Props) {
 
   const selectedImage = selectedImageId ? images.find((i) => i.id === selectedImageId) : null
   const selectedVideo = selectedVideoId ? videos.find((v) => v.id === selectedVideoId) : null
-  const selectedItem = selectedImage ?? selectedVideo
-  const currentZoom: ZoomMode = selectedItem?.zoom ?? 'none'
+  
+  // Use itemId if provided (for transitions), otherwise fallback to global selection
+  const targetItem = itemId 
+    ? (images.find(i => i.id === itemId) || videos.find(v => v.id === itemId))
+    : (selectedImage ?? selectedVideo)
 
-  // For split transitions, the animation happens during the PREVIOUS item.
+  const selectedItem = targetItem
+  
+  const currentAnimation = selectedItem?.animation ?? 'none'
+  const currentTransition = selectedItem?.transition ?? 'none'
+
+  // For split and fade transitions, the animation/effect involves the PREVIOUS item visually.
   // We need to find the item immediately before the selected one to set the max duration.
   const allMainItems = [
     ...videos.filter(v => !v.isOverlay).map(v => ({ id: v.id, startTime: v.timestamp, duration: v.duration || 0 })),
@@ -116,53 +151,69 @@ export default function TransitionsPanel({ onClose }: Props) {
   const previousItem = selectedIdx > 0 ? allMainItems[selectedIdx - 1] : null
   
   // Max duration depends on transition type
-  const isSplit = ['split-horizontal', 'split-vertical'].includes(currentZoom)
-  const maxDuration = isSplit ? (previousItem?.duration || 1.0) : (selectedItem?.duration || 1.0)
+  const isTransitionAffectingPrevious = ['split-horizontal', 'split-vertical', 'fade'].includes(currentTransition)
+  const maxDuration = (mode === 'transition' && isTransitionAffectingPrevious) ? (previousItem?.duration || 1.0) : (selectedItem?.duration || 1.0)
 
   // Use a local state for the slider to ensure it's always responsive
   const [localDuration, setLocalDuration] = useState<number | null>(null)
 
-  // Sync local duration with the selected item's transition duration
+  // Sync local duration with the selected item's transition/animation duration
   useEffect(() => {
     if (selectedItem) {
-      const currentVal = (selectedItem.transitionDuration && selectedItem.transitionDuration > 0) ? selectedItem.transitionDuration : 1.0
+      const currentVal = mode === 'animation' 
+        ? (selectedItem.animationDuration && selectedItem.animationDuration > 0 ? selectedItem.animationDuration : 1.0)
+        : (selectedItem.transitionDuration && selectedItem.transitionDuration > 0 ? selectedItem.transitionDuration : 1.0)
       setLocalDuration(Math.max(0.1, Math.min(currentVal, maxDuration)))
     } else {
       setLocalDuration(null)
     }
-  }, [selectedItem?.id, selectedItem?.transitionDuration, selectedItem?.duration, maxDuration, isSplit])
+  }, [selectedItem?.id, selectedItem?.transitionDuration, selectedItem?.animationDuration, selectedItem?.duration, maxDuration, mode])
 
-  const handleSelect = (zoom: ZoomMode) => {
-    const updates: any = { zoom }
-    // When switching from 'none' to a transition, default to 1s if not already set
-    if (zoom !== 'none' && (selectedItem?.transitionDuration === undefined || selectedItem?.transitionDuration === 0)) {
-      updates.transitionDuration = 1.0
+  const handleSelect = (val: string) => {
+    if (!selectedItem) return
+    const updates: any = {}
+    if (mode === 'animation') {
+      updates.animation = val
+      // When switching from 'none' to something, default to 1s if not already set
+      if (val !== 'none' && (selectedItem?.animationDuration === undefined || selectedItem?.animationDuration === 0)) {
+        updates.animationDuration = 1.0
+      }
+    } else {
+      updates.transition = val
+      // When switching from 'none' to something, default to 1s if not already set
+      if (val !== 'none' && (selectedItem?.transitionDuration === undefined || selectedItem?.transitionDuration === 0)) {
+        updates.transitionDuration = 1.0
+      }
     }
     
-    if (selectedImageId) updateImage(selectedImageId, updates)
-    else if (selectedVideoId) updateVideo(selectedVideoId, updates)
+    const isImage = images.some(img => img.id === selectedItem.id)
+    if (isImage) updateImage(selectedItem.id, updates)
+    else updateVideo(selectedItem.id, updates)
   }
 
   const itemDuration = selectedItem?.duration || 1.0
   const displayDuration = localDuration !== null ? localDuration : itemDuration
 
+  const options = mode === 'animation' ? ANIMATION_OPTIONS : TRANSITION_OPTIONS
+  const currentValue = mode === 'animation' ? currentAnimation : currentTransition
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <span className={styles.title}>Transitions</span>
+        <span className={styles.title}>{mode === 'animation' ? 'Animations' : 'Transitions'}</span>
         <button className={styles.closeButton} onClick={onClose}>×</button>
       </div>
       <div className={styles.body}>
         {!selectedItem ? (
-          <p className={styles.emptyState}>Select an image or video on the timeline to apply a transition.</p>
+          <p className={styles.emptyState}>Select an item on the timeline to apply {mode}.</p>
         ) : (
           <>
-            <p className={styles.sectionLabel}>Zoom</p>
+            <p className={styles.sectionLabel}>{mode === 'animation' ? 'Animation Type' : 'Transition Type'}</p>
             <div className={styles.optionList}>
-              {ZOOM_OPTIONS.map((opt) => (
+              {options.map((opt) => (
                 <button
                   key={opt.value}
-                  className={`${styles.optionCard} ${currentZoom === opt.value ? styles.optionCardActive : ''}`}
+                  className={`${styles.optionCard} ${currentValue === opt.value ? styles.optionCardActive : ''}`}
                   onClick={() => handleSelect(opt.value)}
                 >
                   <span className={styles.optionIcon}>{opt.icon}</span>
@@ -174,10 +225,10 @@ export default function TransitionsPanel({ onClose }: Props) {
               ))}
             </div>
             
-            {['split-horizontal', 'split-vertical', 'in', 'out'].includes(currentZoom) && (
+            {(currentValue !== 'none' || (mode === 'animation' && (currentAnimation === 'in' || currentAnimation === 'out'))) && (
               <div className={styles.durationControl}>
                 <div className={styles.durationHeader}>
-                  <label className={styles.durationLabel}>Transition Duration</label>
+                  <label className={styles.durationLabel}>Duration</label>
                   <span className={styles.durationValue}>{displayDuration.toFixed(1)}s</span>
                 </div>
                 <input
@@ -193,8 +244,11 @@ export default function TransitionsPanel({ onClose }: Props) {
                   }}
                   onChange={(e) => {
                     const val = parseFloat((e.target as HTMLInputElement).value)
-                    if (selectedImageId) updateImage(selectedImageId, { transitionDuration: val })
-                    else if (selectedVideoId) updateVideo(selectedVideoId, { transitionDuration: val })
+                    if (!selectedItem) return
+                    const isImage = images.some(img => img.id === selectedItem.id)
+                    const updates = mode === 'animation' ? { animationDuration: val } : { transitionDuration: val }
+                    if (isImage) updateImage(selectedItem.id, updates)
+                    else updateVideo(selectedItem.id, updates)
                   }}
                 />
               </div>

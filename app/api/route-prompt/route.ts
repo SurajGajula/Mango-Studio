@@ -14,9 +14,11 @@ interface ManifestItem {
   duration?: number
   isOverlay?: boolean
   marks?: number[]
-  zoom?: string
+  animation?: string
+  transition?: string
   zoomIntensity?: number
   transitionDuration?: number
+  animationDuration?: number
   cropAspect?: string
   originalDuration?: number
   trimStart?: number
@@ -76,9 +78,11 @@ export interface AddTextInstruction {
 export interface TransitionInstruction {
   type: 'image' | 'video'
   id: string
-  zoom: 'none' | 'in' | 'out' | 'shake' | 'split-horizontal' | 'split-vertical' | 'jitter'
+  animation?: 'none' | 'in' | 'out' | 'shake' | 'jitter'
+  transition?: 'none' | 'split-horizontal' | 'split-vertical' | 'fade'
   zoomIntensity?: number
   transitionDuration?: number
+  animationDuration?: number
 }
 
 export interface CropInstruction {
@@ -117,14 +121,14 @@ function buildManifestContext(manifest: SerializedManifest): string {
     const sorted = [...manifest.images].sort((a, b) => (a.startTime ?? 0) - (b.startTime ?? 0))
     lines.push(`Images (${sorted.length}):`)
     sorted.forEach((img, i) => {
-      lines.push(`  - #${i + 1} id="${img.id}" name="${img.name}" startTime=${img.startTime}s endTime=${img.endTime}s zoom=${img.zoom ?? 'none'}${img.zoomIntensity ? ` zoomIntensity=${img.zoomIntensity}` : ''}${img.transitionDuration ? ` transitionDuration=${img.transitionDuration}s` : ''} cropAspect=${img.cropAspect ?? 'none'}`)
+      lines.push(`  - #${i + 1} id="${img.id}" name="${img.name}" startTime=${img.startTime}s endTime=${img.endTime}s animation=${img.animation ?? 'none'} transition=${img.transition ?? 'none'}${img.zoomIntensity ? ` zoomIntensity=${img.zoomIntensity}` : ''}${img.transitionDuration ? ` transitionDuration=${img.transitionDuration}s` : ''}${img.animationDuration ? ` animationDuration=${img.animationDuration}s` : ''} cropAspect=${img.cropAspect ?? 'none'}`)
     })
   }
   if (manifest.videos?.length) {
     const sorted = [...manifest.videos].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
     lines.push(`Videos (${sorted.length}):`)
     sorted.forEach((vid, i) => {
-      lines.push(`  - #${i + 1} id="${vid.id}" title="${vid.title}" timestamp=${vid.timestamp}s duration=${vid.duration}s playbackSpeed=${vid.playbackSpeed ?? 1}x muted=${vid.muted ?? false} isOverlay=${vid.isOverlay} zoom=${vid.zoom ?? 'none'}${vid.zoomIntensity ? ` zoomIntensity=${vid.zoomIntensity}` : ''}${vid.transitionDuration ? ` transitionDuration=${vid.transitionDuration}s` : ''} cropAspect=${vid.cropAspect ?? 'none'}`)
+      lines.push(`  - #${i + 1} id="${vid.id}" title="${vid.title}" timestamp=${vid.timestamp}s duration=${vid.duration}s playbackSpeed=${vid.playbackSpeed ?? 1}x muted=${vid.muted ?? false} isOverlay=${vid.isOverlay} animation=${vid.animation ?? 'none'} transition=${vid.transition ?? 'none'}${vid.zoomIntensity ? ` zoomIntensity=${vid.zoomIntensity}` : ''}${vid.transitionDuration ? ` transitionDuration=${vid.transitionDuration}s` : ''}${vid.animationDuration ? ` animationDuration=${vid.animationDuration}s` : ''} cropAspect=${vid.cropAspect ?? 'none'}`)
     })
   }
   if (manifest.texts?.length) {

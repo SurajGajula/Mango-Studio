@@ -29,6 +29,16 @@ export function getSortedMainItems(videos: VideoClass[], images: ImageClass[]): 
   ].sort((a, b) => a.startTime - b.startTime)
 }
 
+export function calculateAnimationProgress(item: VideoClass | ImageClass, currentTime: number, startTime: number): number {
+  const elapsed = currentTime - startTime
+  if (item.animation === 'in' || item.animation === 'out') {
+    const animDur = Math.max(0.1, item.animationDuration ?? item.transitionDuration ?? 1.0)
+    return Math.max(0, Math.min(1, elapsed / animDur))
+  }
+  const duration = item instanceof ImageClass ? item.duration : (item as VideoClass).duration
+  return (duration && duration > 0) ? elapsed / duration : 0
+}
+
 export function findActiveAndNextItems(items: MainItem[], time: number) {
   const activeIdx = items.findIndex(it => time >= it.startTime && time < it.startTime + it.duration)
   const activeItem = activeIdx !== -1 ? items[activeIdx] : null
@@ -42,7 +52,7 @@ export function findActiveAndNextItems(items: MainItem[], time: number) {
 export function checkTransition(activeItem: MainItem | null, nextItem: MainItem | null, time: number) {
   if (!activeItem || !nextItem) return { transitionActive: false, progress: 0 }
   
-  const isTransitionType = nextItem.item.zoom === 'split-horizontal' || nextItem.item.zoom === 'split-vertical'
+  const isTransitionType = nextItem.item.transition !== 'none'
   if (!isTransitionType) return { transitionActive: false, progress: 0 }
 
   const rawTransDur = Math.max(0.1, nextItem.item.transitionDuration ?? 1.0)

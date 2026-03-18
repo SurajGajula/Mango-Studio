@@ -12,10 +12,11 @@ import { useAuth } from './AuthProvider'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import styles from './MainView.module.css'
 
-type RightPanel = 'chat' | 'transitions' | 'font' | 'effects'
+type RightPanel = 'chat' | 'transitions' | 'animations' | 'font' | 'effects'
 
 export default function MainView() {
   const [rightPanel, setRightPanel] = useState<RightPanel>('chat')
+  const [transitionItemId, setTransitionItemId] = useState<string | null>(null)
   const { user, loading } = useAuth()
   const aspectRatio = useManifestStore((s) => s.aspectRatio)
 
@@ -37,7 +38,17 @@ export default function MainView() {
         </div>
         <div className={styles.timelineContainer} style={{ height: timelineHeight }}>
           <Timeline
-            onOpenTransitions={() => setRightPanel('transitions')}
+            onOpenTransitions={(id) => {
+              setRightPanel('transitions')
+              setTransitionItemId(id)
+            }}
+            onCloseTransitions={() => {
+              if (rightPanel === 'transitions') {
+                setRightPanel('chat')
+                setTransitionItemId(null)
+              }
+            }}
+            onOpenAnimations={() => setRightPanel('animations')}
             onOpenFont={() => setRightPanel('font')}
             onOpenEffects={() => setRightPanel('effects')}
           />
@@ -45,7 +56,9 @@ export default function MainView() {
       </div>
       <div className={!user ? styles.blurredContent : styles.rightSection}>
         {rightPanel === 'transitions'
-          ? <TransitionsPanel onClose={() => setRightPanel('chat')} />
+          ? <TransitionsPanel mode="transition" itemId={transitionItemId || undefined} onClose={() => setRightPanel('chat')} />
+          : rightPanel === 'animations'
+          ? <TransitionsPanel mode="animation" onClose={() => setRightPanel('chat')} />
           : rightPanel === 'font'
           ? <FontPanel onClose={() => setRightPanel('chat')} />
           : rightPanel === 'effects'
