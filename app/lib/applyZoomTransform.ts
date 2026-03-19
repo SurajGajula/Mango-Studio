@@ -2,6 +2,7 @@ import type { AnimationMode, TransitionMode } from '@/app/models/ImageClass'
 import { drawWithAnimation } from './transforms/animationUtils'
 import { applySplit } from './transforms/split'
 import { applyFade } from './transforms/fade'
+import { applySlide } from './transforms/slide'
 import type { TransformParams } from './transforms/types'
 
 export function applyZoomTransform(
@@ -58,15 +59,41 @@ export function applyZoomTransform(
     zoomIntensity: zoomIntensity ?? 0.5, elapsedTime, prevEl, prevAnimation, prevAnimationProgress, prevElapsedTime, prevZoomIntensity, prevParams
   }
 
-  // Draw the current element with its animation
-  drawWithAnimation(params, imgEl, animation ?? 'none', progress, elapsedTime, zoomIntensity ?? 0.5)
+  ctx.save()
+  // Clip to the target bounds to ensure everything (animations, transitions) stays within the video frame
+  ctx.beginPath()
+  ctx.rect(x, y, w, h)
+  ctx.clip()
 
-  // Handle transition overlay if active
-  if (transition && transition !== 'none' && prevEl && prevParams && progress < 1) {
-    if (transition === 'fade') {
-      applyFade(params)
-    } else {
-      applySplit(params)
+  const isSlideTransition = transition && transition.startsWith('slide-in-')
+
+  if (isSlideTransition && prevEl && prevParams && progress < 1) {
+    // 1. Draw previous item first (outgoing)
+    const { x: px, y: py, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh } = prevParams
+    drawWithAnimation(
+      { ...params, x: px, y: py, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh },
+      prevEl,
+      prevAnimation ?? 'none',
+      prevAnimationProgress ?? 0,
+      prevElapsedTime ?? 0,
+      prevZoomIntensity ?? 0.5
+    )
+
+    // 2. Draw current item sliding in on top (incoming)
+    applySlide(params)
+  } else {
+    // Draw the current element with its animation
+    drawWithAnimation(params, imgEl, animation ?? 'none', progress, elapsedTime, zoomIntensity ?? 0.5)
+
+    // Handle transition overlay if active
+    if (transition && transition !== 'none' && prevEl && prevParams && progress < 1) {
+      if (transition === 'fade') {
+        applyFade(params)
+      } else {
+        applySplit(params)
+      }
     }
   }
+
+  ctx.restore()
 }

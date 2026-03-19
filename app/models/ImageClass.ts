@@ -1,5 +1,5 @@
 export type AnimationMode = 'none' | 'in' | 'out' | 'shake' | 'jitter'
-export type TransitionMode = 'none' | 'split-horizontal' | 'split-vertical' | 'fade'
+export type TransitionMode = 'none' | 'split-horizontal' | 'split-vertical' | 'fade' | 'slide-in-top' | 'slide-in-bottom' | 'slide-in-left' | 'slide-in-right'
 
 export class ImageClass {
   id: string

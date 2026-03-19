@@ -328,11 +328,19 @@ export async function exportVideo(
           const lines = wrapTextToLines(ctx, content, text.width * xScale)
           const textX = text.textAlign === 'center' ? text.x * xScale + (text.width * xScale) / 2 : (text.textAlign === 'right' ? text.x * xScale + text.width * xScale : text.x * xScale)
           ctx.textAlign = text.textAlign as CanvasTextAlign; ctx.textBaseline = 'top'; ctx.globalAlpha = text.opacity
-          ctx.shadowColor = '#000000'; ctx.shadowBlur = fontPx * 0.12; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0
-          ctx.fillStyle = text.color
+          if (text.style === 'negative') {
+            ctx.globalCompositeOperation = 'difference'
+            ctx.fillStyle = '#ffffff' // White in difference mode inverts the background
+            // No shadow for negative style as it would also be inverted and look messy
+          } else {
+            ctx.shadowColor = '#000000'; ctx.shadowBlur = fontPx * 0.12; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0
+            ctx.fillStyle = text.color
+          }
           // Draw twice to increase shadow density/darkness to match the multi-layered CSS shadow in the editor
           lines.forEach((line, i) => ctx.fillText(line, textX, text.y * yScale + i * lineHeight))
-          lines.forEach((line, i) => ctx.fillText(line, textX, text.y * yScale + i * lineHeight))
+          if (text.style !== 'negative') {
+            lines.forEach((line, i) => ctx.fillText(line, textX, text.y * yScale + i * lineHeight))
+          }
           ctx.restore()
         })
       }

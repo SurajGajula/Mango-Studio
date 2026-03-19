@@ -6,6 +6,7 @@ import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { TextClass } from '@/app/models/TextClass'
 import { AudioClass } from '@/app/models/AudioClass'
+import { EffectClass } from '@/app/models/EffectClass'
 
 type TrimHandle = 'start' | 'end' | null
 
@@ -22,6 +23,7 @@ interface UseTimelineDragProps {
   updateImage: (id: string, updates: Partial<ImageClass>) => void
   updateVideo: (id: string, updates: Partial<VideoClass>) => void
   updateText: (id: string, updates: Partial<TextClass>) => void
+  updateEffect: (id: string, updates: Partial<EffectClass>) => void
   trimAudio: (id: string, start: number, end: number, ts?: number) => void
   pushHistory: () => void
 }
@@ -39,6 +41,7 @@ export function useTimelineDrag({
   updateImage,
   updateVideo,
   updateText,
+  updateEffect,
   trimAudio,
   pushHistory,
 }: UseTimelineDragProps) {
@@ -48,6 +51,7 @@ export function useTimelineDrag({
   const [imageDragging, setImageDragging] = useState<{ imageId: string; handle: 'move' | 'start' | 'end' } | null>(null)
   const [overlayVideoDragging, setOverlayVideoDragging] = useState<{ videoId: string } | null>(null)
   const [textDragging, setTextDragging] = useState<{ textId: string; handle: 'move' | 'start' | 'end' } | null>(null)
+  const [effectDragging, setEffectDragging] = useState<{ effectId: string; handle: 'move' | 'start' | 'end' } | null>(null)
 
   const trimStartRef = useRef<any>(null)
   const audioTrimRef = useRef<any>(null)
@@ -55,6 +59,7 @@ export function useTimelineDrag({
   const imageDragRef = useRef<any>(null)
   const overlayVideoDragRef = useRef<any>(null)
   const textDragRef = useRef<any>(null)
+  const effectDragRef = useRef<any>(null)
 
   const handleTrimStart = useCallback((videoId: string, handle: TrimHandle, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -351,6 +356,50 @@ export function useTimelineDrag({
     pushHistory()
   }, [pushHistory])
 
+  const handleEffectDragStart = useCallback((effectId: string, handle: 'move' | 'start' | 'end', e: React.MouseEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+    const effect = useManifestStore.getState().effects.find((f) => f.id === effectId)
+    if (!effect || !timelineRowRef.current) return
+    const rect = timelineRowRef.current.getBoundingClientRect()
+    setEffectDragging({ effectId, handle })
+    effectDragRef.current = {
+      initialMouseX: e.clientX,
+      initialStartTime: effect.startTime,
+      initialEndTime: effect.endTime,
+      timelineWidth: rect.width,
+      totalWithPadding: totalDuration + effectivePadding * 2,
+    }
+  }, [totalDuration, effectivePadding, timelineRowRef])
+
+  const handleEffectDragMove = useCallback((e: MouseEvent) => {
+    if (!effectDragging || !effectDragRef.current) return
+    const { effectId, handle } = effectDragging
+    const { initialMouseX, initialStartTime, initialEndTime, timelineWidth, totalWithPadding } = effectDragRef.current
+    const timeDelta = ((e.clientX - initialMouseX) / timelineWidth) * totalWithPadding
+    const effect = useManifestStore.getState().effects.find((f) => f.id === effectId)
+    if (!effect) return
+
+    if (handle === 'move') {
+      const dur = initialEndTime - initialStartTime
+      let newStart = initialStartTime + timeDelta
+      if (newStart < 0) newStart = 0
+      updateEffect(effectId, { startTime: newStart, endTime: newStart + dur })
+    } else if (handle === 'start') {
+      const newStart = Math.max(0, Math.min(initialStartTime + timeDelta, initialEndTime - 0.1))
+      updateEffect(effectId, { startTime: newStart })
+    } else if (handle === 'end') {
+      const newEnd = Math.max(effect.startTime + 0.1, initialEndTime + timeDelta)
+      updateEffect(effectId, { endTime: newEnd })
+    }
+  }, [effectDragging, updateEffect])
+
+  const handleEffectDragEnd = useCallback(() => {
+    setEffectDragging(null)
+    effectDragRef.current = null
+    pushHistory()
+  }, [pushHistory])
+
   useEffect(() => {
     if (trimDragging) {
       document.addEventListener('mousemove', handleTrimMove)
@@ -417,6 +466,17 @@ export function useTimelineDrag({
     }
   }, [textDragging, handleTextDragMove, handleTextDragEnd])
 
+  useEffect(() => {
+    if (effectDragging) {
+      document.addEventListener('mousemove', handleEffectDragMove)
+      document.addEventListener('mouseup', handleEffectDragEnd)
+      return () => {
+        document.removeEventListener('mousemove', handleEffectDragMove)
+        document.removeEventListener('mouseup', handleEffectDragEnd)
+      }
+    }
+  }, [effectDragging, handleEffectDragMove, handleEffectDragEnd])
+
   return {
     trimDragging, setTrimDragging,
     audioTrimDragging, setAudioTrimDragging,
@@ -429,6 +489,7 @@ export function useTimelineDrag({
     handleAudioBodyDragStart,
     handleImageDragStart,
     handleOverlayVideoDragStart,
-    handleTextDragStart
+    handleTextDragStart,
+    handleEffectDragStart
   }
 }

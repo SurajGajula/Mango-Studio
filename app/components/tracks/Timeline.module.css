@@ -480,6 +480,21 @@
   border-radius: 4px;
 }
 
+.effectRow {
+  position: relative;
+  height: 32px;
+  min-height: 32px;
+  background-color: transparent;
+}
+
+.effectRowBackground {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background-color: #1a1a1a;
+  border-radius: 4px;
+}
+
 .textRow {
   position: relative;
   height: 32px;
@@ -513,6 +528,68 @@
 .overlayItem.selected {
   border-color: #ffffff;
   z-index: 10;
+}
+
+.effectItem {
+  position: absolute;
+  height: 100%;
+  cursor: move;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid #6b4a9e;
+  background-color: #3b2a5a;
+  transition: border-color 0.15s ease;
+}
+
+.effectItem:hover {
+  border-color: #8b6ac4;
+}
+
+.effectItem.selected {
+  border-color: #ffffff;
+  z-index: 10;
+}
+
+.effectItem:hover .overlayHandleStart,
+.effectItem:hover .overlayHandleEnd,
+.effectItem.selected .overlayHandleStart,
+.effectItem.selected .overlayHandleEnd {
+  opacity: 1;
+}
+
+.effectItem .overlayHandleStart,
+.effectItem .overlayHandleEnd {
+  background-color: #ffffff;
+}
+
+.effectItem .overlayHandleStart::after,
+.effectItem .overlayHandleEnd::after {
+  background-color: #3b2a5a;
+}
+
+.effectBox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem;
+  height: 100%;
+  overflow: hidden;
+}
+
+.effectIcon {
+  height: 16px;
+  width: 16px;
+  color: #c4b5fd;
+  flex-shrink: 0;
+}
+
+.effectName {
+  font-size: 0.65rem;
+  color: #ddd6fe;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
 }
 
 .overlayBox {
@@ -990,4 +1067,98 @@
 .muteButtonMain:hover {
   background: rgba(0, 0, 0, 0.8);
   border-color: rgba(255, 255, 255, 0.5);
+}
+
+.contextMenu {
+  position: fixed;
+  z-index: 1000;
+  background-color: #1e1e1e;
+  border: 1px solid #333333;
+  border-radius: 6px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 160px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  animation: contextMenuFadeIn 0.1s ease-out;
+}
+
+.contextSubMenu {
+  position: absolute;
+  top: -5px;
+  left: 100%;
+  margin-left: 4px;
+  background-color: #1e1e1e;
+  border: 1px solid #333333;
+  border-radius: 6px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 100px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  z-index: 1001;
+}
+
+@keyframes contextMenuFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.contextMenuItem {
+  padding: 0.5rem 0.75rem;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: #cccccc;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  text-align: left;
+  transition: background-color 0.12s ease, color 0.12s ease;
+  white-space: nowrap;
+}
+
+.contextMenuItem:hover {
+  background-color: #2e2e2e;
+  color: #ffffff;
+}
+
+.contextMenuItem:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.contextMenuItemDanger {
+  color: #ff6b6b;
+}
+
+.contextMenuItemDanger:hover {
+  background-color: #4a1a1a;
+  color: #ff8e8e;
+}
+
+.contextMenuSeparator {
+  height: 1px;
+  background-color: #333333;
+  margin: 4px 0;
+}
+
+.contextMenuIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
 }

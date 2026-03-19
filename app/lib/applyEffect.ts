@@ -67,6 +67,43 @@ function applyCrtDither(
   ctx.restore()
 }
 
+function applyFlashingBlackVignette(
+  ctx: CanvasRenderingContext2D,
+  rx: number, ry: number, rw: number, rh: number,
+  playbackTime: number
+): void {
+  if (rw <= 0 || rh <= 0) return
+
+  const V_WIDTH = 480
+  const scale = rw / V_WIDTH
+  const vHeight = (rh / rw) * V_WIDTH
+
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(rx, ry, rw, rh)
+  ctx.clip()
+
+  ctx.translate(rx, ry)
+  ctx.scale(scale, scale)
+
+  const flashSpeed = 50 // rad/s (faster flash)
+  const flashIntensity = (Math.sin(playbackTime * flashSpeed) + 1) / 2
+  const opacity = 0.2 + flashIntensity * 0.5
+
+  const grad = ctx.createRadialGradient(
+    V_WIDTH / 2, vHeight / 2, V_WIDTH * 0.1,
+    V_WIDTH / 2, vHeight / 2, V_WIDTH * 0.5
+  )
+  grad.addColorStop(0, 'rgba(0,0,0,0)')
+  grad.addColorStop(1, 'rgba(0,0,0,1)')
+
+  ctx.globalAlpha = opacity
+  ctx.fillStyle = grad
+  ctx.fillRect(0, 0, V_WIDTH, vHeight)
+
+  ctx.restore()
+}
+
 export function applyEffect(
   ctx: CanvasRenderingContext2D,
   type: EffectType,
@@ -78,5 +115,7 @@ export function applyEffect(
 ): void {
   if (type === 'crt-dither') {
     applyCrtDither(ctx, x, y, width, height, playbackTime)
+  } else if (type === 'flashing-black-vignette') {
+    applyFlashingBlackVignette(ctx, x, y, width, height, playbackTime)
   }
 }

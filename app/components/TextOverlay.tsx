@@ -82,10 +82,15 @@ function TextOverlayComponent({
         top: offsetY + text.y * yScale,
         width: text.width * xScale,
         fontSize: text.fontSize * xScale,
-        color: text.color,
+        color: text.style === 'negative' ? '#ffffff' : text.color,
         fontWeight: text.fontWeight,
         textAlign: text.textAlign as React.CSSProperties['textAlign'],
         fontFamily: text.fontFamily,
+        opacity: text.opacity,
+        mixBlendMode: text.style === 'negative' ? 'difference' : 'normal',
+        backgroundColor: text.style === 'negative' ? '#000000' : 'transparent',
+        textShadow: text.style === 'negative' ? 'none' : 'none',
+        border: text.style === 'negative' && !isSelected ? 'none' : undefined,
       }}
       onMouseDown={(e) => handleTextMouseDown(text.id, e)}
       onDoubleClick={(e) => { e.stopPropagation(); editingContentRef.current = text.content; setEditingContent(text.content); setEditingTextId(text.id) }}
@@ -106,6 +111,9 @@ function TextOverlayComponent({
         <textarea
           value={editingContent}
           className={styles.textEditArea}
+          style={{
+            textShadow: text.style === 'negative' ? 'none' : undefined,
+          }}
           onChange={(e) => { editingContentRef.current = e.target.value; setEditingContent(e.target.value) }}
           ref={(el) => {
             if (el) {

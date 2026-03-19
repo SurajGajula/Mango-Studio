@@ -11,9 +11,33 @@ export const createTextSlice = (set: any, get: any) => ({
 
   updateText: (id: string, updates: Partial<TextClass>) => {
     set((state: ManifestStore) => ({
-      texts: state.texts.map((t) =>
-        t.id === id ? t.copy(updates) : t
-      ),
+      texts: state.texts.map((t) => {
+        if (t.id !== id) return t
+        if (typeof t.copy === 'function') {
+          return t.copy(updates)
+        }
+        // Fallback for plain objects (e.g. from history or serialization)
+        return new TextClass(
+          updates.id ?? t.id,
+          updates.content ?? t.content,
+          updates.startTime ?? t.startTime,
+          updates.endTime ?? t.endTime,
+          updates.x ?? t.x,
+          updates.y ?? t.y,
+          updates.width ?? t.width,
+          updates.height ?? t.height,
+          updates.opacity ?? t.opacity,
+          updates.fontSize ?? t.fontSize,
+          updates.fontFamily ?? t.fontFamily,
+          updates.color ?? t.color,
+          updates.fontWeight ?? t.fontWeight,
+          updates.textAlign ?? t.textAlign,
+          updates.animation ?? t.animation,
+          updates.style ?? t.style,
+          updates.createdAt ?? t.createdAt,
+          updates.row ?? t.row
+        )
+      }),
     }))
   },
 

@@ -2,7 +2,7 @@
 
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
-import { TextAnimation } from '@/app/models/TextClass'
+import { TextAnimation, TextStyle } from '@/app/models/TextClass'
 import styles from './TransitionsPanel.module.css'
 
 interface Props {
@@ -40,6 +40,19 @@ const ANIMATION_OPTIONS: { value: TextAnimation; label: string; desc: string }[]
   },
 ]
 
+const STYLE_OPTIONS: { value: TextStyle; label: string; desc: string }[] = [
+  {
+    value: 'normal',
+    label: 'Normal',
+    desc: 'Default text style',
+  },
+  {
+    value: 'negative',
+    label: 'Negative',
+    desc: 'Shows negative of background',
+  },
+]
+
 export default function FontPanel({ onClose }: Props) {
   const selectedTextId = useSelectionStore((s) => s.selectedTextId)
   const texts = useManifestStore((s) => s.texts)
@@ -48,6 +61,7 @@ export default function FontPanel({ onClose }: Props) {
   const selectedText = selectedTextId ? texts.find((t) => t.id === selectedTextId) : null
   const currentFont = selectedText?.fontFamily ?? FONT_OPTIONS[0].value
   const currentAnimation = selectedText?.animation ?? 'none'
+  const currentStyle = selectedText?.style ?? 'normal'
 
   const handleSelect = (fontFamily: string) => {
     if (selectedTextId) {
@@ -66,6 +80,12 @@ export default function FontPanel({ onClose }: Props) {
   const handleAnimationSelect = (animation: TextAnimation) => {
     if (selectedTextId) {
       updateText(selectedTextId, { animation })
+    }
+  }
+
+  const handleStyleSelect = (style: TextStyle) => {
+    if (selectedTextId) {
+      updateText(selectedTextId, { style })
     }
   }
 
@@ -127,6 +147,36 @@ export default function FontPanel({ onClose }: Props) {
                     className={`${styles.optionCard} ${isActive ? styles.optionCardActive : ''}`}
                     onClick={() => handleAnimationSelect(opt.value)}
                   >
+                    <span className={styles.optionInfo}>
+                      <span className={styles.optionName}>{opt.label}</span>
+                      <span className={styles.optionDesc}>{opt.desc}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+
+            <p className={styles.sectionLabel} style={{ marginTop: '1.5rem' }}>Style</p>
+            <div className={styles.optionList}>
+              {STYLE_OPTIONS.map((opt) => {
+                const isActive = currentStyle === opt.value
+                return (
+                  <button
+                    key={opt.value}
+                    className={`${styles.optionCard} ${isActive ? styles.optionCardActive : ''}`}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleStyleSelect(opt.value) }}
+                  >
+                    <span
+                      className={styles.optionIcon}
+                      style={{
+                        fontSize: '0.9rem',
+                        fontWeight: 600,
+                        backgroundColor: opt.value === 'negative' ? '#fff' : undefined,
+                        color: opt.value === 'negative' ? (isActive ? '#000' : '#444') : (isActive ? '#fff' : '#aaa'),
+                      }}
+                    >
+                      {opt.value === 'negative' ? '±' : 'Ab'}
+                    </span>
                     <span className={styles.optionInfo}>
                       <span className={styles.optionName}>{opt.label}</span>
                       <span className={styles.optionDesc}>{opt.desc}</span>

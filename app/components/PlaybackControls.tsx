@@ -14,7 +14,7 @@ interface PlaybackControlsProps {
   totalDuration: number
   formatTime: (seconds: number) => string
   uploadInputRef: React.RefObject<HTMLInputElement>
-  onOpenTransitions?: () => void
+  onOpenTransitions?: (id?: string) => void
   onOpenFont?: () => void
   onOpenEffects?: () => void
   isExporting: boolean
@@ -22,10 +22,6 @@ interface PlaybackControlsProps {
   handleCancelExport: () => void
   exportProgress: ExportProgress | null
   handleAddText: () => void
-  showCropMenu: boolean
-  setShowCropMenu: (show: boolean | ((v: boolean) => boolean)) => void
-  cropButtonRef: React.RefObject<HTMLButtonElement>
-  cropMenuRef: React.RefObject<HTMLDivElement>
 }
 
 export default function PlaybackControls({
@@ -41,10 +37,6 @@ export default function PlaybackControls({
   handleCancelExport,
   exportProgress,
   handleAddText,
-  showCropMenu,
-  setShowCropMenu,
-  cropButtonRef,
-  cropMenuRef,
 }: PlaybackControlsProps) {
   const isPlaying = useManifestStore((state) => state.isPlaying)
   const setIsPlaying = useManifestStore((state) => state.setIsPlaying)
@@ -63,6 +55,7 @@ export default function PlaybackControls({
   const removeImage = useManifestStore((state) => state.removeImage)
   const removeText = useManifestStore((state) => state.removeText)
   const removeAudioFromManifest = useManifestStore((state) => state.removeAudio)
+  const removeEffect = useManifestStore((state) => state.removeEffect)
   const updateVideo = useManifestStore((state) => state.updateVideo)
   const updateImage = useManifestStore((state) => state.updateImage)
   const pushHistory = useManifestStore((state) => state.pushHistory)
@@ -76,6 +69,7 @@ export default function PlaybackControls({
   const selectedImageId = useSelectionStore((state) => state.selectedImageId)
   const selectedTextId = useSelectionStore((state) => state.selectedTextId)
   const selectedAudioId = useSelectionStore((state) => state.selectedAudioId)
+  const selectedEffectId = useSelectionStore((state) => state.selectedEffectId)
   const clearSelection = useSelectionStore((state) => state.clearSelection)
 
   const audio = useAudioStore((state) => state.audio)
@@ -143,77 +137,6 @@ export default function PlaybackControls({
           </svg>
         </button>
         <button
-          className={styles.deleteButton}
-          onClick={() => {
-            if (selectedVideoId) removeVideo(selectedVideoId)
-            else if (selectedImageId) removeImage(selectedImageId)
-            else if (selectedTextId) removeText(selectedTextId)
-            else if (selectedAudioId) {
-              removeAudioFromManifest(selectedAudioId)
-              removeAudio()
-              clearSelection()
-            }
-          }}
-          disabled={!selectedVideoId && !selectedImageId && !selectedTextId && !selectedAudioId}
-          title="Delete selected (Cmd+D)"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="3 6 5 6 21 6" />
-            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-            <path d="M10 11v6M14 11v6" />
-            <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-          </svg>
-        </button>
-        <button
-          className={styles.splitButton}
-          onClick={() => {
-            if (selectedVideoId) splitVideo(selectedVideoId, playbackTime)
-            else if (selectedImageId) splitImage(selectedImageId, playbackTime)
-            else if (selectedTextId) splitText(selectedTextId, playbackTime)
-          }}
-          disabled={(() => {
-            if (selectedVideoId) {
-              const v = videos.find((v) => v.id === selectedVideoId)
-              if (!v) return true
-              const local = playbackTime - v.timestamp
-              return local <= 0.05 || local >= (v.duration ?? 0) - 0.05
-            }
-            if (selectedImageId) {
-              const img = images.find((img) => img.id === selectedImageId)
-              if (!img) return true
-              return playbackTime <= img.startTime + 0.05 || playbackTime >= img.endTime - 0.05
-            }
-            if (selectedTextId) {
-              const t = texts.find((t) => t.id === selectedTextId)
-              if (!t) return true
-              return playbackTime <= t.startTime + 0.05 || playbackTime >= t.endTime - 0.05
-            }
-            return true
-          })()}
-          title="Split at playhead"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M6 3L6 21" />
-            <path d="M18 3L18 21" />
-            <path d="M3 12L21 12" />
-          </svg>
-        </button>
-        <button
-          className={styles.splitButton}
-          onClick={() => {
-            if (selectedVideoId) duplicateItem(selectedVideoId)
-            else if (selectedImageId) duplicateItem(selectedImageId)
-            else if (selectedTextId) duplicateItem(selectedTextId)
-          }}
-          disabled={!selectedVideoId && !selectedImageId && !selectedTextId}
-          title="Duplicate selected (Cmd+Shift+D)"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-          </svg>
-        </button>
-        <button
           className={styles.addTextButton}
           onClick={handleAddText}
           disabled={videos.filter((v) => !v.isOverlay).length === 0 && images.filter((img) => img.isMainTrack).length === 0}
@@ -223,77 +146,12 @@ export default function PlaybackControls({
         </button>
         <button
           className={styles.transitionsButton}
-          onClick={onOpenTransitions}
-          disabled={!selectedImageId && !selectedVideoId}
-          title="Animations"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 2v20M2 12h20" />
-            <path d="m17 7-5-5-5 5" />
-            <path d="m17 17-5 5-5-5" />
-          </svg>
-        </button>
-        <button
-          className={styles.transitionsButton}
-          onClick={onOpenFont}
-          disabled={!selectedTextId}
-          title="Font"
-          style={{ fontWeight: 700, fontSize: '13px' }}
-        >
-          F
-        </button>
-        <button
-          className={styles.transitionsButton}
           onClick={onOpenEffects}
           title="Effects"
           style={{ fontWeight: 700, fontSize: '11px', letterSpacing: '0.02em' }}
         >
           Fx
         </button>
-        <div className={styles.cropMenuWrapper}>
-          <button
-            ref={cropButtonRef}
-            className={styles.cropButton}
-            onClick={() => setShowCropMenu((v) => !v)}
-            disabled={!selectedImageId && !selectedVideoId}
-            title="Crop aspect ratio"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M6 2v14a2 2 0 0 0 2 2h14" />
-              <path d="M18 22V8a2 2 0 0 0-2-2H2" />
-            </svg>
-          </button>
-          {showCropMenu && (selectedImageId || selectedVideoId) && (() => {
-            const item = selectedImageId 
-              ? images.find((i) => i.id === selectedImageId)
-              : videos.find((v) => v.id === selectedVideoId)
-            const RATIOS = Object.entries(ASPECT_RATIOS).map(([label, [w, h]]) => ({ label, w, h }))
-            return (
-              <div ref={cropMenuRef} className={styles.cropMenu}>
-                {RATIOS.map((r) => (
-                  <button
-                    key={r.label}
-                    className={`${styles.cropMenuItem} ${item?.cropAspect === r.label ? styles.cropMenuItemActive : ''}`}
-                    onClick={async () => {
-                      setShowCropMenu(false)
-                      if (!item) return
-                      pushHistory()
-                      const type = selectedImageId ? 'image' : 'video'
-                      const updates = await computeMediaCropForAspect(item.url || '', type, aspectRatio, r.w, r.h, r.label)
-                      if (type === 'image') {
-                        updateImage(item.id, updates as Partial<ImageClass>)
-                      } else {
-                        updateVideo(item.id, updates as Partial<VideoClass>)
-                      }
-                    }}
-                  >
-                    {r.label}
-                  </button>
-                ))}
-              </div>
-            )
-          })()}
-        </div>
         {(selectedVideoId || selectedAudioId) && (() => {
           const item = selectedVideoId 
             ? videos.find(v => v.id === selectedVideoId)

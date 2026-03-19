@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useAudioStore } from '@/app/stores/audioStore'
@@ -37,18 +37,11 @@ export function useVideoPlayback(
   const getState = useManifestStore.getState
   const getSelectionState = useSelectionStore.getState
 
-  // Cache sorted items and overlay videos to avoid re-calculating in the high-frequency loop
-  const sortedMainItemsRef = useRef<any[]>([])
-  const overlayVideosRef = useRef<VideoClass[]>([])
-  const overlayImagesRef = useRef<ImageClass[]>([])
-  const mainTrackImagesRef = useRef<ImageClass[]>([])
-  
-  useEffect(() => {
-    sortedMainItemsRef.current = getSortedMainItems(videos, images)
-    overlayVideosRef.current = videos.filter(v => v.isOverlay)
-    overlayImagesRef.current = images.filter(img => !img.isMainTrack)
-    mainTrackImagesRef.current = images.filter(img => img.isMainTrack)
-  }, [videos, images])
+  // Memoize sorted items and overlay clips to avoid re-calculating in the high-frequency loop
+  const sortedMainItems = useMemo(() => getSortedMainItems(videos, images), [videos, images])
+  const overlayVideos = useMemo(() => videos.filter(v => v.isOverlay), [videos])
+  const overlayImages = useMemo(() => images.filter(img => !img.isMainTrack), [images])
+  const mainTrackImages = useMemo(() => images.filter(img => img.isMainTrack), [images])
 
   useEffect(() => {
     const sortedVideos = [...videos].sort((a, b) => a.timestamp - b.timestamp)
@@ -291,7 +284,7 @@ export function useVideoPlayback(
   }, [canvasRef, containerRef, applyCanvasSize, aspectRatio])
 
   const drawImages = useCallback((ctx: CanvasRenderingContext2D, cr: {x:number,y:number,width:number,height:number}, currentTime: number, mainTrackOnly: boolean) => {
-    const allImages = mainTrackOnly ? mainTrackImagesRef.current : overlayImagesRef.current
+    const allImages = mainTrackOnly ? mainTrackImages : overlayImages
     let visibleImages = allImages.filter(img => currentTime >= img.startTime && currentTime < img.endTime)
 
     if (mainTrackOnly && visibleImages.length === 0) {
@@ -327,14 +320,14 @@ export function useVideoPlayback(
       applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, cr.x + image.x * xScale, cr.y + image.y * yScale, image.width * xScale, image.height * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, currentTime - image.startTime)
       ctx.restore()
     })
-  }, [aspectRatio, images])
+  }, [aspectRatio, mainTrackImages, overlayImages])
 
   const drawOverlayVideos = useCallback((ctx: CanvasRenderingContext2D, cr: {x:number,y:number,width:number,height:number}, currentTime: number) => {
-    const state = getState(); const rate = state.playbackRate ?? 1; const overlayVideos = overlayVideosRef.current
+    const state = getState(); const rate = state.playbackRate ?? 1; const overlayVideosLocal = overlayVideos
     const logicalW = aspectRatio === '16:9' ? 1920 : 1080; const logicalH = aspectRatio === '16:9' ? 1080 : 1920
     const xScale = cr.width / logicalW; const yScale = cr.height / logicalH
 
-    overlayVideos.forEach((video) => {
+    overlayVideosLocal.forEach((video) => {
       const localTime = (currentTime - video.timestamp) * (video.playbackSpeed ?? 1)
       const vEl = videoElementsRef.current.get(video.id)
       if (localTime < 0 || localTime >= (video.duration ?? 0) * (video.playbackSpeed ?? 1)) {
@@ -349,7 +342,7 @@ export function useVideoPlayback(
       applyZoomTransform(ctx, video.animation, video.transition, progress, vEl, cr.x + video.x * xScale, cr.y + video.y * yScale, video.width * xScale, video.height * yScale, video.cropSx ?? 0, video.cropSy ?? 0, video.cropSw ?? 1, video.cropSh ?? 1, video.zoomIntensity, currentTime - video.timestamp)
       ctx.restore()
     })
-  }, [getState, aspectRatio, videos])
+  }, [getState, aspectRatio, overlayVideos])
 
   useEffect(() => {
     let currentVideoId: string | null = null; let lastKnownIsPlaying = false
@@ -357,6 +350,7 @@ export function useVideoPlayback(
     const drawOverlays = (ctx: CanvasRenderingContext2D, cr: {x:number,y:number,width:number,height:number}, t: number) => { drawImages(ctx, cr, t, false); drawOverlayVideos(ctx, cr, t) }
     const setupCanvas = (canvas: HTMLCanvasElement, container: HTMLDivElement) => { const rect = container.getBoundingClientRect(); if (rect.width === 0 || rect.height === 0) return null; const cw = Math.round(rect.width); const ch = Math.round(rect.height); const cr = applyCanvasSize(canvas, cw, ch); const ctx = canvas.getContext('2d'); return ctx ? { ctx, cr } : null }
     let lastTimestamp: number | null = null
+    let lastRenderedTime = -1
 
     const loop = (timestamp: number) => {
       const state = getState(); const { playbackTime, isPlaying } = state; lastKnownIsPlaying = isPlaying
@@ -364,7 +358,7 @@ export function useVideoPlayback(
       let newTime = playbackTime
       if (isPlaying) { newTime = playbackTime + delta * rate; const totalDur = state.getTotalDuration(); if (newTime >= totalDur) { state.setIsPlaying(false); state.setPlaybackTime(0); newTime = 0; lastTimestamp = null } else state.setPlaybackTime(newTime) } else lastTimestamp = null
 
-      const sorted = sortedMainItemsRef.current
+      const sorted = sortedMainItems
       const { activeItem: activeClip, nextItem: nextClip } = findActiveAndNextItems(sorted, newTime)
       const { transitionActive, progress: transProgress } = checkTransition(activeClip, nextClip, newTime)
 
@@ -388,7 +382,7 @@ export function useVideoPlayback(
           const { ctx, cr } = res
           let transActive = false
           
-          const stateKey = activeClip ? `${activeClip.id}-${activeClip.type}-${activeClip.item.x}-${activeClip.item.y}-${activeClip.item.width}-${activeClip.item.height}-${cr.width}-${cr.height}-${state.videos.length}-${state.images.length}-${state.texts.length}` : 'none'
+          const stateKey = activeClip ? `${activeClip.id}-${activeClip.type}-${activeClip.item.x}-${activeClip.item.y}-${activeClip.item.width}-${activeClip.item.height}-${cr.width}-${cr.height}-${state.videos.length}-${state.images.length}-${state.texts.length}-${state.effects.length}-${state.effects[0]?.type ?? ''}` : `none-${state.effects.length}-${state.effects[0]?.type ?? ''}`
           const stateChanged = stateKey !== lastStateKey
 
           const activeEl = activeClip?.type === 'video' 
@@ -416,15 +410,17 @@ export function useVideoPlayback(
           }
 
           const isReady = isActiveReady && isNextReady;
+          const timeChanged = Math.abs(newTime - lastRenderedTime) > 0.001
 
           // Only clear to black if we are playing (and ready) or if there is no main clip, or if the layout/state changed (and ready).
           // If the new frame isn't ready yet, we hold the previous frame to prevent black flickering.
-          const shouldClear = !activeClip || (isPlaying && isReady) || (stateChanged && isReady)
+          const shouldClear = !activeClip || (isReady && (isPlaying || stateChanged || timeChanged))
           
           if (shouldClear) {
             ctx.fillStyle = '#000000'
             ctx.fillRect(0, 0, canvas.width, canvas.height)
             lastStateKey = stateKey
+            lastRenderedTime = newTime
           }
 
           if (transitionActive && nextClip) {
@@ -571,15 +567,19 @@ export function useVideoPlayback(
             }
           }
           drawOverlays(ctx, cr, newTime)
-          const eff = state.effects?.find(e => newTime >= e.startTime && newTime < e.endTime)
-          if (eff) applyEffect(ctx, eff.type, cr.x, cr.y, cr.width, cr.height, newTime)
+          const activeEffects = state.effects
+            ?.filter(e => newTime >= e.startTime && newTime < e.endTime)
+            .sort((a, b) => a.row - b.row)
+          activeEffects?.forEach(eff => {
+            applyEffect(ctx, eff.type, cr.x, cr.y, cr.width, cr.height, newTime)
+          })
         }
       }
       rafRef.current = requestAnimationFrame(loop)
     }
     rafRef.current = requestAnimationFrame(loop)
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
-  }, [getState, getSelectionState, drawVideoToCanvas, drawImages, drawOverlayVideos, canvasRef, applyCanvasSize, aspectRatio, videos, images, effects])
+  }, [getState, getSelectionState, drawVideoToCanvas, drawImages, drawOverlayVideos, canvasRef, applyCanvasSize, aspectRatio, videos, images, effects, sortedMainItems])
 
   useEffect(() => { return () => { 
     videoElementsRef.current.forEach((video) => { video.pause(); video.src = ''; video.load() }); 

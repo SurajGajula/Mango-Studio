@@ -49,6 +49,7 @@ const MainTrackComponent = ({
   const selectedImageId = useSelectionStore((state) => state.selectedImageId)
   const selectVideo = useSelectionStore((state) => state.selectVideo)
   const selectImage = useSelectionStore((state) => state.selectImage)
+  const setContextMenu = useSelectionStore((state) => state.setContextMenu)
 
   const sortedItems = useMemo(() => {
     const v = videos.filter((v) => !v.isOverlay).map((v) => ({ type: 'video' as const, item: v }))
@@ -114,6 +115,18 @@ const MainTrackComponent = ({
                     e.stopPropagation()
                     handleVideoDoubleClick(v.id)
                   }}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    selectVideo(v.id)
+                    setContextMenu({
+                      isOpen: true,
+                      x: e.clientX,
+                      y: e.clientY,
+                      itemId: v.id,
+                      itemType: 'video',
+                    })
+                  }}
                 >
                   {isSelected && (
                     <>
@@ -127,30 +140,7 @@ const MainTrackComponent = ({
                       />
                     </>
                   )}
-                  {isSelected && (
-                    <button
-                      className={`${styles.replaceButton} ${replaceTargetId === v.id ? styles.active : ''}`}
-                      style={{ right: '42px' }}
-                      onClick={(e) => { e.stopPropagation(); if (replaceTargetId === v.id) { setReplaceTargetId(null) } else { setReplaceTargetId(v.id); replaceInputRef.current?.click() } }}
-                      title={replaceTargetId === v.id ? 'Cancel replace' : 'Replace video source'}
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
-                      </svg>
-                    </button>
-                  )}
                   <div className={styles.videoBox}>
-                    <button
-                      className={styles.muteButtonMain}
-                      onClick={(e) => { e.stopPropagation(); updateVideo(v.id, { muted: !v.muted }) }}
-                      title={v.muted ? 'Unmute video audio' : 'Mute video audio'}
-                    >
-                      {v.muted ? (
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"></path><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>
-                      ) : (
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
-                      )}
-                    </button>
                     <div className={styles.thumbnailStrip}>
                       {(() => {
                         if (!v.url) return null
@@ -210,6 +200,18 @@ const MainTrackComponent = ({
                     onCloseTransitions?.()
                   }}
                   onMouseDown={(e) => handleImageDragStart(img.id, 'move', e)}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    selectImage(img.id)
+                    setContextMenu({
+                      isOpen: true,
+                      x: e.clientX,
+                      y: e.clientY,
+                      itemId: img.id,
+                      itemType: 'image',
+                    })
+                  }}
                 >
                   <div
                     className={styles.overlayHandleStart}
@@ -221,25 +223,6 @@ const MainTrackComponent = ({
                     onMouseDown={(e) => handleImageDragStart(img.id, 'end', e)}
                     onClick={(e) => e.stopPropagation()}
                   />
-                  {isSelected && (
-                    <button
-                      className={`${styles.replaceButton} ${replaceTargetId === img.id ? styles.active : ''}`}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        if (replaceTargetId === img.id) {
-                          setReplaceTargetId(null)
-                        } else {
-                          setReplaceTargetId(img.id)
-                          replaceInputRef.current?.click()
-                        }
-                      }}
-                      title={replaceTargetId === img.id ? 'Cancel replace' : 'Replace image source'}
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
-                      </svg>
-                    </button>
-                  )}
                   <div className={styles.overlayBox}>
                     <img src={img.url} alt={img.name} className={styles.overlayThumbnail} />
                     <span className={styles.overlayName}>{img.name}</span>

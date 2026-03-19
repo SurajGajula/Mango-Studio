@@ -32,28 +32,62 @@ const EFFECT_OPTIONS: { value: EffectType | 'none'; label: string; desc: string;
       </svg>
     ),
   },
+  {
+    value: 'flashing-black-vignette',
+    label: 'Flashing Vignette',
+    desc: 'A black vignette that pulses rhythmically',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <circle cx="12" cy="12" r="6" opacity="0.5" />
+        <circle cx="12" cy="12" r="2" opacity="0.2" />
+      </svg>
+    ),
+  },
 ]
 
 export default function EffectsPanel({ onClose }: Props) {
   const effects = useManifestStore((s) => s.effects)
   const addEffect = useManifestStore((s) => s.addEffect)
-  const removeAllEffects = useManifestStore((s) => s.removeAllEffects)
-  const getTotalDuration = useManifestStore((s) => s.getTotalDuration)
+  const removeEffect = useManifestStore((s) => s.removeEffect)
+  const playbackTime = useManifestStore((s) => s.playbackTime)
 
-  const activeEffect = effects[0] ?? null
+  const activeEffect = effects.find(e => playbackTime >= e.startTime && playbackTime < e.endTime) ?? null
   const activeType: EffectType | 'none' = activeEffect?.type ?? 'none'
+
+  const findFreeRow = (
+    items: Array<{ startTime: number; endTime: number; row: number }>,
+    start: number,
+    end: number
+  ): number => {
+    let row = 0
+    while (true) {
+      const rowItems = items.filter((i) => i.row === row)
+      const hasOverlap = rowItems.some((i) => start < i.endTime && end > i.startTime)
+      if (!hasOverlap) return row
+      row++
+    }
+  }
 
   const handleSelect = (value: EffectType | 'none') => {
     if (value === 'none') {
-      removeAllEffects()
+      if (activeEffect) {
+        removeEffect(activeEffect.id)
+      }
     } else {
-      removeAllEffects()
-      const totalDuration = getTotalDuration()
+      const start = playbackTime
+      const duration = 5
+      const end = start + duration
+      
+      const effectItems = effects.map((e) => ({ startTime: e.startTime, endTime: e.endTime, row: e.row }))
+      const row = findFreeRow(effectItems, start, end)
+      
       addEffect(new EffectClass(
         `effect-${Date.now()}`,
         value,
-        0,
-        Math.max(totalDuration, 9999)
+        start,
+        end,
+        row
       ))
     }
   }

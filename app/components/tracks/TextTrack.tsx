@@ -31,6 +31,7 @@ const TextTrackComponent = ({
   const texts = useManifestStore((state) => state.texts)
   const selectedTextId = useSelectionStore((state) => state.selectedTextId)
   const selectText = useSelectionStore((state) => state.selectText)
+  const setContextMenu = useSelectionStore((state) => state.setContextMenu)
 
   return (
     <div className={styles.textRow}>
@@ -56,6 +57,18 @@ const TextTrackComponent = ({
               onCloseTransitions?.()
             }}
             onMouseDown={(e) => handleTextDragStart(text.id, 'move', e)}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              selectText(text.id)
+              setContextMenu({
+                isOpen: true,
+                x: e.clientX,
+                y: e.clientY,
+                itemId: text.id,
+                itemType: 'text',
+              })
+            }}
           >
             <div className={styles.overlayHandleStart} onMouseDown={(e) => handleTextDragStart(text.id, 'start', e)} onClick={(e) => e.stopPropagation()} />
             <div className={styles.overlayHandleEnd} onMouseDown={(e) => handleTextDragStart(text.id, 'end', e)} onClick={(e) => e.stopPropagation()} />

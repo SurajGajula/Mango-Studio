@@ -1,4 +1,5 @@
 export type TextAnimation = 'none' | 'keyboard'
+export type TextStyle = 'normal' | 'negative'
 
 export class TextClass {
   id: string
@@ -16,6 +17,7 @@ export class TextClass {
   fontWeight: string
   textAlign: string
   animation: TextAnimation
+  style: TextStyle
   createdAt: Date
   row: number
 
@@ -35,6 +37,7 @@ export class TextClass {
     fontWeight?: string,
     textAlign?: string,
     animation?: TextAnimation,
+    style?: TextStyle,
     createdAt?: Date,
     row?: number
   ) {
@@ -53,6 +56,7 @@ export class TextClass {
     this.fontWeight = fontWeight ?? '600'
     this.textAlign = textAlign ?? 'center'
     this.animation = animation ?? 'none'
+    this.style = style ?? 'normal'
     this.createdAt = createdAt || new Date()
     this.row = row ?? 0
   }
@@ -74,6 +78,7 @@ export class TextClass {
       updates.fontWeight ?? this.fontWeight,
       updates.textAlign ?? this.textAlign,
       updates.animation ?? this.animation,
+      updates.style ?? this.style,
       updates.createdAt ?? this.createdAt,
       updates.row ?? this.row
     )

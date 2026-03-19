@@ -35,12 +35,6 @@ export function applySplit(params: TransformParams): void {
       prevZoomIntensity ?? 0.5
     )
 
-    ctx.save()
-    // Clip to the reveal target's bounds to ensure nothing shows outside
-    ctx.beginPath()
-    ctx.rect(x, y, w, h)
-    ctx.clip()
-
     // Use cubic easing for a smoother, more natural slide
     const ease = t * t * (3 - 2 * t)
 

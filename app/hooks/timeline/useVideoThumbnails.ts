@@ -7,21 +7,6 @@ export function useVideoThumbnails(videos: VideoClass[]) {
   const processingUrlsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
-    const activeUrls = new Set(videos.map(v => v.url).filter(Boolean))
-    setVideoThumbnails(prev => {
-      let changed = false
-      const next = new Map(prev)
-      for (const url of Array.from(next.keys())) {
-        if (!activeUrls.has(url as string)) {
-          next.delete(url as string)
-          changed = true
-        }
-      }
-      return changed ? next : prev
-    })
-  }, [videos])
-
-  useEffect(() => {
     const neededByUrl = new Map<string, Set<number>>()
     videos.forEach((v) => {
       if (!v.url) return

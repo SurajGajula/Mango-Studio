@@ -117,6 +117,50 @@ const TRANSITION_OPTIONS: { value: TransitionMode; label: string; desc: string; 
       </svg>
     ),
   },
+  {
+    value: 'slide-in-left',
+    label: 'Slide Left',
+    desc: 'This item slides in from the left, on top of the previous item',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <path d="M9 12h9M15 9l3 3-3 3" />
+      </svg>
+    ),
+  },
+  {
+    value: 'slide-in-right',
+    label: 'Slide Right',
+    desc: 'This item slides in from the right, on top of the previous item',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <path d="M15 12H6M9 9l-3 3 3 3" />
+      </svg>
+    ),
+  },
+  {
+    value: 'slide-in-top',
+    label: 'Slide Top',
+    desc: 'This item slides in from the top, on top of the previous item',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <path d="M12 9v9M9 15l3 3 3-3" />
+      </svg>
+    ),
+  },
+  {
+    value: 'slide-in-bottom',
+    label: 'Slide Bottom',
+    desc: 'This item slides in from the bottom, on top of the previous item',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <path d="M12 15V6M9 9l3-3 3 3" />
+      </svg>
+    ),
+  },
 ]
 
 export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
@@ -151,23 +195,24 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
   const previousItem = selectedIdx > 0 ? allMainItems[selectedIdx - 1] : null
   
   // Max duration depends on transition type
-  const isTransitionAffectingPrevious = ['split-horizontal', 'split-vertical', 'fade'].includes(currentTransition)
+  const isTransitionAffectingPrevious = ['split-horizontal', 'split-vertical', 'fade', 'slide-in-left', 'slide-in-right', 'slide-in-top', 'slide-in-bottom'].includes(currentTransition)
   const maxDuration = (mode === 'transition' && isTransitionAffectingPrevious) ? (previousItem?.duration || 1.0) : (selectedItem?.duration || 1.0)
 
   // Use a local state for the slider to ensure it's always responsive
-  const [localDuration, setLocalDuration] = useState<number | null>(null)
+  const initialDuration = selectedItem ? (
+    mode === 'animation' 
+      ? (selectedItem.animationDuration && selectedItem.animationDuration > 0 ? selectedItem.animationDuration : 1.0)
+      : (selectedItem.transitionDuration && selectedItem.transitionDuration > 0 ? selectedItem.transitionDuration : 1.0)
+  ) : null
+  
+  const [localDuration, setLocalDuration] = useState<number | null>(initialDuration)
 
-  // Sync local duration with the selected item's transition/animation duration
-  useEffect(() => {
-    if (selectedItem) {
-      const currentVal = mode === 'animation' 
-        ? (selectedItem.animationDuration && selectedItem.animationDuration > 0 ? selectedItem.animationDuration : 1.0)
-        : (selectedItem.transitionDuration && selectedItem.transitionDuration > 0 ? selectedItem.transitionDuration : 1.0)
-      setLocalDuration(Math.max(0.1, Math.min(currentVal, maxDuration)))
-    } else {
-      setLocalDuration(null)
-    }
-  }, [selectedItem?.id, selectedItem?.transitionDuration, selectedItem?.animationDuration, selectedItem?.duration, maxDuration, mode])
+  // Adjust state during render if props change externally (e.g. Undo/Redo)
+  const [prevInitialDuration, setPrevInitialDuration] = useState<number | null>(initialDuration)
+  if (initialDuration !== prevInitialDuration) {
+    setPrevInitialDuration(initialDuration)
+    setLocalDuration(initialDuration)
+  }
 
   const handleSelect = (val: string) => {
     if (!selectedItem) return

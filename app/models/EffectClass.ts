@@ -1,10 +1,11 @@
-export type EffectType = 'crt-dither'
+export type EffectType = 'crt-dither' | 'flashing-black-vignette'
 
 export class EffectClass {
   id: string
   type: EffectType
   startTime: number
   endTime: number
+  row: number
   createdAt: Date
 
   constructor(
@@ -12,12 +13,14 @@ export class EffectClass {
     type: EffectType,
     startTime: number,
     endTime: number,
+    row: number = 0,
     createdAt?: Date
   ) {
     this.id = id
     this.type = type
     this.startTime = startTime
     this.endTime = endTime
+    this.row = row
     this.createdAt = createdAt || new Date()
   }
 
@@ -27,6 +30,7 @@ export class EffectClass {
       updates.type ?? this.type,
       updates.startTime ?? this.startTime,
       updates.endTime ?? this.endTime,
+      updates.row ?? this.row,
       updates.createdAt ?? this.createdAt
     )
   }

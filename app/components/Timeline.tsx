@@ -11,8 +11,10 @@ import VideoReplaceModal from './modals/VideoReplaceModal'
 import PlaybackControls from './PlaybackControls'
 import AudioTrack from './tracks/AudioTrack'
 import MediaOverlayTrack from './tracks/MediaOverlayTrack'
+import EffectTrack from './tracks/EffectTrack'
 import TextTrack from './tracks/TextTrack'
 import MainTrack from './tracks/MainTrack'
+import ContextMenu from './ui/ContextMenu'
 import { useTimelineShortcuts } from '@/app/hooks/useTimelineShortcuts'
 import { useTimelineScroll } from '@/app/hooks/timeline/useTimelineScroll'
 import { useVideoThumbnails } from '@/app/hooks/timeline/useVideoThumbnails'
@@ -25,7 +27,7 @@ import styles from './tracks/Timeline.module.css'
 interface TimelineProps {
   onOpenTransitions?: (id: string) => void
   onCloseTransitions?: () => void
-  onOpenAnimations?: () => void
+  onOpenAnimations?: (id?: string) => void
   onOpenFont?: () => void
   onOpenEffects?: () => void
 }
@@ -44,7 +46,9 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
   const setSelectedImageId = useSelectionStore((state) => state.setSelectedImageId)
   const setSelectedTextId = useSelectionStore((state) => state.setSelectedTextId)
   const setSelectedAudioId = useSelectionStore((state) => state.setSelectedAudioId)
+  const setSelectedEffectId = useSelectionStore((state) => state.setSelectedEffectId)
   const selectedAudioId = useSelectionStore((state) => state.selectedAudioId)
+  const selectedEffectId = useSelectionStore((state) => state.selectedEffectId)
 
   const addVideo = useManifestStore((state) => state.addVideo)
   const updateVideo = useManifestStore((state) => state.updateVideo)
@@ -52,6 +56,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
   const updateImage = useManifestStore((state) => state.updateImage)
   const addText = useManifestStore((state) => state.addText)
   const updateText = useManifestStore((state) => state.updateText)
+  const updateEffect = useManifestStore((state) => state.updateEffect)
   const setPlaybackTime = useManifestStore((state) => state.setPlaybackTime)
   const setIsPlaying = useManifestStore((state) => state.setIsPlaying)
   const getTotalDuration = useManifestStore((state) => state.getTotalDuration)
@@ -76,10 +81,6 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
   const uploadInputRef = useRef<HTMLInputElement>(null)
   const replaceInputRef = useRef<HTMLInputElement>(null)
   
-  const [showCropMenu, setShowCropMenu] = useState(false)
-  const cropMenuRef = useRef<HTMLDivElement>(null)
-  const cropButtonRef = useRef<HTMLButtonElement>(null)
-
   const totalDuration = getTotalDuration()
   const MIN_VISIBLE = 0.5
   const MAX_VISIBLE = 120
@@ -93,7 +94,6 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     totalDuration,
     effectivePadding,
     isPlaying,
-    selectedAudioId,
     playbackTime,
     setPlaybackTime,
   })
@@ -142,7 +142,8 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     handleAudioBodyDragStart,
     handleImageDragStart,
     handleOverlayVideoDragStart,
-    handleTextDragStart
+    handleTextDragStart,
+    handleEffectDragStart
   } = useTimelineDrag({
     videos,
     images,
@@ -156,6 +157,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     updateImage,
     updateVideo,
     updateText,
+    updateEffect,
     trimAudio,
     pushHistory,
   })
@@ -172,8 +174,9 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     setSelectedImageId(null)
     setSelectedTextId(null)
     setSelectedAudioId(null)
+    setSelectedEffectId(null)
     onCloseTransitions?.()
-  }, [setSelectedVideoId, setSelectedImageId, setSelectedTextId, setSelectedAudioId, onCloseTransitions])
+  }, [setSelectedVideoId, setSelectedImageId, setSelectedTextId, setSelectedAudioId, setSelectedEffectId, onCloseTransitions])
 
   const handleAddText = () => {
     const id = `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
@@ -192,7 +195,26 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     const textLogicalHeight = fontSize * 1.2
     const defaultX = Math.round((logicalW - textWidth) / 2)
     const defaultY = Math.round((logicalH - textLogicalHeight) / 2)
-    addText(new TextClass(id, 'Text', start, end, defaultX, defaultY, textWidth, undefined, undefined, fontSize, undefined, undefined, undefined, undefined, undefined, undefined, row))
+    addText(new TextClass(
+      id,
+      'Text',
+      start,
+      end,
+      defaultX,
+      defaultY,
+      textWidth,
+      undefined,
+      undefined,
+      fontSize,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined, // style
+      undefined, // createdAt
+      row
+    ))
   }
 
   const applyZoom = useCallback((newVisible: number) => {
@@ -260,20 +282,6 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     return () => ro.disconnect()
   }, [audioAnalysis, totalDuration, effectivePadding, audios])
 
-  useEffect(() => {
-    if (!showCropMenu) return
-    const handler = (e: MouseEvent) => {
-      if (
-        cropMenuRef.current && !cropMenuRef.current.contains(e.target as Node) &&
-        cropButtonRef.current && !cropButtonRef.current.contains(e.target as Node)
-      ) {
-        setShowCropMenu(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [showCropMenu])
-
   return (
     <div className={styles.container}>
       {replaceVideoData && (
@@ -337,10 +345,6 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
               handleCancelExport={handleCancelExport}
               exportProgress={exportProgress}
               handleAddText={handleAddText}
-              showCropMenu={showCropMenu}
-              setShowCropMenu={setShowCropMenu}
-              cropButtonRef={cropButtonRef}
-              cropMenuRef={cropMenuRef}
             />
             <div className={styles.timelineRowContainer}>
               <div className={styles.playheadLine} />
@@ -359,6 +363,20 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
                     handleAudioTrimStart={handleAudioTrimStart}
                     audioCanvasRef={audioCanvasRef}
                   />
+                  {(() => {
+                    const effectRows = [...new Set(effects.map((e) => e.row))].sort((a, b) => b - a)
+                    return effectRows.map((rowIndex) => (
+                      <EffectTrack
+                        key={`effect-row-${rowIndex}`}
+                        rowIndex={rowIndex}
+                        getContentPosition={getContentPosition}
+                        totalDuration={totalDuration}
+                        effectivePadding={effectivePadding}
+                        handleEffectDragStart={handleEffectDragStart}
+                        onCloseTransitions={onCloseTransitions}
+                      />
+                    ))
+                  })()}
                   {(() => {
                     const mediaOverlayRows = [...new Set([
                       ...images.filter((img) => !img.isMainTrack).map((img) => img.row),
@@ -421,6 +439,16 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
                 </div>
               </div>
             </div>
+            <ContextMenu
+              playbackTime={playbackTime}
+              onOpenTransitions={onOpenTransitions}
+              onOpenAnimations={onOpenAnimations}
+              onOpenFont={onOpenFont}
+              onReplace={(id) => {
+                setReplaceTargetId(id)
+                replaceInputRef.current?.click()
+              }}
+            />
           </div>
         )}
       </div>

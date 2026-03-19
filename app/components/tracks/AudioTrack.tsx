@@ -29,6 +29,7 @@ export default function AudioTrack({
 
   const selectedAudioId = useSelectionStore((state) => state.selectedAudioId)
   const selectAudio = useSelectionStore((state) => state.selectAudio)
+  const setContextMenu = useSelectionStore((state) => state.setContextMenu)
 
   if (!audioAnalysis && !isAnalyzing) return null
 
@@ -60,6 +61,18 @@ export default function AudioTrack({
           cursor: 'grab',
         }}
         onMouseDown={(e) => handleAudioBodyDragStart(audioItem.id, e)}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          selectAudio(audioItem.id)
+          setContextMenu({
+            isOpen: true,
+            x: e.clientX,
+            y: e.clientY,
+            itemId: audioItem.id,
+            itemType: 'audio',
+          })
+        }}
       />
       {isAnalyzing && (
         <span className={styles.analyzingBadge}>Analyzing audio…</span>

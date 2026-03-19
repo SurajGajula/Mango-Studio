@@ -32,6 +32,7 @@ export function useTimelineShortcuts({
   const removeImage = useManifestStore((state) => state.removeImage)
   const removeText = useManifestStore((state) => state.removeText)
   const removeAudioFromManifest = useManifestStore((state) => state.removeAudio)
+  const removeEffect = useManifestStore((state) => state.removeEffect)
   const duplicateItem = useManifestStore((state) => state.duplicateItem)
   const audio = useAudioStore((state) => state.audio)
   const removeAudio = useAudioStore((state) => state.removeAudio)
@@ -84,10 +85,11 @@ export function useTimelineShortcuts({
       
       if (e.key === 'd' && !isEditing && !e.shiftKey) {
         e.preventDefault()
-        const { selectedVideoId, selectedImageId, selectedTextId, selectedAudioId } = useSelectionStore.getState()
+        const { selectedVideoId, selectedImageId, selectedTextId, selectedAudioId, selectedEffectId } = useSelectionStore.getState()
         if (selectedVideoId) removeVideo(selectedVideoId)
         else if (selectedImageId) removeImage(selectedImageId)
         else if (selectedTextId) removeText(selectedTextId)
+        else if (selectedEffectId) removeEffect(selectedEffectId)
         else if (selectedAudioId) {
           removeAudioFromManifest(selectedAudioId)
           removeAudio()
@@ -105,7 +107,7 @@ export function useTimelineShortcuts({
     return () => document.removeEventListener('keydown', handler)
   }, [
     undo, redo, removeVideo, removeImage, removeText, 
-    removeAudioFromManifest, removeAudio, duplicateItem,
+    removeAudioFromManifest, removeAudio, removeEffect, duplicateItem,
     replaceVideoData, applyZoom, visibleDurationRef, 
     MIN_VISIBLE, MAX_VISIBLE, selectedAudioId, 
     setSelectedAudioId, uploadInputRef, audio

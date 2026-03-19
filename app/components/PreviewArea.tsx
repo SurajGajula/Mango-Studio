@@ -8,7 +8,6 @@ import { usePreviewInteractions } from '@/app/hooks/preview/usePreviewInteractio
 import styles from './PreviewArea.module.css'
 import TextOverlay from './TextOverlay'
 import CropEditor from './CropEditor'
-import gsap from 'gsap'
 
 interface OverlayItemProps {
   itemId: string
@@ -230,17 +229,6 @@ export default function PreviewArea() {
     document.addEventListener('mousedown', handleMouseDown)
     return () => document.removeEventListener('mousedown', handleMouseDown)
   }, [cropEditId, exitCropEdit])
-
-  const textAnimKey = texts.map((t) => `${t.id}:${t.startTime}:${t.endTime}:${t.opacity}`).join('|')
-
-  useEffect(() => {
-    for (const text of texts) {
-      const el = textRefs.current.get(text.id)
-      if (!el) continue
-      gsap.set(el, { opacity: text.opacity })
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [textAnimKey])
 
   return (
     <div className={styles.container}>
