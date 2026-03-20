@@ -2,6 +2,7 @@
 
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { ImageClass } from '@/app/models/ImageClass'
+import { VideoClass } from '@/app/models/VideoClass'
 import { useEffect, useRef } from 'react'
 
 interface CropEditorProps {
@@ -33,6 +34,7 @@ export default function CropEditor({
   const mediaRef = useRef<HTMLImageElement | HTMLVideoElement | null>(null)
   const images = useManifestStore((state) => state.images)
   const videos = useManifestStore((state) => state.videos)
+  const aspectRatio = useManifestStore((state) => state.aspectRatio)
 
   const img = images.find((i) => i.id === cropEditId)
   const vid = videos.find((v) => v.id === cropEditId)
@@ -76,13 +78,18 @@ export default function CropEditor({
       
       if (mNw === 0 || mNh === 0) return
 
-      const destX = item.x * xScale + offsetX
-      const destY = item.y * yScale + offsetY
-      const destW = item.width * xScale
-      const destH = item.height * yScale
+      const itemW = item.width
+      const itemH = item.height
+      const itemX = item.x
+      const itemY = item.y
+
+      const destX = itemX * xScale + offsetX
+      const destY = itemY * yScale + offsetY
+      const destW = itemW * xScale
+      const destH = itemH * yScale
 
       const fullImgW = destW / item.cropSw
-      const fullImgH = destH / item.cropSh
+      const fullImgH = fullImgW * (mNh / mNw)
       const fullImgLeft = destX - item.cropSx * fullImgW
       const fullImgTop = destY - item.cropSy * fullImgH
 

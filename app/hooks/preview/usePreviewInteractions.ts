@@ -85,40 +85,27 @@ export function usePreviewInteractions(
   const enterCropEdit = useCallback(async (id: string, type: 'image' | 'video') => {
     if (type === 'image') {
       let img = images.find((i) => i.id === id)
-      if (!img || img.cropAspect) {
-        setCropEditId(id)
-        return
-      }
-      const currentAspect = img.width / img.height
-      const matchingLabel = Object.keys(ASPECT_RATIOS).find(label => {
-        const [rw, rh] = ASPECT_RATIOS[label]
-        return Math.abs(currentAspect - (rw / rh)) < 0.01
-      })
-      if (matchingLabel) {
-        const [rw, rh] = ASPECT_RATIOS[matchingLabel]
-        const updates = await computeMediaCropForAspect(img.url, 'image', aspectRatio, rw, rh, matchingLabel)
+      if (!img) return
+      
+      const isMainTrack = img.isMainTrack
+      if (!img.cropAspect) {
+        // Force the current project aspect ratio if it's the main track and no crop is set
+        const [rw, rh] = isMainTrack ? ASPECT_RATIOS[aspectRatio] : [img.width, img.height]
+        const label = isMainTrack ? aspectRatio : 'Original'
+        const updates = await computeMediaCropForAspect(img.url, 'image', aspectRatio, rw, rh, label)
         updateImage(id, updates as Partial<ImageClass>)
-      } else {
-        updateImage(id, { cropAspect: 'Original' })
       }
       setCropEditId(id)
     } else {
       let vid = videos.find((v) => v.id === id)
-      if (!vid || vid.cropAspect) {
-        setCropEditId(id)
-        return
-      }
-      const currentAspect = vid.width / vid.height
-      const matchingLabel = Object.keys(ASPECT_RATIOS).find(label => {
-        const [rw, rh] = ASPECT_RATIOS[label]
-        return Math.abs(currentAspect - (rw / rh)) < 0.01
-      })
-      if (matchingLabel) {
-        const [rw, rh] = ASPECT_RATIOS[matchingLabel]
-        const updates = await computeMediaCropForAspect(vid.url || '', 'video', aspectRatio, rw, rh, matchingLabel)
+      if (!vid) return
+      
+      const isMainTrack = !vid.isOverlay
+      if (!vid.cropAspect) {
+        const [rw, rh] = isMainTrack ? ASPECT_RATIOS[aspectRatio] : [vid.width, vid.height]
+        const label = isMainTrack ? aspectRatio : 'Original'
+        const updates = await computeMediaCropForAspect(vid.url || '', 'video', aspectRatio, rw, rh, label)
         updateVideo(id, updates as Partial<VideoClass>)
-      } else {
-        updateVideo(id, { cropAspect: 'Original' })
       }
       setCropEditId(id)
     }
@@ -343,14 +330,19 @@ export function usePreviewInteractions(
         cropSx: Math.max(0, Math.min(1 - cropSw, startCropSx - dx * cropSw / destW)),
         cropSy: Math.max(0, Math.min(1 - cropSh, startCropSy - dy * cropSh / destH)),
       }
-      if (images.some(i => i.id === imgId)) {
+      
+      const isImage = images.some(i => i.id === imgId)
+      if (isImage) {
         updateImage(imgId, updates)
       } else {
         updateVideo(imgId, updates)
       }
     }
 
-    const handleMouseUp = () => setCropPanState(null)
+    const handleMouseUp = () => {
+      setCropPanState(null)
+      pushHistory()
+    }
 
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleMouseUp)
@@ -358,7 +350,7 @@ export function usePreviewInteractions(
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [cropPanState, cropEditId, updateImage, updateVideo, images])
+  }, [cropPanState, cropEditId, updateImage, updateVideo, images, videos, pushHistory])
 
   useEffect(() => {
     if (!cropEditId) return

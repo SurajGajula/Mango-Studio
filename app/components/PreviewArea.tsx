@@ -5,6 +5,8 @@ import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useVideoPlayback } from '@/app/lib/useVideoPlayback'
 import { usePreviewInteractions } from '@/app/hooks/preview/usePreviewInteractions'
+import { ImageClass } from '@/app/models/ImageClass'
+import { VideoClass } from '@/app/models/VideoClass'
 import styles from './PreviewArea.module.css'
 import TextOverlay from './TextOverlay'
 import CropEditor from './CropEditor'
@@ -146,15 +148,27 @@ export default function PreviewArea() {
     const item = img || vid
     if (!item) return
 
+    const itemW = item.width
+    const itemH = item.height
+    const itemX = item.x
+    const itemY = item.y
+
     const canvasRect = canvasRef.current?.getBoundingClientRect()
     if (canvasRect) {
       const px = e.clientX - canvasRect.left
       const py = e.clientY - canvasRect.top
-      const destX = item.x * xScale + offsetX
-      const destY = item.y * yScale + offsetY
-      const destW = item.width * xScale
-      const destH = item.height * yScale
-      if (px < destX || px > destX + destW || py < destY || py > destY + destH) {
+      
+      const destX = itemX * xScale + offsetX
+      const destY = itemY * yScale + offsetY
+      const destW = itemW * xScale
+      const destH = itemH * yScale
+
+      const fullImgW = destW / item.cropSw
+      const fullImgH = destH / item.cropSh
+      const fullImgLeft = destX - item.cropSx * fullImgW
+      const fullImgTop = destY - item.cropSy * fullImgH
+
+      if (px < fullImgLeft || px > fullImgLeft + fullImgW || py < fullImgTop || py > fullImgTop + fullImgH) {
         exitCropEdit()
         return
       }
@@ -279,7 +293,7 @@ export default function PreviewArea() {
                     xScale={xScale}
                     yScale={yScale}
                     handleOverlayMouseDown={handleOverlayMouseDown}
-                    hasCrop={false}
+                    hasCrop={!!video.cropAspect}
                     cropEditId={cropEditId}
                     enterCropEdit={enterCropEdit}
                     exitCropEdit={exitCropEdit}
