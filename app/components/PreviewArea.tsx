@@ -148,10 +148,11 @@ export default function PreviewArea() {
     const item = img || vid
     if (!item) return
 
-    const itemW = item.width
-    const itemH = item.height
-    const itemX = item.x
-    const itemY = item.y
+    const isMainTrack = (item as any).row === 0
+    const itemW = isMainTrack ? (aspectRatio === '16:9' ? 1920 : 1080) : item.width
+    const itemH = isMainTrack ? (aspectRatio === '16:9' ? 1080 : 1920) : item.height
+    const itemX = isMainTrack ? 0 : item.x
+    const itemY = isMainTrack ? 0 : item.y
 
     const canvasRect = canvasRef.current?.getBoundingClientRect()
     if (canvasRect) {
@@ -163,12 +164,14 @@ export default function PreviewArea() {
       const destW = itemW * xScale
       const destH = itemH * yScale
 
-      const fullImgW = destW / item.cropSw
-      const fullImgH = destH / item.cropSh
-      const fullImgLeft = destX - item.cropSx * fullImgW
-      const fullImgTop = destY - item.cropSy * fullImgH
+      const fullImgW = destW / (item.cropSw || 1)
+      const fullImgH = destH / (item.cropSh || 1)
+      const fullImgLeft = destX - (item.cropSx || 0) * fullImgW
+      const fullImgTop = destY - (item.cropSy || 0) * fullImgH
 
-      if (px < fullImgLeft || px > fullImgLeft + fullImgW || py < fullImgTop || py > fullImgTop + fullImgH) {
+      // Allow a generous 50px margin around the image for easier grabbing
+      const margin = 50
+      if (px < fullImgLeft - margin || px > fullImgLeft + fullImgW + margin || py < fullImgTop - margin || py > fullImgTop + fullImgH + margin) {
         exitCropEdit()
         return
       }
@@ -177,14 +180,14 @@ export default function PreviewArea() {
     setCropPanState({
       startX: e.clientX,
       startY: e.clientY,
-      startCropSx: item.cropSx,
-      startCropSy: item.cropSy,
-      cropSw: item.cropSw,
-      cropSh: item.cropSh,
-      destW: item.width * xScale,
-      destH: item.height * yScale,
+      startCropSx: item.cropSx ?? 0,
+      startCropSy: item.cropSy ?? 0,
+      cropSw: item.cropSw ?? 1,
+      cropSh: item.cropSh ?? 1,
+      destW: itemW * xScale,
+      destH: itemH * yScale,
     })
-  }, [cropEditId, images, videos, xScale, yScale, offsetX, offsetY, exitCropEdit, setCropPanState])
+  }, [cropEditId, images, videos, xScale, yScale, offsetX, offsetY, exitCropEdit, setCropPanState, aspectRatio])
 
   const handleCanvasDoubleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current

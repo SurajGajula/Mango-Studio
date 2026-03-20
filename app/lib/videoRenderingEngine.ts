@@ -291,7 +291,7 @@ export class VideoRenderingEngine {
     imageBitmaps: Map<string, ImageBitmap>,
     aspectRatio: string
   ) {
-    const mainTrackImages = images.filter(img => img.isMainTrack)
+    const mainTrackImages = images.filter(img => (img as any).row === 0)
     let visibleImages = mainTrackImages.filter(img => currentTime >= img.startTime && currentTime < img.endTime)
     if (visibleImages.length === 0) {
       const lastEnded = mainTrackImages.filter(img => img.endTime <= currentTime).sort((a, b) => b.endTime - a.endTime)[0]
@@ -308,7 +308,7 @@ export class VideoRenderingEngine {
           const prevBitmap = imageBitmaps.get(lastEnded.id)
           if (prevBitmap) {
             ctx.save(); ctx.globalAlpha = image.opacity
-            applyZoomTransform(ctx, 'none', 'none', 0, prevBitmap, cr.x + image.x * xScale, cr.y + image.y * yScale, image.width * xScale, image.height * yScale, lastEnded.cropSx, lastEnded.cropSy, lastEnded.cropSw, lastEnded.cropSh, 0, 0)
+            applyZoomTransform(ctx, 'none', 'none', 0, prevBitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, lastEnded.cropSx, lastEnded.cropSy, lastEnded.cropSw, lastEnded.cropSh, 0, 0)
             ctx.restore()
             return
           }
@@ -317,7 +317,7 @@ export class VideoRenderingEngine {
       if (!bitmap) return
       const progress = calculateAnimationProgress(image, currentTime, image.startTime)
       ctx.save(); ctx.globalAlpha = image.opacity
-      applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, cr.x + image.x * xScale, cr.y + image.y * yScale, image.width * xScale, image.height * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, currentTime - image.startTime)
+      applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, currentTime - image.startTime)
       ctx.restore()
     })
   }
@@ -336,11 +336,11 @@ export class VideoRenderingEngine {
     const logicalW = aspectRatio === '16:9' ? 1920 : 1080
     const logicalH = aspectRatio === '16:9' ? 1080 : 1920
     const xScale = cr.width / logicalW; const yScale = cr.height / logicalH
-    images.filter(img => !img.isMainTrack && currentTime >= img.startTime && currentTime < img.endTime).forEach(image => {
+    images.filter(img => (img as any).row > 0 && currentTime >= img.startTime && currentTime < img.endTime).forEach(image => {
       const bitmap = imageBitmaps.get(image.id); if (!bitmap) return
       const progress = calculateAnimationProgress(image, currentTime, image.startTime)
       ctx.save(); ctx.globalAlpha = image.opacity
-      applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, cr.x + image.x * xScale, cr.y + image.y * yScale, image.width * xScale, image.height * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, currentTime - image.startTime)
+      applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, currentTime - image.startTime)
       ctx.restore()
     })
     videos.filter(v => v.isOverlay).forEach(video => {

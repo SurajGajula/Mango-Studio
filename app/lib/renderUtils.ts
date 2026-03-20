@@ -35,7 +35,7 @@ export function calculateAnimationProgress(item: VideoClass | ImageClass, curren
     const animDur = Math.max(0.1, item.animationDuration ?? item.transitionDuration ?? 1.0)
     return Math.max(0, Math.min(1, elapsed / animDur))
   }
-  const duration = item instanceof ImageClass ? item.duration : (item as VideoClass).duration
+  const duration = (item as any).startTime !== undefined ? (item as ImageClass).duration : (item as VideoClass).duration
   return (duration && duration > 0) ? elapsed / duration : 0
 }
 

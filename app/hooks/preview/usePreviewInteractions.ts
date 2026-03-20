@@ -87,7 +87,7 @@ export function usePreviewInteractions(
       let img = images.find((i) => i.id === id)
       if (!img) return
       
-      const isMainTrack = img.isMainTrack
+      const isMainTrack = (img as any).row === 0
       if (!img.cropAspect) {
         // Force the current project aspect ratio if it's the main track and no crop is set
         const [rw, rh] = isMainTrack ? ASPECT_RATIOS[aspectRatio] : [img.width, img.height]
@@ -100,7 +100,7 @@ export function usePreviewInteractions(
       let vid = videos.find((v) => v.id === id)
       if (!vid) return
       
-      const isMainTrack = !vid.isOverlay
+      const isMainTrack = (vid as any).row === 0
       if (!vid.cropAspect) {
         const [rw, rh] = isMainTrack ? ASPECT_RATIOS[aspectRatio] : [vid.width, vid.height]
         const label = isMainTrack ? aspectRatio : 'Original'
@@ -326,9 +326,16 @@ export function usePreviewInteractions(
       const dx = e.clientX - startX
       const dy = e.clientY - startY
       
+      const safeStartSx = startCropSx ?? 0
+      const safeStartSy = startCropSy ?? 0
+      const safeCropSw = cropSw ?? 1
+      const safeCropSh = cropSh ?? 1
+      const safeDestW = destW || 1
+      const safeDestH = destH || 1
+
       const updates = {
-        cropSx: Math.max(0, Math.min(1 - cropSw, startCropSx - dx * cropSw / destW)),
-        cropSy: Math.max(0, Math.min(1 - cropSh, startCropSy - dy * cropSh / destH)),
+        cropSx: Math.max(0, Math.min(Math.max(0, 1 - safeCropSw), safeStartSx - dx * safeCropSw / safeDestW)),
+        cropSy: Math.max(0, Math.min(Math.max(0, 1 - safeCropSh), safeStartSy - dy * safeCropSh / safeDestH)),
       }
       
       const isImage = images.some(i => i.id === imgId)
@@ -359,6 +366,12 @@ export function usePreviewInteractions(
       if (!canvas) return
       const rect = canvas.getBoundingClientRect()
       if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return
+      
+      // Only zoom if a modifier key is pressed (Cmd, Ctrl, or Alt)
+      // This prevents trackpad scrolls from being interpreted as zoom.
+      // e.ctrlKey is also true for pinch-to-zoom on most trackpads.
+      if (!e.ctrlKey && !e.metaKey && !e.altKey) return
+
       e.preventDefault()
       const item = images.find((i) => i.id === cropEditId) || videos.find((v) => v.id === cropEditId)
       if (!item) return
@@ -373,7 +386,8 @@ export function usePreviewInteractions(
         cropSx: Math.max(0, Math.min(1 - newCropSw, centerSx - newCropSw / 2)),
         cropSy: Math.max(0, Math.min(1 - newCropSh, centerSy - newCropSh / 2)),
       }
-      if (images.some(i => i.id === cropEditId)) {
+      const isImage = images.some(i => i.id === cropEditId)
+      if (isImage) {
         updateImage(item.id, updates)
       } else {
         updateVideo(item.id, updates)

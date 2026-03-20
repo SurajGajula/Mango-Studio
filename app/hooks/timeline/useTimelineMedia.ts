@@ -126,7 +126,16 @@ export function useTimelineMedia({
         ]
         const row = findFreeRow(mediaItems, start, end)
         const isMainTrack = row === 0
-        const { x, y, width, height } = await computeImageDimensions(url, aspectRatio, isMainTrack)
+        let x, y, width, height, cropAspect, cropSx, cropSy, cropSw, cropSh
+        if (isMainTrack) {
+          const [rw, rh] = ASPECT_RATIOS[aspectRatio]
+          const crop = await computeMediaCropForAspect(url, 'image', aspectRatio, rw, rh, aspectRatio)
+          x = crop.x; y = crop.y; width = crop.width; height = crop.height
+          cropAspect = crop.cropAspect; cropSx = crop.cropSx; cropSy = crop.cropSy; cropSw = crop.cropSw; cropSh = crop.cropSh
+        } else {
+          const dims = await computeImageDimensions(url, aspectRatio, isMainTrack)
+          x = dims.x; y = dims.y; width = dims.width; height = dims.height
+        }
         addImage(new ImageClass(
           `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           file.name,
@@ -139,8 +148,8 @@ export function useTimelineMedia({
           isMainTrack,
           'none',
           'none',
-          undefined,
-          0, 0, 1, 1,
+          cropAspect,
+          cropSx, cropSy, cropSw, cropSh,
           0.5,
           1.0,
           undefined,

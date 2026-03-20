@@ -42,7 +42,8 @@ export default function CropEditor({
 
   useEffect(() => {
     if (!item?.url) return
-    const el = item instanceof ImageClass ? new Image() : document.createElement('video')
+    const isImage = (item as any).startTime !== undefined
+    const el = isImage ? new Image() : document.createElement('video')
     el.src = item.url
     mediaRef.current = el
     
@@ -59,7 +60,7 @@ export default function CropEditor({
         el.load()
       }
     }
-  }, [item?.url, item instanceof ImageClass])
+  }, [item?.url, (item as any).startTime !== undefined])
 
   useEffect(() => {
     if (!item || !canvasRef.current || !mediaRef.current) return
@@ -149,8 +150,8 @@ export default function CropEditor({
     } else {
       const vid = mediaEl as HTMLVideoElement
       const onMetadata = () => {
-        const itemStartTime = item instanceof ImageClass ? item.startTime : item.timestamp
-        const trimStart = item instanceof ImageClass ? 0 : (item.trimStart ?? 0)
+        const itemStartTime = (item as any).startTime ?? (item as any).timestamp
+        const trimStart = (item as any).trimStart ?? 0
         vid.currentTime = playbackTime - itemStartTime + trimStart
         vid.onseeked = render
       }
@@ -159,7 +160,7 @@ export default function CropEditor({
     }
 
     return () => { active = false }
-  }, [item, xScale, yScale, offsetX, offsetY, contentRect, playbackTime])
+  }, [item, xScale, yScale, offsetX, offsetY, contentRect, playbackTime, aspectRatio])
 
   if (!item) return null
 
