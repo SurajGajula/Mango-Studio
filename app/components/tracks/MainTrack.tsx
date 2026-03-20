@@ -160,7 +160,9 @@ const MainTrackComponent = ({
                         if (thumbs.length === 0) return null
                         
                         const thumbWidth = 85
-                        const itemWidthPx = (widthPercent / 100) * (scrollContainerRef.current?.scrollWidth || 1000)
+                        // Use a fixed width or a safer calculation to avoid layout thrashing during scroll
+                        const containerWidth = scrollContainerRef.current?.clientWidth || 1000
+                        const itemWidthPx = (widthPercent / 100) * (scrollContainerRef.current?.scrollWidth || containerWidth * (totalDuration / 8)) // Fallback calculation
                         const totalThumbsWidth = thumbs.length * thumbWidth
                         const repeatCount = Math.max(1, Math.ceil(itemWidthPx / totalThumbsWidth))
                         const repeatedThumbs: string[] = []
@@ -169,7 +171,7 @@ const MainTrackComponent = ({
                         }
                         return repeatedThumbs.map((thumb, tIdx) => (
                           <img
-                            key={tIdx}
+                            key={`${v.id}-thumb-${tIdx}`}
                             src={thumb}
                             alt=""
                             className={styles.thumbnail}

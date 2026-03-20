@@ -89,7 +89,7 @@ function TextOverlayComponent({
         opacity: text.opacity,
         mixBlendMode: text.style === 'negative' ? 'difference' : 'normal',
         backgroundColor: text.style === 'negative' ? '#000000' : 'transparent',
-        textShadow: text.style === 'negative' ? 'none' : 'none',
+        textShadow: text.style === 'negative' ? 'none' : undefined,
         border: text.style === 'negative' && !isSelected ? 'none' : undefined,
       }}
       onMouseDown={(e) => handleTextMouseDown(text.id, e)}

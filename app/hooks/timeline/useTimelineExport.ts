@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { exportVideo, downloadBlob, ExportProgress } from '@/app/lib/videoExporter'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
@@ -32,7 +32,7 @@ export function useTimelineExport({
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null)
   const exportAbortRef = useRef<AbortController | null>(null)
 
-  const handleExport = async () => {
+  const handleExport = useCallback(async () => {
     const hasMainContent = videos.filter((v) => !v.isOverlay).length > 0 || images.filter((img) => img.isMainTrack).length > 0
     if (isExporting || !hasMainContent) return
 
@@ -64,11 +64,11 @@ export function useTimelineExport({
       setIsExporting(false)
       setTimeout(() => setExportProgress(null), 3000)
     }
-  }
+  }, [videos, images, isExporting, setIsPlaying, aspectRatio, audioUrl, texts, audios, effects])
 
-  const handleCancelExport = () => {
+  const handleCancelExport = useCallback(() => {
     exportAbortRef.current?.abort()
-  }
+  }, [])
 
   return { isExporting, exportProgress, handleExport, handleCancelExport, setExportProgress }
 }

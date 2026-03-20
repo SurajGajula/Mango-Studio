@@ -206,7 +206,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'set_crop',
-    description: 'Set the aspect ratio crop on one or more images or videos. Use this when the user asks to change, set, or apply an aspect ratio to images or videos — for example "make images 2-25 16:9" or "set video 1 to 1:1". The cropAspect must be one of: "16:9", "4:3", "1:1", "3:4", "9:16", or "none" (to remove the crop).',
+    description: 'Set the aspect ratio crop on one or more images or videos. Use this when the user asks to change, set, or apply an aspect ratio to images or videos — for example "make images 2-25 16:9" or "set video 1 to 1:1". The cropAspect must be one of: "16:9", "4:3", "1:1", "3:4", "9:16", or "none" (to remove the crop). Note: If the user asks to set a crop that already seems to be set in the manifest, you should still call this to ensure the crop coordinates are correctly re-calculated.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -242,7 +242,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'replace_images',
-    description: 'Replace the source image of existing timeline images with uploaded files. Use this when the user attaches images and asks to replace, swap, or update existing images on the timeline with them. Map each target image id to the fileIndex of the uploaded file to use.',
+    description: 'Replace existing timeline images or videos with uploaded files. Use this when the user attaches images and asks to replace, swap, or update existing images or videos on the timeline with them. Map each target id to the fileIndex of the uploaded file to use.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -254,7 +254,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
             properties: {
               targetId: {
                 type: Type.STRING,
-                description: 'The id of the existing timeline image to replace.',
+                description: 'The id of the existing timeline image or video to replace.',
               },
               fileIndex: {
                 type: Type.NUMBER,
@@ -266,7 +266,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
         },
         message: {
           type: Type.STRING,
-          description: 'A short confirmation message, e.g. "Replaced 24 images."',
+          description: 'A short confirmation message, e.g. "Replaced 24 items."',
         },
       },
       required: ['replacements', 'message'],
@@ -281,7 +281,7 @@ export const systemInstruction =
     '- edit_manifest: when the user asks to change timing, duration, position, playback speed, or mute status of existing items. You MUST include all affected items as separate entries in the mutations array in a SINGLE call — never call edit_manifest multiple times. For audio mutations (type=updateAudio): ALWAYS use trimStart and trimEnd fields (not endTime). To restore an audio to its full original length set trimStart=0 and trimEnd=0. The active playing duration of an audio is: originalDuration - trimStart - trimEnd. Use playbackSpeed for video and audio playback speed changes (e.g. 0.5 for half speed), and muted for video mute status (true to mute, false to unmute). ALWAYS use the exact id strings from the manifest (e.g. "audio-1234-abc") — never make up or shorten ids.\n' +
   '- split_at_marks: when the user asks to split, cut, or divide images or videos at audio mark positions (use the marks listed in the audio data)\n' +
   '- add_text: when the user asks to add text overlays to the timeline at a computed time range\n' +
-  '- replace_images: when the user has attached files and asks to replace, swap, or update existing timeline images with them\n' +
+    '- replace_images: when the user has attached files and asks to replace, swap, or update existing timeline images or videos with them\n' +
   '- set_transitions: when the user asks to set, apply, add, or remove animations (none, in, out, shake, or jitter) or transitions (none, split-horizontal, split-vertical, fade, slide-in-top, slide-in-bottom, slide-in-left, or slide-in-right) on images or videos; include zoomIntensity (0.05–1.0) if specified, transitionDuration (for transitions) if specified, or animationDuration (for Zoom In/Out animations) if specified\n' +
   '- set_crop: when the user asks to set or change the aspect ratio of images or videos (e.g. "make images 2-25 16:9"); cropAspect must be one of "16:9", "4:3", "1:1", "3:4", "9:16", or "none"\n' +
   '- no_op: for anything else\n' +

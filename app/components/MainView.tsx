@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import ChatWindow from './ChatWindow'
 import Timeline from './Timeline'
 import PreviewArea from './PreviewArea'
@@ -25,6 +25,27 @@ export default function MainView() {
 
   const timelineHeight = 'max(212px, calc(100vh - 75vw * 9 / 16))'
 
+  const onOpenTransitions = useCallback((id: string) => {
+    setRightPanel('transitions')
+    setTransitionItemId(id)
+  }, [])
+
+  const onCloseTransitions = useCallback(() => {
+    setRightPanel((prev) => {
+      if (prev === 'transitions') return 'chat'
+      return prev
+    })
+    setTransitionItemId(null)
+  }, [])
+
+  const onOpenAnimations = useCallback((id?: string) => {
+    setRightPanel('animations')
+    if (id) setTransitionItemId(id)
+  }, [])
+
+  const onOpenFont = useCallback(() => setRightPanel('font'), [])
+  const onOpenEffects = useCallback(() => setRightPanel('effects'), [])
+
   if (loading) {
     return (
       <div className={styles.loadingOverlay}>
@@ -41,22 +62,11 @@ export default function MainView() {
         </div>
         <div className={styles.timelineContainer} style={{ height: timelineHeight }}>
           <Timeline
-            onOpenTransitions={(id) => {
-              setRightPanel('transitions')
-              setTransitionItemId(id)
-            }}
-            onCloseTransitions={() => {
-              if (rightPanel === 'transitions') {
-                setRightPanel('chat')
-                setTransitionItemId(null)
-              }
-            }}
-            onOpenAnimations={(id) => {
-              setRightPanel('animations')
-              if (id) setTransitionItemId(id)
-            }}
-            onOpenFont={() => setRightPanel('font')}
-            onOpenEffects={() => setRightPanel('effects')}
+            onOpenTransitions={onOpenTransitions}
+            onCloseTransitions={onCloseTransitions}
+            onOpenAnimations={onOpenAnimations}
+            onOpenFont={onOpenFont}
+            onOpenEffects={onOpenEffects}
           />
         </div>
       </div>

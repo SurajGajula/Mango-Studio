@@ -1,5 +1,6 @@
 'use client'
 
+import { memo } from 'react'
 import { useAudioStore } from '@/app/stores/audioStore'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
@@ -14,14 +15,14 @@ interface AudioTrackProps {
   audioCanvasRef: React.RefObject<HTMLCanvasElement>
 }
 
-export default function AudioTrack({
+const AudioTrack = ({
   totalDuration,
   effectivePadding,
   getContentPosition,
   handleAudioBodyDragStart,
   handleAudioTrimStart,
   audioCanvasRef,
-}: AudioTrackProps) {
+}: AudioTrackProps) => {
   const audios = useManifestStore((state) => state.audios)
   const audioAnalysis = useAudioStore((state) => state.analysis)
   const isAnalyzing = useAudioStore((state) => state.isAnalyzing)
@@ -33,8 +34,17 @@ export default function AudioTrack({
 
   if (!audioAnalysis && !isAnalyzing) return null
 
-  const audioItem = audios[0]
-  if (!audioItem) return null
+  const audioItem = audios.find((a) => !a.isOverlay)
+  if (!audioItem) {
+    if (isAnalyzing) {
+      return (
+        <div className={styles.audioRow}>
+          <span className={styles.analyzingBadge}>Analyzing audio…</span>
+        </div>
+      )
+    }
+    return null
+  }
 
   const aTrimStart = audioItem.trimStart
   const aTrimEnd = audioItem.trimEnd
@@ -126,3 +136,5 @@ export default function AudioTrack({
     </div>
   )
 }
+
+export default memo(AudioTrack)

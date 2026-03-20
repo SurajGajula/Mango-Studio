@@ -45,10 +45,13 @@ export default function ContextMenu({
   const duplicateItem = useManifestStore((s) => s.duplicateItem)
   const updateVideo = useManifestStore((s) => s.updateVideo)
   const updateImage = useManifestStore((s) => s.updateImage)
+  const updateAudio = useManifestStore((s) => s.updateAudio)
+  const splitAudio = useManifestStore((s) => s.splitAudio)
   const setItemPlaybackSpeed = useManifestStore((s) => s.setItemPlaybackSpeed)
   const pushHistory = useManifestStore((s) => s.pushHistory)
 
   const removeAudioFromStore = useAudioStore((s) => s.removeAudio)
+  const audioInStore = useAudioStore((s) => s.audio)
   const clearSelection = useSelectionStore((s) => s.clearSelection)
 
   const handleAction = useCallback((action: () => void) => {
@@ -134,6 +137,13 @@ export default function ContextMenu({
       if (!t) return true
       return playbackTime <= t.startTime + 0.05 || playbackTime >= t.endTime - 0.05
     }
+    if (itemType === 'audio') {
+      const a = audios.find((a) => a.id === itemId)
+      if (!a) return true
+      const local = playbackTime - a.startTime
+      const duration = (a.originalDuration - a.trimStart - a.trimEnd) / (a.playbackSpeed ?? 1)
+      return local <= 0.1 || local >= duration - 0.1
+    }
     return true
   }
 
@@ -153,7 +163,7 @@ export default function ContextMenu({
         visibility: pos.y === 0 && pos.x === 0 ? 'hidden' : 'visible'
       }}
     >
-      {(itemType === 'video' || itemType === 'image' || itemType === 'text') && (
+      {(itemType === 'video' || itemType === 'image' || itemType === 'text' || itemType === 'audio') && (
         <>
           <button
             className={styles.contextMenuItem}
@@ -161,6 +171,7 @@ export default function ContextMenu({
               if (itemType === 'video') splitVideo(itemId, playbackTime)
               else if (itemType === 'image') splitImage(itemId, playbackTime)
               else if (itemType === 'text') splitText(itemId, playbackTime)
+              else if (itemType === 'audio') splitAudio(itemId, playbackTime)
             })}
             disabled={isSplitDisabled()}
           >
@@ -183,6 +194,34 @@ export default function ContextMenu({
             </div>
             Duplicate
           </button>
+          <div className={styles.contextMenuSeparator} />
+        </>
+      )}
+
+      {itemType === 'audio' && currentAudio && (
+        <>
+          <div className={styles.contextMenuSliderItem}>
+            <div className={styles.contextMenuIcon}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 5L6 9H2v6h4l5 4V5z"></path>
+                <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+              </svg>
+            </div>
+            <span style={{ fontSize: '0.75rem', color: '#cccccc', marginRight: '8px', minWidth: '45px' }}>Volume</span>
+            <input
+              type="range"
+              min="0"
+              max="2"
+              step="0.05"
+              value={currentAudio.volume ?? 1}
+              onChange={(e) => updateAudio(itemId, { volume: parseFloat(e.target.value) })}
+              onClick={(e) => e.stopPropagation()}
+              className={styles.contextMenuSlider}
+            />
+            <span style={{ fontSize: '0.7rem', color: '#888', marginLeft: '8px', minWidth: '30px' }}>
+              {Math.round((currentAudio.volume ?? 1) * 100)}%
+            </span>
+          </div>
           <div className={styles.contextMenuSeparator} />
         </>
       )}
@@ -298,7 +337,9 @@ export default function ContextMenu({
           else if (itemType === 'text') removeText(itemId)
           else if (itemType === 'audio') {
             removeAudio(itemId)
-            removeAudioFromStore()
+            if (audioInStore?.id === itemId) {
+              removeAudioFromStore()
+            }
             clearSelection()
           }
           else if (itemType === 'effect') removeEffect(itemId)

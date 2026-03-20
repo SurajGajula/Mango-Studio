@@ -118,18 +118,42 @@ export async function exportVideo(
     const offlineAudioBlob = await (async () => {
       const offlineCtx = new OfflineAudioContext(2, Math.max(1, Math.ceil(totalDuration * 44100)), 44100)
       
-      // Background music
-      if (audioUrl) {
+      // All manifest audios
+      if (audios && audios.length > 0) {
+        for (const audioItem of audios) {
+          try {
+            const resp = await fetch(audioItem.url)
+            const buf = await resp.arrayBuffer()
+            const audioBuf = await offlineCtx.decodeAudioData(buf)
+            const source = offlineCtx.createBufferSource()
+            source.buffer = audioBuf
+            source.playbackRate.value = audioItem.playbackSpeed ?? 1
+            
+            const gainNode = offlineCtx.createGain()
+            gainNode.gain.value = audioItem.volume ?? 1.0
+            source.connect(gainNode)
+            gainNode.connect(offlineCtx.destination)
+
+            // startTime is when it starts on the timeline, trimStart is where it starts in the file
+            // The 3rd parameter is the duration to play from the source
+            const durationToPlay = audioItem.originalDuration - audioItem.trimStart - audioItem.trimEnd
+            source.start(audioItem.startTime, audioItem.trimStart, durationToPlay)
+          } catch (e) { console.error(`Failed to load audio ${audioItem.id} for offline mix`, e) }
+        }
+      }
+      
+      // Legacy background music if still present
+      if (audioUrl && (!audios || audios.length === 0)) {
         try {
           const resp = await fetch(audioUrl)
           const buf = await resp.arrayBuffer()
           const audioBuf = await offlineCtx.decodeAudioData(buf)
           const source = offlineCtx.createBufferSource()
           source.buffer = audioBuf
-          source.playbackRate.value = audios?.[0]?.playbackSpeed ?? 1
+          source.playbackRate.value = 1
           source.connect(offlineCtx.destination)
           source.start(audioStartTime ?? 0, audioTrimStart ?? 0)
-        } catch (e) { console.error('Failed to load bg audio for offline mix', e) }
+        } catch (e) { console.error('Failed to load legacy bg audio for offline mix', e) }
       }
 
       // Video audios

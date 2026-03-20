@@ -6,29 +6,35 @@ import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useAudioStore } from '@/app/stores/audioStore'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
-import { getSortedMainItems, findActiveAndNextItems, checkTransition, calculateAnimationProgress } from '@/app/lib/renderUtils'
-import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
-import { applyEffect } from '@/app/lib/applyEffect'
+import { getSortedMainItems, findActiveAndNextItems, checkTransition } from '@/app/lib/renderUtils'
+import { VideoRenderingEngine, RenderState, RenderResources } from '@/app/lib/videoRenderingEngine'
 
 export function useVideoPlayback(
   canvasRef: React.RefObject<HTMLCanvasElement>,
   containerRef: React.RefObject<HTMLDivElement>
 ) {
+  const engineRef = useRef<VideoRenderingEngine | null>(null)
+  if (!engineRef.current) engineRef.current = new VideoRenderingEngine()
+
   const videoElementsRef = useRef<Map<string, HTMLVideoElement>>(new Map())
   const imageBitmapsRef = useRef<Map<string, ImageBitmap>>(new Map())
   const imageUrlsRef = useRef<Map<string, string>>(new Map())
   const urlCacheRef = useRef<Map<string, ImageBitmap>>(new Map())
   const loadingUrlsRef = useRef<Set<string>>(new Set())
   const persistenceCanvasesRef = useRef<Map<string, { current: HTMLCanvasElement; accumulation: HTMLCanvasElement }>>(new Map())
-  const audioElementRef = useRef<HTMLAudioElement | null>(null)
+  const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map())
+  const audioCtxRef = useRef<AudioContext | null>(null)
+  const audioNodesRef = useRef<Map<string, { source: MediaElementAudioSourceNode; gain: GainNode }>>(new Map())
   const rafRef = useRef<number | null>(null)
+  const bufferCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const videoPlayPromisesRef = useRef<Map<string, Promise<void>>>(new Map())
-  const audioPlayPromiseRef = useRef<Promise<void> | null>(null)
+  const audioPlayPromisesRef = useRef<Map<string, Promise<void>>>(new Map())
   const [contentRect, setContentRect] = useState({ x: 0, y: 0, width: 0, height: 0 })
   const contentRectRef = useRef({ x: 0, y: 0, width: 0, height: 0 })
 
   const videos = useManifestStore((state) => state.videos)
   const images = useManifestStore((state) => state.images)
+  const audios = useManifestStore((state) => state.audios)
   const playbackTime = useManifestStore((state) => state.playbackTime)
   const aspectRatio = useManifestStore((state) => state.aspectRatio)
   const effects = useManifestStore((state) => state.effects)
@@ -39,9 +45,6 @@ export function useVideoPlayback(
 
   // Memoize sorted items and overlay clips to avoid re-calculating in the high-frequency loop
   const sortedMainItems = useMemo(() => getSortedMainItems(videos, images), [videos, images])
-  const overlayVideos = useMemo(() => videos.filter(v => v.isOverlay), [videos])
-  const overlayImages = useMemo(() => images.filter(img => !img.isMainTrack), [images])
-  const mainTrackImages = useMemo(() => images.filter(img => img.isMainTrack), [images])
 
   useEffect(() => {
     const sortedVideos = [...videos].sort((a, b) => a.timestamp - b.timestamp)
@@ -105,7 +108,7 @@ export function useVideoPlayback(
       el.src = ''
       el.load()
     })
-  }, [videos, Math.floor(playbackTime / 2)])
+  }, [videos, Math.floor(playbackTime / 5)])
 
   useEffect(() => {
     const currentIds = new Set(images.map((o) => o.id))
@@ -164,24 +167,54 @@ export function useVideoPlayback(
   }, [images, Math.floor(playbackTime * 4)])
 
   useEffect(() => {
-    if (audioElementRef.current) {
-      audioElementRef.current.pause()
-      audioElementRef.current.src = ''
-      audioElementRef.current = null
-    }
-    if (!audioUrl) return
-    const audio = new Audio(audioUrl)
-    audio.preload = 'auto'
-    audioElementRef.current = audio
-  }, [audioUrl])
+    const currentAudioIds = new Set(audios.map(a => a.id))
+    audioElementsRef.current.forEach((el, id) => {
+      if (!currentAudioIds.has(id)) {
+        el.pause()
+        el.src = ''
+        audioElementsRef.current.delete(id)
+        audioPlayPromisesRef.current.delete(id)
+      }
+    })
+
+    audios.forEach(audioItem => {
+      let el = audioElementsRef.current.get(audioItem.id)
+      if (!el) {
+        el = new Audio(audioItem.url)
+        el.preload = 'auto'
+        el.crossOrigin = 'anonymous'
+        audioElementsRef.current.set(audioItem.id, el)
+
+        // Setup Web Audio for volume > 100%
+        if (!audioCtxRef.current) {
+          audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+        }
+        const ctx = audioCtxRef.current
+        const source = ctx.createMediaElementSource(el)
+        const gain = ctx.createGain()
+        source.connect(gain)
+        gain.connect(ctx.destination)
+        audioNodesRef.current.set(audioItem.id, { source, gain })
+      } else if (el.src !== audioItem.url) {
+        el.pause()
+        el.src = audioItem.url
+        el.load()
+      }
+    })
+  }, [audios])
 
   useEffect(() => {
     return () => {
-      if (audioElementRef.current) {
-        audioElementRef.current.pause()
-        audioElementRef.current.src = ''
-        audioElementRef.current = null
+      audioElementsRef.current.forEach(el => {
+        el.pause()
+        el.src = ''
+      })
+      audioElementsRef.current.clear()
+      if (audioCtxRef.current) {
+        audioCtxRef.current.close()
+        audioCtxRef.current = null
       }
+      audioNodesRef.current.clear()
     }
   }, [])
 
@@ -206,154 +239,40 @@ export function useVideoPlayback(
   }, [aspectRatio])
 
   const applyCanvasSize = useCallback((canvas: HTMLCanvasElement, cw: number, ch: number) => {
-    if (canvas.width !== cw || canvas.height !== ch) {
+    // Only resize if the difference is more than 2 pixels to avoid jitter
+    if (Math.abs(canvas.width - cw) > 2 || Math.abs(canvas.height - ch) > 2) {
       canvas.width = cw; canvas.height = ch
       canvas.style.width = `${cw}px`; canvas.style.height = `${ch}px`
+      
+      // Keep buffer canvas in sync
+      if (!bufferCanvasRef.current) bufferCanvasRef.current = document.createElement('canvas')
+      const buffer = bufferCanvasRef.current
+      buffer.width = cw
+      buffer.height = ch
+
+      // IMPORTANT: Changing canvas dimensions clears it to transparent.
+      // We must immediately restore the visible canvas from the buffer 
+      // so it doesn't flash black for a frame.
+      const ctx = canvas.getContext('2d', { alpha: false })
+      if (ctx && buffer.width > 0) {
+        ctx.drawImage(buffer, 0, 0)
+      }
     }
     const cr = computeContentRect(cw, ch)
     const prev = contentRectRef.current
-    if (cr.x !== prev.x || cr.y !== prev.y || cr.width !== prev.width || cr.height !== prev.height) {
+    if (Math.abs(cr.x - prev.x) > 1 || Math.abs(cr.y - prev.y) > 1 || Math.abs(cr.width - prev.width) > 1 || Math.abs(cr.height - prev.height) > 1) {
       contentRectRef.current = cr
       setContentRect(cr)
     }
     return cr
   }, [computeContentRect])
 
-  const drawVideoToCanvas = useCallback((videoEl: HTMLVideoElement, videoClip: VideoClass, currentTime: number): { x: number; y: number; width: number; height: number } | null => {
-    const canvas = canvasRef.current
-    const container = containerRef.current
-    if (!canvas || !container) return null
-
-    if (videoEl.readyState < 2 || videoEl.seeking || videoEl.videoWidth === 0 || videoEl.videoHeight === 0) return null
-
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return null
-
-    const rect = container.getBoundingClientRect()
-    const cw = Math.round(rect.width); const ch = Math.round(rect.height)
-    const cr = applyCanvasSize(canvas, cw, ch)
-
-    const logicalW = aspectRatio === '16:9' ? 1920 : 1080
-    const logicalH = aspectRatio === '16:9' ? 1080 : 1920
-    const xScale = cr.width / logicalW; const yScale = cr.height / logicalH
-
-    const drawX = cr.x + (videoClip.x ?? 0) * xScale
-    const drawY = cr.y + (videoClip.y ?? 0) * yScale
-    const drawWidth = (videoClip.width ?? logicalW) * xScale
-    const drawHeight = (videoClip.height ?? logicalH) * yScale
-
-    const progress = calculateAnimationProgress(videoClip, currentTime, videoClip.timestamp)
-
-    const isPlaying = getState().isPlaying
-    if (videoClip.playbackSpeed < 1.0 && isPlaying) {
-      let pCanvases = persistenceCanvasesRef.current.get(videoClip.id)
-      if (!pCanvases) {
-        const current = document.createElement('canvas')
-        const accumulation = document.createElement('canvas')
-        current.width = canvas.width
-        current.height = canvas.height
-        accumulation.width = canvas.width
-        accumulation.height = canvas.height
-        pCanvases = { current, accumulation }
-        persistenceCanvasesRef.current.set(videoClip.id, pCanvases)
-      } else if (pCanvases.current.width !== canvas.width || pCanvases.current.height !== canvas.height) {
-        pCanvases.current.width = canvas.width
-        pCanvases.current.height = canvas.height
-        pCanvases.accumulation.width = canvas.width
-        pCanvases.accumulation.height = canvas.height
-      }
-
-      const curCtx = pCanvases.current.getContext('2d')
-      const accCtx = pCanvases.accumulation.getContext('2d')
-      if (curCtx && accCtx) {
-        curCtx.clearRect(0, 0, pCanvases.current.width, pCanvases.current.height)
-        applyZoomTransform(curCtx, videoClip.animation, videoClip.transition, progress, videoEl, drawX, drawY, drawWidth, drawHeight, videoClip.cropSx, videoClip.cropSy, videoClip.cropSw, videoClip.cropSh, videoClip.zoomIntensity, currentTime - videoClip.timestamp)
-
-        accCtx.save()
-        accCtx.globalAlpha = 0.45 // Persistence factor
-        accCtx.drawImage(pCanvases.current, 0, 0)
-        accCtx.restore()
-
-        ctx.drawImage(pCanvases.accumulation, 0, 0)
-      }
-    } else {
-      applyZoomTransform(ctx, videoClip.animation, videoClip.transition, progress, videoEl, drawX, drawY, drawWidth, drawHeight, videoClip.cropSx, videoClip.cropSy, videoClip.cropSw, videoClip.cropSh, videoClip.zoomIntensity, currentTime - videoClip.timestamp)
-    }
-
-    return { x: Math.round(drawX), y: Math.round(drawY), width: Math.round(drawWidth), height: Math.round(drawHeight) }
-  }, [canvasRef, containerRef, applyCanvasSize, aspectRatio])
-
-  const drawImages = useCallback((ctx: CanvasRenderingContext2D, cr: {x:number,y:number,width:number,height:number}, currentTime: number, mainTrackOnly: boolean) => {
-    const allImages = mainTrackOnly ? mainTrackImages : overlayImages
-    let visibleImages = allImages.filter(img => currentTime >= img.startTime && currentTime < img.endTime)
-
-    if (mainTrackOnly && visibleImages.length === 0) {
-      const lastEnded = allImages.filter(img => img.endTime <= currentTime).sort((a, b) => b.endTime - a.endTime)[0]
-      if (lastEnded) visibleImages = [lastEnded]
-    }
-
-    const logicalW = aspectRatio === '16:9' ? 1920 : 1080
-    const logicalH = aspectRatio === '16:9' ? 1080 : 1920
-    const xScale = cr.width / logicalW; const yScale = cr.height / logicalH
-
-    visibleImages.forEach((image) => {
-      let bitmap = imageBitmapsRef.current.get(image.id)
-      
-      if (mainTrackOnly && !bitmap) {
-        const lastEnded = allImages.filter(i => i.endTime <= image.startTime).sort((a, b) => b.endTime - a.endTime)[0]
-        if (lastEnded) {
-          const prevBitmap = imageBitmapsRef.current.get(lastEnded.id)
-          if (prevBitmap) {
-            ctx.save()
-            ctx.globalAlpha = image.opacity
-            applyZoomTransform(ctx, 'none', 'none', 0, prevBitmap, cr.x + image.x * xScale, cr.y + image.y * yScale, image.width * xScale, image.height * yScale, lastEnded.cropSx, lastEnded.cropSy, lastEnded.cropSw, lastEnded.cropSh, 0, 0)
-            ctx.restore()
-            return
-          }
-        }
-      }
-
-      if (!bitmap) return
-      
-      const progress = calculateAnimationProgress(image, currentTime, image.startTime)
-      ctx.save(); ctx.globalAlpha = image.opacity
-      applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, cr.x + image.x * xScale, cr.y + image.y * yScale, image.width * xScale, image.height * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, currentTime - image.startTime)
-      ctx.restore()
-    })
-  }, [aspectRatio, mainTrackImages, overlayImages])
-
-  const drawOverlayVideos = useCallback((ctx: CanvasRenderingContext2D, cr: {x:number,y:number,width:number,height:number}, currentTime: number) => {
-    const state = getState(); const rate = state.playbackRate ?? 1; const overlayVideosLocal = overlayVideos
-    const logicalW = aspectRatio === '16:9' ? 1920 : 1080; const logicalH = aspectRatio === '16:9' ? 1080 : 1920
-    const xScale = cr.width / logicalW; const yScale = cr.height / logicalH
-
-    overlayVideosLocal.forEach((video) => {
-      const localTime = (currentTime - video.timestamp) * (video.playbackSpeed ?? 1)
-      const vEl = videoElementsRef.current.get(video.id)
-      if (localTime < 0 || localTime >= (video.duration ?? 0) * (video.playbackSpeed ?? 1)) {
-        if (vEl && !vEl.paused) { const promise = videoPlayPromisesRef.current.get(video.id); if (promise) promise.then(() => vEl.pause()).catch(() => {}); else vEl.pause() }
-        return
-      }
-      if (!vEl || vEl.readyState < 2) return
-      const targetTime = (video.trimStart ?? 0) + localTime
-      
-      const progress = calculateAnimationProgress(video, currentTime, video.timestamp)
-      ctx.save(); ctx.globalAlpha = video.opacity
-      applyZoomTransform(ctx, video.animation, video.transition, progress, vEl, cr.x + video.x * xScale, cr.y + video.y * yScale, video.width * xScale, video.height * yScale, video.cropSx ?? 0, video.cropSy ?? 0, video.cropSw ?? 1, video.cropSh ?? 1, video.zoomIntensity, currentTime - video.timestamp)
-      ctx.restore()
-    })
-  }, [getState, aspectRatio, overlayVideos])
-
   useEffect(() => {
-    let currentVideoId: string | null = null; let lastKnownIsPlaying = false
-    let lastStateKey = ''
-    const drawOverlays = (ctx: CanvasRenderingContext2D, cr: {x:number,y:number,width:number,height:number}, t: number) => { drawImages(ctx, cr, t, false); drawOverlayVideos(ctx, cr, t) }
     const setupCanvas = (canvas: HTMLCanvasElement, container: HTMLDivElement) => { const rect = container.getBoundingClientRect(); if (rect.width === 0 || rect.height === 0) return null; const cw = Math.round(rect.width); const ch = Math.round(rect.height); const cr = applyCanvasSize(canvas, cw, ch); const ctx = canvas.getContext('2d'); return ctx ? { ctx, cr } : null }
     let lastTimestamp: number | null = null
-    let lastRenderedTime = -1
 
     const loop = (timestamp: number) => {
-      const state = getState(); const { playbackTime, isPlaying } = state; lastKnownIsPlaying = isPlaying
+      const state = getState(); const { playbackTime, isPlaying } = state
       const rate = state.playbackRate ?? 1; const delta = lastTimestamp !== null ? (timestamp - lastTimestamp) / 1000 : 0; lastTimestamp = timestamp
       let newTime = playbackTime
       if (isPlaying) { newTime = playbackTime + delta * rate; const totalDur = state.getTotalDuration(); if (newTime >= totalDur) { state.setIsPlaying(false); state.setPlaybackTime(0); newTime = 0; lastTimestamp = null } else state.setPlaybackTime(newTime) } else lastTimestamp = null
@@ -363,226 +282,126 @@ export function useVideoPlayback(
       const { transitionActive, progress: transProgress } = checkTransition(activeClip, nextClip, newTime)
 
       const canvas = canvasRef.current; const container = containerRef.current
-      const audioEl = audioElementRef.current
-      if (audioEl) {
-        const audioItem = state.audios?.[0]
-        if (audioItem) {
-          const targetAudioTime = (audioItem.trimStart ?? 0) + Math.max(0, newTime - (audioItem.startTime ?? 0)) * (audioItem.playbackSpeed ?? 1)
+      
+      // Handle multiple audio elements
+      state.audios.forEach(audioItem => {
+        const audioEl = audioElementsRef.current.get(audioItem.id)
+        const nodes = audioNodesRef.current.get(audioItem.id)
+        if (audioEl && nodes) {
+          const isOutOfRange = newTime < audioItem.startTime || newTime >= audioItem.endTime
+          const maxSourceTime = audioItem.originalDuration - audioItem.trimEnd
+          const targetAudioTime = Math.min(maxSourceTime, audioItem.trimStart + Math.max(0, newTime - audioItem.startTime) * (audioItem.playbackSpeed ?? 1))
+
           if (isPlaying) {
+            if (audioCtxRef.current?.state === 'suspended') audioCtxRef.current.resume()
             audioEl.playbackRate = rate * (audioItem.playbackSpeed ?? 1)
-            if (newTime < (audioItem.startTime ?? 0) || (newTime - (audioItem.startTime ?? 0)) >= ((audioItem.originalDuration ?? Infinity) - (audioItem.trimEnd ?? 0)) / (audioItem.playbackSpeed ?? 1)) { if (!audioEl.paused) { if (audioPlayPromiseRef.current) audioPlayPromiseRef.current.then(() => audioEl.pause()).catch(() => {}); else audioEl.pause() } }
-            else { if (Math.abs(audioEl.currentTime - targetAudioTime) > 0.3) audioEl.currentTime = targetAudioTime; if (audioEl.paused && audioEl.readyState >= 2 && !audioPlayPromiseRef.current) { audioPlayPromiseRef.current = audioEl.play(); audioPlayPromiseRef.current.catch(() => {}).finally(() => { audioPlayPromiseRef.current = null }) } }
-          } else { if (!audioEl.paused) { if (audioPlayPromiseRef.current) audioPlayPromiseRef.current.then(() => audioEl.pause()).catch(() => {}); else audioEl.pause() } if (Math.abs(audioEl.currentTime - targetAudioTime) > 0.2) audioEl.currentTime = targetAudioTime }
+            
+            if (isOutOfRange) {
+              nodes.gain.gain.setValueAtTime(0, audioCtxRef.current!.currentTime)
+              if (!audioEl.paused) {
+                const p = audioPlayPromisesRef.current.get(audioItem.id)
+                if (p) p.then(() => audioEl.pause()).catch(() => {})
+                else audioEl.pause()
+              }
+            } else {
+              nodes.gain.gain.setValueAtTime(audioItem.volume ?? 1.0, audioCtxRef.current!.currentTime)
+              if (Math.abs(audioEl.currentTime - targetAudioTime) > 0.2) audioEl.currentTime = targetAudioTime
+              if (audioEl.paused && audioEl.readyState >= 2 && !audioPlayPromisesRef.current.has(audioItem.id)) {
+                const p = audioEl.play()
+                audioPlayPromisesRef.current.set(audioItem.id, p)
+                p.catch(() => {}).finally(() => { audioPlayPromisesRef.current.delete(audioItem.id) })
+              }
+            }
+          } else {
+            nodes.gain.gain.setValueAtTime(0, audioCtxRef.current!.currentTime)
+            if (!audioEl.paused) {
+              const p = audioPlayPromisesRef.current.get(audioItem.id)
+              if (p) p.then(() => audioEl.pause()).catch(() => {})
+              else audioEl.pause()
+            }
+            if (Math.abs(audioEl.currentTime - targetAudioTime) > 0.15) audioEl.currentTime = targetAudioTime
+          }
         }
-      }
+      })
 
       if (canvas && container) {
         const res = setupCanvas(canvas, container)
         if (res) {
-          const { ctx, cr } = res
-          let transActive = false
+          const { cr } = res
           
-          const stateKey = activeClip ? `${activeClip.id}-${activeClip.type}-${activeClip.item.x}-${activeClip.item.y}-${activeClip.item.width}-${activeClip.item.height}-${cr.width}-${cr.height}-${state.videos.length}-${state.images.length}-${state.texts.length}-${state.effects.length}-${state.effects[0]?.type ?? ''}` : `none-${state.effects.length}-${state.effects[0]?.type ?? ''}`
-          const stateChanged = stateKey !== lastStateKey
-
-          const activeEl = activeClip?.type === 'video' 
-            ? videoElementsRef.current.get(activeClip.id) 
-            : activeClip?.type === 'image' 
-              ? imageBitmapsRef.current.get(activeClip.id) 
-              : null;
-          
-          const isActiveReady = activeClip?.type === 'video'
-            ? (activeEl instanceof HTMLVideoElement && activeEl.readyState >= 2 && !activeEl.seeking)
-            : activeClip?.type === 'image'
-              ? (!!activeEl)
-              : true;
-
-          let isNextReady = true;
-          if (transitionActive && nextClip) {
-            const nextEl = nextClip.type === 'video'
-              ? videoElementsRef.current.get(nextClip.id)
-              : imageBitmapsRef.current.get(nextClip.id);
-            isNextReady = nextClip.type === 'video'
-              ? (nextEl instanceof HTMLVideoElement && nextEl.readyState >= 2 && !nextEl.seeking)
-              : nextClip.type === 'image'
-                ? (!!nextEl)
-                : true;
+          if (!bufferCanvasRef.current) bufferCanvasRef.current = document.createElement('canvas')
+          const bufferCanvas = bufferCanvasRef.current
+          if (bufferCanvas.width !== canvas.width || bufferCanvas.height !== canvas.height) {
+            bufferCanvas.width = canvas.width
+            bufferCanvas.height = canvas.height
           }
 
-          const isReady = isActiveReady && isNextReady;
-          const timeChanged = Math.abs(newTime - lastRenderedTime) > 0.001
-
-          // Only clear to black if we are playing (and ready) or if there is no main clip, or if the layout/state changed (and ready).
-          // If the new frame isn't ready yet, we hold the previous frame to prevent black flickering.
-          const shouldClear = !activeClip || (isReady && (isPlaying || stateChanged || timeChanged))
-          
-          if (shouldClear) {
-            ctx.fillStyle = '#000000'
-            ctx.fillRect(0, 0, canvas.width, canvas.height)
-            lastStateKey = stateKey
-            lastRenderedTime = newTime
+          const renderState: RenderState = {
+            playbackTime: newTime,
+            isPlaying,
+            playbackRate: rate,
+            aspectRatio,
+            videos: state.videos,
+            images: state.images,
+            effects: state.effects,
+            selectedVideoId: getSelectionState().selectedVideoId
           }
 
-          if (transitionActive && nextClip) {
-            transActive = true
-            const logicalW = aspectRatio === '16:9' ? 1920 : 1080
-            const logicalH = aspectRatio === '16:9' ? 1080 : 1920
-            const xScale = cr.width / logicalW
-            const yScale = cr.height / logicalH
-            
-            let nextEl: HTMLVideoElement | HTMLImageElement | ImageBitmap | null = null
-            let nextParams: any = undefined
-            if (nextClip.type === 'video') {
-              const nv = nextClip.item as VideoClass
-              nextEl = videoElementsRef.current.get(nextClip.id) || null
-              if (nextEl instanceof HTMLVideoElement && nextEl.readyState >= 2 && (!isPlaying ? !nextEl.seeking : true)) {
-                const local = nv.trimStart ?? 0
-                if (Math.abs(nextEl.currentTime - local) > 0.25) nextEl.currentTime = local
-                nextParams = { x: cr.x + (nv.x ?? 0) * xScale, y: cr.y + (nv.y ?? 0) * yScale, w: (nv.width ?? logicalW) * xScale, h: (nv.height ?? logicalH) * yScale, sx: nextEl.videoWidth * nv.cropSx, sy: nextEl.videoHeight * nv.cropSy, sw: nextEl.videoWidth * nv.cropSw, sh: nextEl.videoHeight * nv.cropSh }
-              }
-            } else {
-              const ni = nextClip.item as ImageClass
-              nextEl = imageBitmapsRef.current.get(nextClip.id) || null
-              if (nextEl) {
-                nextParams = { x: cr.x + ni.x * xScale, y: cr.y + ni.y * yScale, w: ni.width * xScale, h: ni.height * yScale, sx: nextEl.width * ni.cropSx, sy: nextEl.height * ni.cropSy, sw: nextEl.width * ni.cropSw, sh: nextEl.height * ni.cropSh }
-              }
-            }
-
-            if (nextEl && nextParams) {
-              let curEl: HTMLVideoElement | HTMLImageElement | ImageBitmap | null = null
-              let curParams: any = undefined
-              if (activeClip && activeClip.type === 'video') {
-                const av = activeClip.item as VideoClass
-                curEl = videoElementsRef.current.get(activeClip.id) || null
-                if (curEl instanceof HTMLVideoElement && curEl.readyState >= 2 && (!isPlaying ? !curEl.seeking : true)) {
-                  const target = (av.trimStart ?? 0) + Math.max(0, newTime - activeClip.startTime) * (av.playbackSpeed ?? 1)
-                  if (Math.abs(curEl.currentTime - target) > 0.25) curEl.currentTime = target
-                  curParams = { x: cr.x + (av.x ?? 0) * xScale, y: cr.y + (av.y ?? 0) * yScale, w: (av.width ?? logicalW) * xScale, h: (av.height ?? logicalH) * yScale, sx: curEl.videoWidth * (av.cropSx ?? 0), sy: curEl.videoHeight * (av.cropSy ?? 0), sw: curEl.videoWidth * (av.cropSw ?? 1), sh: curEl.videoHeight * (av.cropSh ?? 1) }
-                }
-              } else if (activeClip) {
-                const ai = activeClip.item as ImageClass
-                curEl = imageBitmapsRef.current.get(activeClip.id) || null
-                if (curEl) {
-                  curParams = { x: cr.x + ai.x * xScale, y: cr.y + ai.y * yScale, w: ai.width * xScale, h: ai.height * yScale, sx: curEl.width * ai.cropSx, sy: curEl.height * ai.cropSy, sw: curEl.width * ai.cropSw, sh: curEl.height * ai.cropSh }
-                }
-              }
-
-              if (activeClip && curEl && curParams) {
-                const nextItem = nextClip.item
-                const activeItem = activeClip.item
-                const elapsedB = newTime - nextClip.startTime
-                const elapsedA = newTime - activeClip.startTime
-                
-                const progB = calculateAnimationProgress(nextItem, newTime, nextClip.startTime)
-                const progA = calculateAnimationProgress(activeItem, newTime, activeClip.startTime)
-
-                applyZoomTransform(
-                  ctx,
-                  nextItem.animation,
-                  nextItem.transition,
-                  transProgress,
-                  nextEl,
-                  nextParams.x, nextParams.y, nextParams.w, nextParams.h,
-                  nextItem.cropSx, nextItem.cropSy, nextItem.cropSw, nextItem.cropSh,
-                  nextItem.zoomIntensity,
-                  elapsedB,
-                  curEl,
-                  activeItem.animation,
-                  progA,
-                  elapsedA,
-                  activeItem.zoomIntensity,
-                  curParams
-                )
-              }
-            }
+          const resources: RenderResources = {
+            videoElements: videoElementsRef.current,
+            imageBitmaps: imageBitmapsRef.current,
+            bufferCanvas: bufferCanvasRef.current,
+            persistenceCanvases: persistenceCanvasesRef.current
           }
 
-          if (!transActive) {
-            if (activeClip) {
-              if (activeClip.type === 'video') {
-                const v = activeClip.item as VideoClass
-                const vEl = videoElementsRef.current.get(activeClip.id)
-                if (vEl) {
-                  const target = (v.trimStart ?? 0) + Math.max(0, newTime - activeClip.startTime) * (v.playbackSpeed ?? 1)
-                  if (currentVideoId !== activeClip.id) {
-                    // Pause ALL video elements that are not the current one
-                    videoElementsRef.current.forEach((el, id) => {
-                      if (id !== activeClip.id && !el.paused) {
-                        const p = videoPlayPromisesRef.current.get(id)
-                        if (p) p.then(() => { el.pause(); el.playbackRate = 1 }).catch(() => {})
-                        else { el.pause(); el.playbackRate = 1 }
-                      }
-                    })
-
-                    currentVideoId = activeClip.id
-                    if (getSelectionState().selectedVideoId !== activeClip.id) getSelectionState().setSelectedVideoId(activeClip.id)
-                    
-                    vEl.currentTime = target
-                  }
-                  if (isPlaying) {
-                    vEl.playbackRate = rate * (v.playbackSpeed ?? 1)
-                    if (Math.abs(vEl.currentTime - target) > 0.3) vEl.currentTime = target
-                    if (vEl.paused && vEl.readyState >= 2 && !videoPlayPromisesRef.current.has(activeClip.id)) {
-                      const p = vEl.play()
-                      videoPlayPromisesRef.current.set(activeClip.id, p)
-                      p.catch(() => {}).finally(() => { videoPlayPromisesRef.current.delete(activeClip.id) })
-                    }
-                  } else {
-                    if (!vEl.paused) {
-                      const p = videoPlayPromisesRef.current.get(activeClip.id)
-                      if (p) p.then(() => { vEl.pause(); vEl.playbackRate = 1 }).catch(() => {})
-                      else { vEl.pause(); vEl.playbackRate = 1 }
-                    }
-                    if (Math.abs(vEl.currentTime - target) > 0.05) {
-                      vEl.currentTime = target
-                    }
-                  }
-                  drawVideoToCanvas(vEl, activeClip.item as VideoClass, newTime)
+          engineRef.current?.render(
+            canvas,
+            cr,
+            renderState,
+            resources,
+            sorted,
+            activeClip,
+            nextClip,
+            transitionActive,
+            transProgress,
+            (id, time) => {
+              const el = videoElementsRef.current.get(id)
+              if (el) el.currentTime = time
+            },
+            (id, playing, pRate) => {
+              const el = videoElementsRef.current.get(id)
+              if (!el) return
+              if (playing) {
+                el.playbackRate = pRate
+                if (el.paused && el.readyState >= 2 && !videoPlayPromisesRef.current.has(id)) {
+                  const p = el.play()
+                  videoPlayPromisesRef.current.set(id, p)
+                  p.catch(() => {}).finally(() => { videoPlayPromisesRef.current.delete(id) })
                 }
               } else {
-                // If switching from video to image, pause ALL videos
-                videoElementsRef.current.forEach((el, id) => {
-                  if (!el.paused) {
-                    const p = videoPlayPromisesRef.current.get(id)
-                    if (p) p.then(() => { el.pause(); el.playbackRate = 1 }).catch(() => {})
-                    else { el.pause(); el.playbackRate = 1 }
-                  }
-                })
-                currentVideoId = null
-                drawImages(ctx, cr, newTime, true)
-              }
-            } else {
-              // If no active clip, pause ALL videos
-              videoElementsRef.current.forEach((el, id) => {
                 if (!el.paused) {
                   const p = videoPlayPromisesRef.current.get(id)
                   if (p) p.then(() => { el.pause(); el.playbackRate = 1 }).catch(() => {})
                   else { el.pause(); el.playbackRate = 1 }
                 }
-              })
-              currentVideoId = null
-              ctx.fillStyle = '#000000'
-              ctx.fillRect(0, 0, canvas.width, canvas.height)
-              drawImages(ctx, cr, newTime, true)
+              }
+            },
+            (id) => {
+              if (getSelectionState().selectedVideoId !== id) getSelectionState().setSelectedVideoId(id)
             }
-          }
-          drawOverlays(ctx, cr, newTime)
-          const activeEffects = state.effects
-            ?.filter(e => newTime >= e.startTime && newTime < e.endTime)
-            .sort((a, b) => a.row - b.row)
-          activeEffects?.forEach(eff => {
-            applyEffect(ctx, eff.type, cr.x, cr.y, cr.width, cr.height, newTime)
-          })
+          )
         }
       }
       rafRef.current = requestAnimationFrame(loop)
     }
     rafRef.current = requestAnimationFrame(loop)
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
-  }, [getState, getSelectionState, drawVideoToCanvas, drawImages, drawOverlayVideos, canvasRef, applyCanvasSize, aspectRatio, videos, images, effects, sortedMainItems])
+  }, [getState, getSelectionState, canvasRef, aspectRatio, videos, images, effects, sortedMainItems, audios])
 
   useEffect(() => { return () => { 
-    videoElementsRef.current.forEach((video) => { video.pause(); video.src = ''; video.load() }); 
+    videoElementsRef.current.forEach((video) => { 
+      video.pause(); video.src = ''; video.load();
+    }); 
     videoElementsRef.current.clear();
     imageBitmapsRef.current.forEach((bitmap) => bitmap.close())
     imageBitmapsRef.current.clear()

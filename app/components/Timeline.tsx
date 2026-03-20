@@ -10,6 +10,7 @@ import { formatTime } from '@/app/lib/timeUtils'
 import VideoReplaceModal from './modals/VideoReplaceModal'
 import PlaybackControls from './PlaybackControls'
 import AudioTrack from './tracks/AudioTrack'
+import OverlayAudioTrack from './tracks/OverlayAudioTrack'
 import MediaOverlayTrack from './tracks/MediaOverlayTrack'
 import EffectTrack from './tracks/EffectTrack'
 import TextTrack from './tracks/TextTrack'
@@ -123,6 +124,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     setAudio,
     setIsAnalyzing,
     setAudioAnalysis,
+    audios,
   })
 
   const { replaceTargetId, setReplaceTargetId, replaceVideoData, setReplaceVideoData, isReplacingClip, handleReplaceSelect, handleConfirmReplaceVideo, handleVideoDoubleClick } = useTimelineReplace({
@@ -162,12 +164,12 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     pushHistory,
   })
 
-  const getContentPosition = (time: number) => {
+  const getContentPosition = useCallback((time: number) => {
     const timeWithPadding = time + effectivePadding
     const totalWithPadding = totalDuration + effectivePadding * 2
     if (totalWithPadding === 0) return 0
     return (timeWithPadding / totalWithPadding) * 100
-  }
+  }, [effectivePadding, totalDuration])
 
   const handleTimelineDeselect = useCallback(() => {
     setSelectedVideoId(null)
@@ -274,8 +276,9 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
   useEffect(() => {
     const canvas = audioCanvasRef.current
     if (!canvas || !audioAnalysis) return
-    const audioItem = audios[0]
-    const draw = () => drawAudioGraph(canvas, audioAnalysis, totalDuration, effectivePadding, audioItem?.trimStart ?? 0, audioItem?.trimEnd ?? 0, audioItem?.startTime ?? 0)
+    const audioItem = audios.find(a => !a.isOverlay)
+    if (!audioItem) return
+    const draw = () => drawAudioGraph(canvas, audioAnalysis, totalDuration, effectivePadding, audioItem.trimStart, audioItem.trimEnd, audioItem.startTime)
     draw()
     const ro = new ResizeObserver(draw)
     ro.observe(canvas)
@@ -363,6 +366,20 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
                     handleAudioTrimStart={handleAudioTrimStart}
                     audioCanvasRef={audioCanvasRef}
                   />
+                  {(() => {
+                    const audioOverlayRows = [...new Set(audios.filter((a) => a.isOverlay).map((a) => a.row))].sort((a, b) => a - b)
+                    return audioOverlayRows.map((rowIndex) => (
+                      <OverlayAudioTrack
+                        key={`audio-overlay-row-${rowIndex}`}
+                        rowIndex={rowIndex}
+                        getContentPosition={getContentPosition}
+                        totalDuration={totalDuration}
+                        effectivePadding={effectivePadding}
+                        handleAudioBodyDragStart={handleAudioBodyDragStart}
+                        handleAudioTrimStart={handleAudioTrimStart}
+                      />
+                    ))
+                  })()}
                   {(() => {
                     const effectRows = [...new Set(effects.map((e) => e.row))].sort((a, b) => b - a)
                     return effectRows.map((rowIndex) => (

@@ -8,17 +8,7 @@ interface Props {
   onClose: () => void
 }
 
-const EFFECT_OPTIONS: { value: EffectType | 'none'; label: string; desc: string; icon: React.ReactNode }[] = [
-  {
-    value: 'none',
-    label: 'None',
-    desc: 'No effect applied',
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="3" width="18" height="18" rx="2" />
-      </svg>
-    ),
-  },
+const EFFECT_OPTIONS: { value: EffectType; label: string; desc: string; icon: React.ReactNode }[] = [
   {
     value: 'crt-dither',
     label: 'CRT Dither',
@@ -49,11 +39,10 @@ const EFFECT_OPTIONS: { value: EffectType | 'none'; label: string; desc: string;
 export default function EffectsPanel({ onClose }: Props) {
   const effects = useManifestStore((s) => s.effects)
   const addEffect = useManifestStore((s) => s.addEffect)
-  const removeEffect = useManifestStore((s) => s.removeEffect)
   const playbackTime = useManifestStore((s) => s.playbackTime)
 
   const activeEffect = effects.find(e => playbackTime >= e.startTime && playbackTime < e.endTime) ?? null
-  const activeType: EffectType | 'none' = activeEffect?.type ?? 'none'
+  const activeType: EffectType | null = activeEffect?.type ?? null
 
   const findFreeRow = (
     items: Array<{ startTime: number; endTime: number; row: number }>,
@@ -69,27 +58,21 @@ export default function EffectsPanel({ onClose }: Props) {
     }
   }
 
-  const handleSelect = (value: EffectType | 'none') => {
-    if (value === 'none') {
-      if (activeEffect) {
-        removeEffect(activeEffect.id)
-      }
-    } else {
-      const start = playbackTime
-      const duration = 5
-      const end = start + duration
-      
-      const effectItems = effects.map((e) => ({ startTime: e.startTime, endTime: e.endTime, row: e.row }))
-      const row = findFreeRow(effectItems, start, end)
-      
-      addEffect(new EffectClass(
-        `effect-${Date.now()}`,
-        value,
-        start,
-        end,
-        row
-      ))
-    }
+  const handleSelect = (value: EffectType) => {
+    const start = playbackTime
+    const duration = 5
+    const end = start + duration
+    
+    const effectItems = effects.map((e) => ({ startTime: e.startTime, endTime: e.endTime, row: e.row }))
+    const row = findFreeRow(effectItems, start, end)
+    
+    addEffect(new EffectClass(
+      `effect-${Date.now()}`,
+      value,
+      start,
+      end,
+      row
+    ))
   }
 
   return (

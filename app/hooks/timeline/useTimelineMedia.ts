@@ -2,9 +2,10 @@ import { useCallback } from 'react'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { AudioClass } from '@/app/models/AudioClass'
-import { resolveVideoMetadata, toMono, computeImageDimensions, computeMediaDimensions, computeMediaCropForAspect, ASPECT_RATIOS } from '@/app/lib/mediaUtils'
+import { ASPECT_RATIOS, computeMediaCropForAspect, computeMediaDimensions, computeImageDimensions, toMono, resolveVideoMetadata } from '@/app/lib/mediaUtils'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useAudioStore } from '@/app/stores/audioStore'
+import { useManifestStore } from '@/app/stores/manifestStore'
 import { AspectRatio } from '@/app/stores/manifest/types'
 
 interface UseTimelineMediaProps {
@@ -19,6 +20,7 @@ interface UseTimelineMediaProps {
   setAudio: (audio: AudioClass) => void
   setIsAnalyzing: (analyzing: boolean) => void
   setAudioAnalysis: (analysis: any) => void
+  audios: AudioClass[]
 }
 
 export function useTimelineMedia({
@@ -33,6 +35,7 @@ export function useTimelineMedia({
   setAudio,
   setIsAnalyzing,
   setAudioAnalysis,
+  audios,
 }: UseTimelineMediaProps) {
   const setSelectedAudioId = useSelectionStore((state) => state.setSelectedAudioId)
   const setSelectedVideoId = useSelectionStore((state) => state.setSelectedVideoId)
@@ -53,7 +56,7 @@ export function useTimelineMedia({
     }
   }, [])
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files) return
 
@@ -65,9 +68,13 @@ export function useTimelineMedia({
         const title = file.name.replace(/\.[^.]+$/, '').substring(0, 50)
         const start = playbackTime
         const end = start + duration
+        
+        const currentVideos = useManifestStore.getState().videos
+        const currentImages = useManifestStore.getState().images
+        
         const mediaItems = [
-          ...images.map((img) => ({ startTime: img.startTime, endTime: img.endTime, row: img.row })),
-          ...videos.map((v) => ({ startTime: v.timestamp, endTime: v.timestamp + (v.duration ?? 0), row: v.row })),
+          ...currentImages.map((img) => ({ startTime: img.startTime, endTime: img.endTime, row: img.row })),
+          ...currentVideos.map((v) => ({ startTime: v.timestamp, endTime: v.timestamp + (v.duration ?? 0), row: v.row })),
         ]
         const row = findFreeRow(mediaItems, start, end)
         const isMainTrack = row === 0
@@ -109,9 +116,13 @@ export function useTimelineMedia({
         const url = URL.createObjectURL(file)
         const start = playbackTime
         const end = start + 5
+        
+        const currentVideos = useManifestStore.getState().videos
+        const currentImages = useManifestStore.getState().images
+        
         const mediaItems = [
-          ...images.map((img) => ({ startTime: img.startTime, endTime: img.endTime, row: img.row })),
-          ...videos.map((v) => ({ startTime: v.timestamp, endTime: v.timestamp + (v.duration ?? 0), row: v.row })),
+          ...currentImages.map((img) => ({ startTime: img.startTime, endTime: img.endTime, row: img.row })),
+          ...currentVideos.map((v) => ({ startTime: v.timestamp, endTime: v.timestamp + (v.duration ?? 0), row: v.row })),
         ]
         const row = findFreeRow(mediaItems, start, end)
         const isMainTrack = row === 0
@@ -136,8 +147,6 @@ export function useTimelineMedia({
           row
         ))
       } else if (file.type.startsWith('audio/')) {
-        if (videos.length === 0 && images.length === 0) continue
-
         const blobUrl = URL.createObjectURL(file)
         const audioId = `audio-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
         setIsAnalyzing(true)
@@ -147,20 +156,53 @@ export function useTimelineMedia({
           const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer)
           await audioCtx.close()
           const audioDuration = audioBuffer.duration
-          const defaultTrimEnd = Math.max(0, audioDuration - totalDuration)
-          const audioInstance = new AudioClass(audioId, file.name, blobUrl, 0, audioDuration, [], undefined, 0, defaultTrimEnd, audioDuration, 1)
-          setAudio(audioInstance)
+
+          // Get the latest audios from the store to handle multiple files in one batch
+          const currentAudios = useManifestStore.getState().audios
+
+          // If there's already a main audio (row 0, isOverlay false), the new one is overlay.
+          const hasMainAudio = currentAudios.some((a) => !a.isOverlay)
+          const isOverlay = hasMainAudio
+          const startTime = isOverlay ? playbackTime : 0
+          const endTime = startTime + audioDuration
+
+          const audioItems = currentAudios.map((a) => ({ startTime: a.startTime, endTime: a.endTime, row: a.row }))
+          const row = isOverlay ? findFreeRow(audioItems, startTime, endTime) : 0
+
+          const defaultTrimEnd = Math.max(0, audioDuration - (isOverlay ? audioDuration : totalDuration))
+          const audioInstance = new AudioClass(
+            audioId,
+            file.name,
+            blobUrl,
+            startTime,
+            endTime,
+            [],
+            undefined,
+            0,
+            defaultTrimEnd,
+            audioDuration,
+            1,
+            isOverlay,
+            row
+          )
+
+          if (!isOverlay) setAudio(audioInstance)
           addAudioToManifest(audioInstance)
           setSelectedAudioId(audioId)
           setSelectedVideoId(null)
           setSelectedImageId(null)
           setSelectedTextId(null)
+
           const mono = toMono(audioBuffer)
           const worker = new Worker(
             new URL('../../workers/audioAnalysis.worker.ts', import.meta.url)
           )
           worker.onmessage = (ev) => {
-            setAudioAnalysis(ev.data)
+            if (!isOverlay) {
+              setAudioAnalysis(ev.data)
+            } else {
+              setIsAnalyzing(false)
+            }
             worker.terminate()
           }
           worker.onerror = () => {
@@ -175,7 +217,7 @@ export function useTimelineMedia({
     }
 
     e.target.value = ''
-  }
+  }, [playbackTime, aspectRatio, totalDuration, addVideo, addImage, addAudioToManifest, setAudio, setIsAnalyzing, setAudioAnalysis, setSelectedAudioId, setSelectedVideoId, setSelectedImageId, setSelectedTextId, findFreeRow])
 
   return { handleFileSelect, findFreeRow }
 }

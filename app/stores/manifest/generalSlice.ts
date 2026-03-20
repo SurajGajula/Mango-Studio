@@ -94,7 +94,7 @@ export const createGeneralSlice = (set: any, get: any) => ({
   duplicateItem: (id: string) => {
     const state = get()
     let item: any
-    let type: 'video' | 'image' | 'text' = 'video'
+    let type: 'video' | 'image' | 'text' | 'audio' = 'video'
 
     const vMatch = state.videos.find((v: VideoClass) => v.id === id)
     if (vMatch) {
@@ -110,15 +110,21 @@ export const createGeneralSlice = (set: any, get: any) => ({
         if (tMatch) {
           item = tMatch
           type = 'text'
+        } else {
+          const aMatch = state.audios.find((a: any) => a.id === id)
+          if (aMatch) {
+            item = aMatch
+            type = 'audio'
+          }
         }
       }
     }
 
     if (!item) return
 
-    const isMainTrack = item.row === 0 || (type === 'image' && item.isMainTrack)
+    const isMainTrack = type === 'video' ? item.row === 0 : (type === 'image' ? item.isMainTrack : (type === 'audio' ? !item.isOverlay : false))
     const startTime = type === 'video' ? item.timestamp : item.startTime
-    const duration = item.duration ?? 0
+    const duration = type === 'audio' ? (item.originalDuration - item.trimStart - item.trimEnd) / (item.playbackSpeed ?? 1) : (item.duration ?? 0)
     const endTime = startTime + duration
 
     let newItem: any
@@ -126,7 +132,7 @@ export const createGeneralSlice = (set: any, get: any) => ({
 
     if (type === 'video') {
       newItem = item.copy({ id: newId, timestamp: endTime, createdAt: new Date(), updatedAt: new Date() })
-    } else if (type === 'image') {
+    } else if (type === 'audio') {
       newItem = item.copy({ id: newId, startTime: endTime, endTime: endTime + duration, createdAt: new Date() })
     } else {
       newItem = item.copy({ id: newId, startTime: endTime, endTime: endTime + duration, createdAt: new Date() })
@@ -154,16 +160,25 @@ export const createGeneralSlice = (set: any, get: any) => ({
         return t
       })
 
+      const nextAudios = s.audios.map((a) => {
+        if (isMainTrack && !a.isOverlay && a.startTime >= endTime) {
+          return a.copy({ startTime: a.startTime + duration, endTime: a.endTime + duration })
+        }
+        return a
+      })
+
       return {
         videos: type === 'video' ? [...nextVideos, newItem] : nextVideos,
         images: type === 'image' ? [...nextImages, newItem] : nextImages,
         texts: type === 'text' ? [...nextTexts, newItem] : nextTexts,
+        audios: type === 'audio' ? [...nextAudios, newItem] : nextAudios,
       }
     })
 
     if (type === 'video') useSelectionStore.getState().setSelectedVideoId(newId)
     else if (type === 'image') useSelectionStore.getState().setSelectedImageId(newId)
     else if (type === 'text') useSelectionStore.getState().setSelectedTextId(newId)
+    else if (type === 'audio') useSelectionStore.getState().setSelectedAudioId(newId)
 
     set({ playbackTime: endTime })
     get().pushHistory()

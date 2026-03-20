@@ -6,7 +6,7 @@ import { useManifestStore } from '@/app/stores/manifestStore'
 import type { ManifestMutation, SplitInstruction, ReplaceInstruction, AddTextInstruction, TransitionInstruction, CropInstruction } from '@/app/api/route-prompt/route'
 import { TextClass } from '@/app/models/TextClass'
 import { ImageClass, AnimationMode, TransitionMode } from '@/app/models/ImageClass'
-import { computeCropForAspect, computeImageDimensions, ASPECT_RATIOS, computeVideoDimensions, computeVideoCropForAspect } from '@/app/lib/mediaUtils'
+import { computeCropForAspect, computeImageDimensions, ASPECT_RATIOS, computeVideoDimensions, computeVideoCropForAspect, computeMediaCropForAspect } from '@/app/lib/mediaUtils'
 import styles from './ChatWindow.module.css'
 
 interface Message {
@@ -39,6 +39,7 @@ export default function ChatWindow() {
   const splitVideoAtTimes = useManifestStore((state) => state.splitVideoAtTimes)
   const splitImageAtTimes = useManifestStore((state) => state.splitImageAtTimes)
   const replaceImageSource = useManifestStore((state) => state.replaceImageSource)
+  const replaceVideoWithImage = useManifestStore((state) => state.replaceVideoWithImage)
   const addText = useManifestStore((state) => state.addText)
   const pauseHistory = useManifestStore((state) => state.pauseHistory)
   const resumeHistory = useManifestStore((state) => state.resumeHistory)
@@ -165,7 +166,7 @@ export default function ChatWindow() {
   }
 
   const applyReplacements = async (replacements: ReplaceInstruction[], files: UploadedFile[]) => {
-    const { images, aspectRatio } = useManifestStore.getState()
+    const { images, videos, aspectRatio } = useManifestStore.getState()
     for (const r of replacements) {
       const file = files[r.fileIndex]
       if (!file) continue
@@ -175,21 +176,64 @@ export default function ChatWindow() {
       )
       const url = URL.createObjectURL(blob)
       
-      const original = images.find((i) => i.id === r.targetId)
-      if (!original) continue
+      const originalImage = images.find((i) => i.id === r.targetId)
+      const originalVideo = videos.find((v) => v.id === r.targetId)
 
-      if (original.cropAspect) {
-        const ratio = ASPECT_RATIOS[original.cropAspect]
-        if (ratio) {
-          const tempImage = new ImageClass('tmp', '', url, 0, 1)
-          const patch = await computeCropForAspect(tempImage, aspectRatio, ratio[0], ratio[1], original.cropAspect)
-          updateImage(r.targetId, { ...patch, url, name: file.name })
+      if (originalImage) {
+        if (originalImage.cropAspect) {
+          const ratio = ASPECT_RATIOS[originalImage.cropAspect]
+          if (ratio) {
+            const tempImage = new ImageClass('tmp', '', url, 0, 1)
+            const patch = await computeCropForAspect(tempImage, aspectRatio, ratio[0], ratio[1], originalImage.cropAspect)
+            updateImage(r.targetId, { ...patch, url, name: file.name })
+          } else {
+            replaceImageSource(r.targetId, url, file.name)
+          }
         } else {
-          replaceImageSource(r.targetId, url, file.name)
+          const dims = await computeImageDimensions(url, aspectRatio, originalImage.isMainTrack)
+          updateImage(r.targetId, { ...dims, url, name: file.name })
         }
-      } else {
-        const dims = await computeImageDimensions(url, aspectRatio, original.isMainTrack)
-        updateImage(r.targetId, { ...dims, url, name: file.name })
+      } else if (originalVideo) {
+        const imageId = `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        const startTime = originalVideo.timestamp
+        const endTime = startTime + (originalVideo.duration ?? 0)
+        
+        let patch: any
+        if (originalVideo.cropAspect && ASPECT_RATIOS[originalVideo.cropAspect]) {
+          const ratio = ASPECT_RATIOS[originalVideo.cropAspect]
+          patch = await computeMediaCropForAspect(url, 'image', aspectRatio, ratio[0], ratio[1], originalVideo.cropAspect)
+        } else {
+          const dims = await computeImageDimensions(url, aspectRatio, originalVideo.row === 0)
+          patch = { ...dims, cropSx: 0, cropSy: 0, cropSw: 1, cropSh: 1 }
+        }
+
+        const image = new ImageClass(
+          imageId,
+          file.name,
+          url,
+          startTime,
+          endTime,
+          patch.x,
+          patch.y,
+          patch.width,
+          patch.height,
+          1,
+          new Date(),
+          originalVideo.row === 0,
+          originalVideo.animation as AnimationMode,
+          originalVideo.transition as TransitionMode,
+          originalVideo.cropAspect || patch.cropAspect,
+          patch.cropSx,
+          patch.cropSy,
+          patch.cropSw,
+          patch.cropSh,
+          originalVideo.zoomIntensity,
+          originalVideo.transitionDuration,
+          originalVideo.animationDuration,
+          originalVideo.row
+        )
+        
+        replaceVideoWithImage(originalVideo.id, image)
       }
     }
   }

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { resolveVideoMetadata, computeCropForAspect, computeImageDimensions, ASPECT_RATIOS } from '@/app/lib/mediaUtils'
@@ -43,7 +43,7 @@ export function useTimelineReplace({
   } | null>(null)
   const [isReplacingClip, setIsReplacingClip] = useState(false)
 
-  const handleReplaceSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleReplaceSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file || !replaceTargetId) return
 
@@ -193,9 +193,9 @@ export function useTimelineReplace({
     }
 
     e.target.value = ''
-  }
+  }, [replaceTargetId, images, videos, replaceImageWithVideo, replaceImageSource, replaceVideoSource, replaceVideoWithImage])
 
-  const handleConfirmReplaceVideo = async (trimStart: number) => {
+  const handleConfirmReplaceVideo = useCallback(async (trimStart: number) => {
     if (!replaceVideoData) return
     setIsReplacingClip(true)
 
@@ -239,7 +239,6 @@ export function useTimelineReplace({
       if (replaceVideoData.targetType === 'image') {
         const image = images.find((img) => img.id === replaceVideoData.targetId)
         if (!image) return
-        const oldUrl = image.url
         const videoInstance = new VideoClass(
           `video-${Date.now()}`,
           replaceVideoData.title,
@@ -293,15 +292,15 @@ export function useTimelineReplace({
     } finally {
       setIsReplacingClip(false)
     }
-  }
+  }, [replaceVideoData, images, videos, replaceImageWithVideo, updateVideo, setExportProgress])
 
-  const handleVideoDoubleClick = (videoId: string) => {
+  const handleVideoDoubleClick = useCallback((videoId: string) => {
     const video = videos.find((v) => v.id === videoId)
     if (!video || (!video.url && !video.sourceUrl)) return
     const sourceUrl = video.sourceUrl || video.url
     const originalDuration = video.sourceDuration ?? video.originalDuration ?? video.duration ?? 0
     const initialTrimStart = video.sourceTrimStart ?? video.trimStart
-    if (originalDuration <= video.duration!) return
+    if (originalDuration <= (video.duration ?? 0)) return
     setReplaceVideoData({
       targetId: videoId,
       targetType: 'video',
@@ -315,7 +314,7 @@ export function useTimelineReplace({
       initialTrimStart: initialTrimStart,
       projectStartTime: video.timestamp
     })
-  }
+  }, [videos])
 
   return { replaceTargetId, setReplaceTargetId, replaceVideoData, setReplaceVideoData, isReplacingClip, handleReplaceSelect, handleConfirmReplaceVideo, handleVideoDoubleClick }
 }
