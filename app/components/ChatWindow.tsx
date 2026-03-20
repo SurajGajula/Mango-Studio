@@ -3,8 +3,17 @@
 import { useState, useRef, useEffect } from 'react'
 import { useAuth } from './AuthProvider'
 import { useManifestStore } from '@/app/stores/manifestStore'
-import type { ManifestMutation, SplitInstruction, ReplaceInstruction, AddTextInstruction, TransitionInstruction, CropInstruction } from '@/app/api/route-prompt/route'
+import type {
+  ManifestMutation,
+  SplitInstruction,
+  ReplaceInstruction,
+  AddTextInstruction,
+  AddEffectInstruction,
+  TransitionInstruction,
+  CropInstruction,
+} from '@/app/api/route-prompt/route'
 import { TextClass } from '@/app/models/TextClass'
+import { EffectClass } from '@/app/models/EffectClass'
 import { ImageClass, AnimationMode, TransitionMode } from '@/app/models/ImageClass'
 import { computeCropForAspect, computeImageDimensions, ASPECT_RATIOS, computeVideoDimensions, computeVideoCropForAspect, computeMediaCropForAspect } from '@/app/lib/mediaUtils'
 import styles from './ChatWindow.module.css'
@@ -41,6 +50,7 @@ export default function ChatWindow() {
   const replaceImageSource = useManifestStore((state) => state.replaceImageSource)
   const replaceVideoWithImage = useManifestStore((state) => state.replaceVideoWithImage)
   const addText = useManifestStore((state) => state.addText)
+  const addEffect = useManifestStore((state) => state.addEffect)
   const pauseHistory = useManifestStore((state) => state.pauseHistory)
   const resumeHistory = useManifestStore((state) => state.resumeHistory)
   const pushHistory = useManifestStore((state) => state.pushHistory)
@@ -103,6 +113,18 @@ export default function ChatWindow() {
         t.content,
         t.startTime,
         t.endTime,
+      ))
+    }
+  }
+
+  const applyNewEffects = (newEffects: AddEffectInstruction[]) => {
+    for (const e of newEffects) {
+      addEffect(new EffectClass(
+        `effect-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        e.type,
+        e.startTime,
+        e.endTime,
+        0 // Default row
       ))
     }
   }
@@ -305,6 +327,8 @@ export default function ChatWindow() {
           applyTransitions(data.transitions || [])
         } else if (data.action === 'set_crop') {
           await applyCrops(data.crops || [])
+        } else if (data.action === 'add_effect') {
+          applyNewEffects(data.newEffects || [])
         }
       } finally {
         resumeHistory()

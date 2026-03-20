@@ -14,7 +14,7 @@ interface CropEditorProps {
   contentRect: { width: number; height: number }
   playbackTime: number
   cropPanState: any
-  handleCropPanStart: (e: React.MouseEvent) => void
+  handleCropPanStart: (e: React.PointerEvent) => void
   exitCropEdit: () => void
 }
 
@@ -191,9 +191,12 @@ export default function CropEditor({
           width: clipW,
           height: clipH,
           cursor: cropPanState ? 'grabbing' : 'grab',
-          zIndex: 60
+          zIndex: 60,
+          userSelect: 'none',
+          pointerEvents: 'auto',
+          touchAction: 'none'
         }}
-        onMouseDown={handleCropPanStart}
+        onPointerDown={handleCropPanStart}
         onDoubleClick={exitCropEdit}
       />
     </>

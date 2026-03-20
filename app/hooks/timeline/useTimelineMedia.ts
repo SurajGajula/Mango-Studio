@@ -135,6 +135,7 @@ export function useTimelineMedia({
         } else {
           const dims = await computeImageDimensions(url, aspectRatio, isMainTrack)
           x = dims.x; y = dims.y; width = dims.width; height = dims.height
+          cropAspect = 'Original'; cropSx = 0; cropSy = 0; cropSw = 1; cropSh = 1
         }
         addImage(new ImageClass(
           `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,

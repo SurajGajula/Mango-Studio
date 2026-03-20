@@ -139,43 +139,20 @@ export default function PreviewArea() {
     (t) => playbackTime >= t.startTime && playbackTime < t.endTime
   ), [texts, playbackTime])
 
-  const handleCropPanStart = useCallback((e: React.MouseEvent) => {
+  const handleCropPanStart = useCallback((e: React.PointerEvent) => {
     if (!cropEditId) return
     e.preventDefault()
+    e.stopPropagation()
     
-    const img = images.find((i) => i.id === cropEditId)
-    const vid = videos.find((v) => v.id === cropEditId)
+    const state = useManifestStore.getState()
+    const img = state.images.find((i) => i.id === cropEditId)
+    const vid = state.videos.find((v) => v.id === cropEditId)
     const item = img || vid
     if (!item) return
 
     const isMainTrack = (item as any).row === 0
-    const itemW = isMainTrack ? (aspectRatio === '16:9' ? 1920 : 1080) : item.width
-    const itemH = isMainTrack ? (aspectRatio === '16:9' ? 1080 : 1920) : item.height
-    const itemX = isMainTrack ? 0 : item.x
-    const itemY = isMainTrack ? 0 : item.y
-
-    const canvasRect = canvasRef.current?.getBoundingClientRect()
-    if (canvasRect) {
-      const px = e.clientX - canvasRect.left
-      const py = e.clientY - canvasRect.top
-      
-      const destX = itemX * xScale + offsetX
-      const destY = itemY * yScale + offsetY
-      const destW = itemW * xScale
-      const destH = itemH * yScale
-
-      const fullImgW = destW / (item.cropSw || 1)
-      const fullImgH = destH / (item.cropSh || 1)
-      const fullImgLeft = destX - (item.cropSx || 0) * fullImgW
-      const fullImgTop = destY - (item.cropSy || 0) * fullImgH
-
-      // Allow a generous 50px margin around the image for easier grabbing
-      const margin = 50
-      if (px < fullImgLeft - margin || px > fullImgLeft + fullImgW + margin || py < fullImgTop - margin || py > fullImgTop + fullImgH + margin) {
-        exitCropEdit()
-        return
-      }
-    }
+    const itemW = isMainTrack ? (state.aspectRatio === '16:9' ? 1920 : 1080) : item.width
+    const itemH = isMainTrack ? (state.aspectRatio === '16:9' ? 1080 : 1920) : item.height
 
     setCropPanState({
       startX: e.clientX,
@@ -187,7 +164,7 @@ export default function PreviewArea() {
       destW: itemW * xScale,
       destH: itemH * yScale,
     })
-  }, [cropEditId, images, videos, xScale, yScale, offsetX, offsetY, exitCropEdit, setCropPanState, aspectRatio])
+  }, [cropEditId, xScale, yScale, setCropPanState])
 
   const handleCanvasDoubleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current

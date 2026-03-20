@@ -1,6 +1,6 @@
 'use client'
 
-import { memo } from 'react'
+import { memo, useMemo } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import styles from './Timeline.module.css'
@@ -27,9 +27,11 @@ const EffectTrackComponent = ({
   const selectEffect = useSelectionStore((state) => state.selectEffect)
   const setContextMenu = useSelectionStore((state) => state.setContextMenu)
 
-  const rowEffects = effects.filter((e) => e.row === rowIndex)
+  const sortedEffects = useMemo(() => {
+    return [...effects.filter((e) => e.row === rowIndex)].sort((a, b) => a.startTime - b.startTime)
+  }, [effects, rowIndex])
 
-  if (rowEffects.length === 0) return null
+  if (sortedEffects.length === 0) return null
 
   return (
     <div className={styles.effectRow}>
@@ -40,7 +42,7 @@ const EffectTrackComponent = ({
           width: `${(totalDuration / (totalDuration + effectivePadding * 2)) * 100}%`,
         }}
       />
-      {rowEffects.map((effect) => {
+      {sortedEffects.map((effect, idx) => {
         const leftPercent = getContentPosition(effect.startTime)
         const duration = effect.endTime - effect.startTime
         const widthPercent = totalDuration > 0 ? (duration / (totalDuration + effectivePadding * 2)) * 100 : 0
@@ -72,12 +74,18 @@ const EffectTrackComponent = ({
           >
             <div 
               className={styles.overlayHandleStart} 
-              onMouseDown={(e) => handleEffectDragStart(effect.id, 'start', e)} 
+              onMouseDown={(e) => {
+                e.stopPropagation()
+                handleEffectDragStart(effect.id, 'start', e)
+              }} 
               onClick={(e) => e.stopPropagation()} 
             />
             <div 
               className={styles.overlayHandleEnd} 
-              onMouseDown={(e) => handleEffectDragStart(effect.id, 'end', e)} 
+              onMouseDown={(e) => {
+                e.stopPropagation()
+                handleEffectDragStart(effect.id, 'end', e)
+              }} 
               onClick={(e) => e.stopPropagation()} 
             />
             <div className={styles.effectBox}>
@@ -93,7 +101,7 @@ const EffectTrackComponent = ({
                 <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
               </svg>
               <span className={styles.effectName}>
-                {effect.type === 'crt-dither' ? 'CRT Dither' : 'Flashing Vignette'}
+                Effect #{idx + 1}
               </span>
             </div>
           </div>

@@ -1,6 +1,6 @@
 'use client'
 
-import { memo } from 'react'
+import { memo, useMemo } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import styles from './Timeline.module.css'
@@ -33,6 +33,10 @@ const TextTrackComponent = ({
   const selectText = useSelectionStore((state) => state.selectText)
   const setContextMenu = useSelectionStore((state) => state.setContextMenu)
 
+  const sortedTexts = useMemo(() => {
+    return [...texts.filter((t) => t.row === rowIndex)].sort((a, b) => a.startTime - b.startTime)
+  }, [texts, rowIndex])
+
   return (
     <div className={styles.textRow}>
       <div
@@ -42,7 +46,7 @@ const TextTrackComponent = ({
           width: `${(totalDuration / (totalDuration + effectivePadding * 2)) * 100}%`,
         }}
       />
-      {texts.filter((t) => t.row === rowIndex).map((text) => {
+      {sortedTexts.map((text, idx) => {
         const leftPercent = getContentPosition(text.startTime)
         const widthPercent = totalDuration > 0 ? (text.duration / (totalDuration + effectivePadding * 2)) * 100 : 0
         const isSelected = selectedTextId === text.id
@@ -70,10 +74,24 @@ const TextTrackComponent = ({
               })
             }}
           >
-            <div className={styles.overlayHandleStart} onMouseDown={(e) => handleTextDragStart(text.id, 'start', e)} onClick={(e) => e.stopPropagation()} />
-            <div className={styles.overlayHandleEnd} onMouseDown={(e) => handleTextDragStart(text.id, 'end', e)} onClick={(e) => e.stopPropagation()} />
+            <div 
+              className={styles.overlayHandleStart} 
+              onMouseDown={(e) => {
+                e.stopPropagation()
+                handleTextDragStart(text.id, 'start', e)
+              }} 
+              onClick={(e) => e.stopPropagation()} 
+            />
+            <div 
+              className={styles.overlayHandleEnd} 
+              onMouseDown={(e) => {
+                e.stopPropagation()
+                handleTextDragStart(text.id, 'end', e)
+              }} 
+              onClick={(e) => e.stopPropagation()} 
+            />
             <div className={styles.overlayBox}>
-              <span className={styles.overlayName}>{text.content || 'Text'}</span>
+              <span className={styles.overlayName}>Text #{idx + 1}</span>
             </div>
           </div>
         )

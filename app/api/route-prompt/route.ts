@@ -75,6 +75,12 @@ export interface AddTextInstruction {
   endTime: number
 }
 
+export interface AddEffectInstruction {
+  type: 'crt-dither' | 'flashing-black-vignette'
+  startTime: number
+  endTime: number
+}
+
 export interface TransitionInstruction {
   type: 'image' | 'video'
   id: string
@@ -91,7 +97,15 @@ export interface CropInstruction {
   cropAspect: '16:9' | '4:3' | '1:1' | '3:4' | '9:16' | 'none'
 }
 
-type RoutedAction = 'no_op' | 'edit_manifest' | 'split_at_marks' | 'replace_images' | 'add_text' | 'set_transitions' | 'set_crop'
+type RoutedAction =
+  | 'no_op'
+  | 'edit_manifest'
+  | 'split_at_marks'
+  | 'replace_images'
+  | 'add_text'
+  | 'set_transitions'
+  | 'set_crop'
+  | 'add_effect'
 
 interface RoutePromptResponse {
   action: RoutedAction
@@ -99,6 +113,7 @@ interface RoutePromptResponse {
   splits?: SplitInstruction[]
   replacements?: ReplaceInstruction[]
   newTexts?: AddTextInstruction[]
+  newEffects?: AddEffectInstruction[]
   transitions?: TransitionInstruction[]
   crops?: CropInstruction[]
   message: string
@@ -189,7 +204,16 @@ export async function POST(request: NextRequest) {
         toolConfig: {
           functionCallingConfig: {
             mode: FunctionCallingConfigMode.ANY,
-            allowedFunctionNames: ['no_op', 'edit_manifest', 'split_at_marks', 'replace_images', 'add_text', 'set_transitions', 'set_crop'],
+            allowedFunctionNames: [
+              'no_op',
+              'edit_manifest',
+              'split_at_marks',
+              'replace_images',
+              'add_text',
+              'set_transitions',
+              'set_crop',
+              'add_effect',
+            ],
           },
         },
       },
@@ -247,6 +271,12 @@ export async function POST(request: NextRequest) {
         action: 'set_crop',
         crops: (args?.crops as CropInstruction[]) || [],
         message: (args?.message as string) || 'Aspect ratios updated.',
+      }
+    } else if (action === 'add_effect') {
+      result = {
+        action: 'add_effect',
+        newEffects: (args?.effects as AddEffectInstruction[]) || [],
+        message: (args?.message as string) || 'Effect(s) added.',
       }
     } else {
       result = {

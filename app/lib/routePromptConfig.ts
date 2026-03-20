@@ -81,13 +81,13 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'split_at_marks',
-    description: "Split images or videos at the times of audio marks. Use this when the user asks to split, cut, or divide images or videos at the mark positions. For each item, include only the marks that fall within that item's time range.",
+    description: "Split images or videos into multiple segments. Use this when the user asks to split, cut, or divide items at specific positions, or into equal parts like halves or fourths. For equal parts, compute the split times yourself based on the item's startTime and endTime. For splitting at audio marks, include only the marks that fall within that item's time range.",
     parameters: {
       type: Type.OBJECT,
       properties: {
         splits: {
           type: Type.ARRAY,
-          description: 'List of items to split and the mark times at which to split them.',
+          description: 'List of items to split and the times at which to split them.',
           items: {
             type: Type.OBJECT,
             properties: {
@@ -101,7 +101,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
               },
               times: {
                 type: Type.ARRAY,
-                description: "The mark times (in seconds) within this item's range at which to split.",
+                description: "The times (in seconds) at which to split the item. For halves, this is the midpoint. For fourths, these are the 25%, 50%, and 75% points.",
                 items: { type: Type.NUMBER },
               },
             },
@@ -110,7 +110,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
         },
         message: {
           type: Type.STRING,
-          description: 'A short confirmation message, e.g. "Image split at 3 mark positions."',
+          description: 'A short confirmation message, e.g. "Image split into 4 equal parts."',
         },
       },
       required: ['splits', 'message'],
@@ -272,6 +272,42 @@ export const functionDeclarations: FunctionDeclaration[] = [
       required: ['replacements', 'message'],
     },
   },
+  {
+    name: 'add_effect',
+    description: 'Add one or more visual effects (e.g. "crt-dither" or "flashing-black-vignette") to the timeline. Use this when the user asks to add, apply, or insert an effect over a specific time range — for example "add a crt dither from image 12 to 22" or "apply flashing vignette to the first 5 seconds". Compute startTime and endTime from the manifest data.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        effects: {
+          type: Type.ARRAY,
+          description: 'List of effect items to add.',
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              type: {
+                type: Type.STRING,
+                description: 'The type of effect: "crt-dither" or "flashing-black-vignette".',
+              },
+              startTime: {
+                type: Type.NUMBER,
+                description: 'Start time in seconds.',
+              },
+              endTime: {
+                type: Type.NUMBER,
+                description: 'End time in seconds.',
+              },
+            },
+            required: ['type', 'startTime', 'endTime'],
+          },
+        },
+        message: {
+          type: Type.STRING,
+          description: 'A short confirmation message, e.g. "CRT Dither added from 10s to 15s."',
+        },
+      },
+      required: ['effects', 'message'],
+    },
+  },
 ]
 
 export const tools: Tool[] = [{ functionDeclarations }]
@@ -279,8 +315,9 @@ export const tools: Tool[] = [{ functionDeclarations }]
 export const systemInstruction =
   'You are a timeline editing assistant for a media studio. Your only job is to call the correct function:\n' +
     '- edit_manifest: when the user asks to change timing, duration, position, playback speed, or mute status of existing items. You MUST include all affected items as separate entries in the mutations array in a SINGLE call — never call edit_manifest multiple times. For audio mutations (type=updateAudio): ALWAYS use trimStart and trimEnd fields (not endTime). To restore an audio to its full original length set trimStart=0 and trimEnd=0. The active playing duration of an audio is: originalDuration - trimStart - trimEnd. Use playbackSpeed for video and audio playback speed changes (e.g. 0.5 for half speed), and muted for video mute status (true to mute, false to unmute). ALWAYS use the exact id strings from the manifest (e.g. "audio-1234-abc") — never make up or shorten ids.\n' +
-  '- split_at_marks: when the user asks to split, cut, or divide images or videos at audio mark positions (use the marks listed in the audio data)\n' +
+  '- split_at_marks: when the user asks to split, cut, or divide images or videos at specific positions, or into equal parts (like halves or fourths). You must compute the absolute timeline split times yourself from the item\'s timing data (halves = 1 split at midpoint, fourths = 3 splits at 25%/50%/75%). Also use this for splitting at audio marks (use the marks listed in the audio data)\n' +
   '- add_text: when the user asks to add text overlays to the timeline at a computed time range\n' +
+  '- add_effect: when the user asks to add visual effects (like "crt-dither" or "flashing-black-vignette") over a specific time range\n' +
     '- replace_images: when the user has attached files and asks to replace, swap, or update existing timeline images or videos with them\n' +
   '- set_transitions: when the user asks to set, apply, add, or remove animations (none, in, out, shake, or jitter) or transitions (none, split-horizontal, split-vertical, fade, slide-in-top, slide-in-bottom, slide-in-left, or slide-in-right) on images or videos; include zoomIntensity (0.05–1.0) if specified, transitionDuration (for transitions) if specified, or animationDuration (for Zoom In/Out animations) if specified\n' +
   '- set_crop: when the user asks to set or change the aspect ratio of images or videos (e.g. "make images 2-25 16:9"); cropAspect must be one of "16:9", "4:3", "1:1", "3:4", "9:16", or "none"\n' +

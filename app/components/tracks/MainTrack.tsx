@@ -180,13 +180,14 @@ const MainTrackComponent = ({
                         ))
                       })()}
                     </div>
-                    {(v.trimStart > 0 || v.trimEnd > 0) && (
-                      <div className={styles.videoOverlayText}>
+                    <div className={styles.videoOverlayText}>
+                      <span className={styles.overlayName}>Video #{idx + 1}</span>
+                      {(v.trimStart > 0 || v.trimEnd > 0) && (
                         <span className={styles.trimBadge}>
                           {v.trimStart.toFixed(1)}s / {v.trimEnd.toFixed(1)}s
                         </span>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 </div>
               )
@@ -217,17 +218,23 @@ const MainTrackComponent = ({
                 >
                   <div
                     className={styles.overlayHandleStart}
-                    onMouseDown={(e) => handleImageDragStart(img.id, 'start', e)}
+                    onMouseDown={(e) => {
+                      e.stopPropagation()
+                      handleImageDragStart(img.id, 'start', e)
+                    }}
                     onClick={(e) => e.stopPropagation()}
                   />
                   <div
                     className={styles.overlayHandleEnd}
-                    onMouseDown={(e) => handleImageDragStart(img.id, 'end', e)}
+                    onMouseDown={(e) => {
+                      e.stopPropagation()
+                      handleImageDragStart(img.id, 'end', e)
+                    }}
                     onClick={(e) => e.stopPropagation()}
                   />
                   <div className={styles.overlayBox}>
                     <img src={img.url} alt={img.name} className={styles.overlayThumbnail} />
-                    <span className={styles.overlayName}>{img.name}</span>
+                    <span className={styles.overlayName}>Image #{idx + 1}</span>
                   </div>
                 </div>
               )

@@ -253,20 +253,11 @@ export function useTimelineDrag({
       if (newStart < 0) newStart = 0
       updateImage(imageId, { startTime: newStart, endTime: newStart + dur })
     } else if (handle === 'start') {
-      let newStart = Math.max(0, Math.min(initialStartTime + timeDelta, initialEndTime - 0.5))
-      if (image.isMainTrack) {
-        const allMainItems = [
-          ...videos.filter(v => !v.isOverlay).map(v => ({ id: v.id, start: v.timestamp, end: v.timestamp + (v.duration ?? 0) })),
-          ...images.filter(img => img.isMainTrack).map(img => ({ id: img.id, start: img.startTime, end: img.endTime }))
-        ].sort((a, b) => a.start - b.start)
-        const currentIndex = allMainItems.findIndex(item => item.id === imageId)
-        const previousItem = currentIndex > 0 ? allMainItems[currentIndex - 1] : null
-        newStart = previousItem ? previousItem.end : 0
-      }
+      const newStart = Math.max(0, Math.min(initialStartTime + timeDelta, initialEndTime - 0.1))
       const newDur = Math.max(0.1, initialEndTime - newStart)
       updateImage(imageId, { startTime: newStart, endTime: newStart + newDur })
     } else if (handle === 'end') {
-      const newEnd = Math.max(image.startTime + 0.5, initialEndTime + timeDelta)
+      const newEnd = Math.max(image.startTime + 0.1, initialEndTime + timeDelta)
       updateImage(imageId, { endTime: newEnd })
     }
   }, [imageDragging, images, videos, totalDuration, effectivePadding, updateImage])

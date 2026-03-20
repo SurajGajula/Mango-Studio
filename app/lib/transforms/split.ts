@@ -42,7 +42,7 @@ export function applySplit(params: TransformParams): void {
       const halfW = pw / 2
       
       // Ensure pieces move far enough to clear the reveal target's entire width
-      const totalShift = Math.max(halfW, (px - x) + halfW, (x + w) - (px + halfW))
+      const totalShift = Math.max(0, (px - x) + halfW, (x + w) - (px + halfW))
       const shift = totalShift * ease
       
       // Left half
@@ -53,7 +53,7 @@ export function applySplit(params: TransformParams): void {
       const halfH = ph / 2
       
       // Ensure pieces move far enough to clear the reveal target's entire height
-      const totalShift = Math.max(halfH, (py - y) + halfH, (y + h) - (py + halfH))
+      const totalShift = Math.max(0, (py - y) + halfH, (y + h) - (py + halfH))
       const shift = totalShift * ease
       
       // Top half

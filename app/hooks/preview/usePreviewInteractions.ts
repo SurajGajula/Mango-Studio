@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { useManifestStore } from '@/app/stores/manifestStore'
 import { ImageClass } from '@/app/models/ImageClass'
 import { VideoClass } from '@/app/models/VideoClass'
 import { TextClass } from '@/app/models/TextClass'
@@ -83,32 +84,24 @@ export function usePreviewInteractions(
   yScaleRef.current = yScale
 
   const enterCropEdit = useCallback(async (id: string, type: 'image' | 'video') => {
-    if (type === 'image') {
-      let img = images.find((i) => i.id === id)
-      if (!img) return
+    let targetItem = type === 'image' ? images.find(i => i.id === id) : videos.find(v => v.id === id)
+    if (!targetItem) return
+
+    if (!targetItem.cropAspect) {
+      const isMainTrack = (targetItem as any).row === 0
+      const [rw, rh] = isMainTrack ? ASPECT_RATIOS[aspectRatio] : [targetItem.width, targetItem.height]
+      const label = isMainTrack ? aspectRatio : 'Original'
+      const updates = await computeMediaCropForAspect(targetItem.url || '', type, aspectRatio, rw, rh, label)
       
-      const isMainTrack = (img as any).row === 0
-      if (!img.cropAspect) {
-        // Force the current project aspect ratio if it's the main track and no crop is set
-        const [rw, rh] = isMainTrack ? ASPECT_RATIOS[aspectRatio] : [img.width, img.height]
-        const label = isMainTrack ? aspectRatio : 'Original'
-        const updates = await computeMediaCropForAspect(img.url, 'image', aspectRatio, rw, rh, label)
-        updateImage(id, updates as Partial<ImageClass>)
-      }
-      setCropEditId(id)
-    } else {
-      let vid = videos.find((v) => v.id === id)
-      if (!vid) return
-      
-      const isMainTrack = (vid as any).row === 0
-      if (!vid.cropAspect) {
-        const [rw, rh] = isMainTrack ? ASPECT_RATIOS[aspectRatio] : [vid.width, vid.height]
-        const label = isMainTrack ? aspectRatio : 'Original'
-        const updates = await computeMediaCropForAspect(vid.url || '', 'video', aspectRatio, rw, rh, label)
-        updateVideo(id, updates as Partial<VideoClass>)
-      }
-      setCropEditId(id)
+      if (type === 'image') updateImage(id, updates as Partial<ImageClass>)
+      else updateVideo(id, updates as Partial<VideoClass>)
     }
+    
+    // Use a small delay or requestAnimationFrame to ensure the store update has propagated
+    // so handleCropPanStart sees the new crop values
+    requestAnimationFrame(() => {
+      setCropEditId(id)
+    })
   }, [images, videos, aspectRatio, updateImage, updateVideo])
 
   const exitCropEdit = useCallback(() => {
@@ -316,13 +309,94 @@ export function usePreviewInteractions(
     }
   }, [textResizeState, xScale, updateText, pushHistory])
 
+  const imagesRef = useRef(images)
+  const videosRef = useRef(videos)
   useEffect(() => {
-    if (!cropPanState) return
+    imagesRef.current = images
+    videosRef.current = videos
+  }, [images, videos])
+
+  const isKeyboardPanningRef = useRef(false)
+
+  useEffect(() => {
+    if (!cropEditId) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't interfere if user is typing in an input/textarea
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+
+      const step = e.shiftKey ? 0.05 : 0.01
+      let dx = 0
+      let dy = 0
+
+      switch (e.key) {
+        case 'ArrowLeft': dx = -step; break
+        case 'ArrowRight': dx = step; break
+        case 'ArrowUp': dy = -step; break
+        case 'ArrowDown': dy = step; break
+        default: return
+      }
+
+      e.preventDefault()
+      
+      if (!isKeyboardPanningRef.current) {
+        useManifestStore.getState().pauseHistory()
+        isKeyboardPanningRef.current = true
+      }
+      
+      const state = useManifestStore.getState()
+      const item = state.images.find(i => i.id === cropEditId) || state.videos.find(v => v.id === cropEditId)
+      if (!item) return
+
+      const updates = {
+        cropSx: Math.max(0, Math.min(Math.max(0, 1 - item.cropSw), item.cropSx + dx)),
+        cropSy: Math.max(0, Math.min(Math.max(0, 1 - item.cropSh), item.cropSy + dy))
+      }
+
+      if (state.images.some(i => i.id === cropEditId)) {
+        state.updateImage(cropEditId, updates)
+      } else {
+        state.updateVideo(cropEditId, updates)
+      }
+    }
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+        if (isKeyboardPanningRef.current) {
+          useManifestStore.getState().resumeHistory()
+          isKeyboardPanningRef.current = false
+          pushHistory()
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+      if (isKeyboardPanningRef.current) {
+        useManifestStore.getState().resumeHistory()
+        isKeyboardPanningRef.current = false
+      }
+    }
+  }, [cropEditId, pushHistory])
+
+  useEffect(() => {
+    if (!cropPanState || !cropEditId) return
     const imgId = cropEditId
     const { startX, startY, startCropSx, startCropSy, cropSw, cropSh, destW, destH } = cropPanState
 
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!imgId) return
+    // Pause history during the drag to avoid flooding and improve performance
+    useManifestStore.getState().pauseHistory()
+
+    const handlePointerMove = (e: PointerEvent) => {
+      // Ensure the left button is still pressed
+      if (e.buttons !== 1) return
+
+      e.preventDefault()
+      e.stopPropagation()
+      
       const dx = e.clientX - startX
       const dy = e.clientY - startY
       
@@ -334,30 +408,37 @@ export function usePreviewInteractions(
       const safeDestH = destH || 1
 
       const updates = {
-        cropSx: Math.max(0, Math.min(Math.max(0, 1 - safeCropSw), safeStartSx - dx * safeCropSw / safeDestW)),
-        cropSy: Math.max(0, Math.min(Math.max(0, 1 - safeCropSh), safeStartSy - dy * safeCropSh / safeDestH)),
+        cropSx: Math.max(0, Math.min(Math.max(0, 1 - safeCropSw), safeStartSx - (dx * safeCropSw / safeDestW))),
+        cropSy: Math.max(0, Math.min(Math.max(0, 1 - safeCropSh), safeStartSy - (dy * safeCropSh / safeDestH))),
       }
       
-      const isImage = images.some(i => i.id === imgId)
+      const state = useManifestStore.getState()
+      const isImage = state.images.some(i => i.id === imgId)
       if (isImage) {
-        updateImage(imgId, updates)
+        state.updateImage(imgId, updates)
       } else {
-        updateVideo(imgId, updates)
+        state.updateVideo(imgId, updates)
       }
     }
 
-    const handleMouseUp = () => {
+    const handlePointerUp = (e: PointerEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      // Resume and push history when the drag is complete
+      useManifestStore.getState().resumeHistory()
       setCropPanState(null)
       pushHistory()
     }
 
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
+    window.addEventListener('pointermove', handlePointerMove, { capture: true })
+    window.addEventListener('pointerup', handlePointerUp, { capture: true })
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
+      window.removeEventListener('pointermove', handlePointerMove, { capture: true })
+      window.removeEventListener('pointerup', handlePointerUp, { capture: true })
+      // Make sure we resume history if the effect is cleaned up mid-drag
+      useManifestStore.getState().resumeHistory()
     }
-  }, [cropPanState, cropEditId, updateImage, updateVideo, images, videos, pushHistory])
+  }, [cropPanState, cropEditId, updateImage, updateVideo, pushHistory])
 
   useEffect(() => {
     if (!cropEditId) return
