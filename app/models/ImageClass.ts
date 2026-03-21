@@ -83,7 +83,7 @@ export class ImageClass {
       this.transition = 'none'
     }
 
-    this.zoomIntensity = zoomIntensity ?? 0.5
+    this.zoomIntensity = zoomIntensity !== undefined ? zoomIntensity : 0.5
     this.transitionDuration = transitionDuration
     this.animationDuration = animationDuration
     this.cropAspect = cropAspect

@@ -39,6 +39,36 @@ export function calculateAnimationProgress(item: VideoClass | ImageClass, curren
   return (duration && duration > 0) ? elapsed / duration : 0
 }
 
+// Easing function for smoother speed transitions
+function cubicBezier(t: number): number {
+  return t * t * (3 - 2 * t)
+}
+
+export function calculateSourceTime(
+  elapsedTimelineTime: number,
+  timelineDuration: number,
+  speedStart: number,
+  speedEnd: number,
+  basePlaybackSpeed: number,
+  easing: 'linear' | 'ease' = 'linear'
+): number {
+  const D = Math.max(0.1, timelineDuration)
+  const t = Math.max(0, elapsedTimelineTime)
+
+  if (easing === 'ease') {
+    const x = t / D
+    // Integral of 3x^2 - 2x^3 is x^3 - 0.5x^4
+    const Fx = Math.pow(x, 3) - 0.5 * Math.pow(x, 4)
+    return speedStart * t + (speedEnd - speedStart) * D * Fx
+  }
+
+  if (Math.abs(speedStart - speedEnd) < 0.001) {
+    return t * speedStart
+  }
+  
+  return speedStart * t + (Math.pow(t, 2) / (2 * D)) * (speedEnd - speedStart)
+}
+
 export function findActiveAndNextItems(items: MainItem[], time: number) {
   const activeIdx = items.findIndex(it => time >= it.startTime && time < it.startTime + it.duration)
   const activeItem = activeIdx !== -1 ? items[activeIdx] : null
@@ -59,7 +89,7 @@ export function checkTransition(activeItem: MainItem | null, nextItem: MainItem 
   const transDur = Math.min(rawTransDur, activeItem.duration)
   const timeUntilNext = nextItem.startTime - time
   
-  const transitionActive = timeUntilNext >= -0.05 && timeUntilNext <= transDur
+  const transitionActive = timeUntilNext >= 0 && timeUntilNext <= transDur
   const progress = transDur > 0 ? Math.max(0, Math.min(1, 1 - (timeUntilNext / transDur))) : 1
 
   return { transitionActive, progress }

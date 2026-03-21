@@ -32,7 +32,8 @@ export function applySplit(params: TransformParams): void {
       prevAnimation ?? 'none', 
       prevAnimationProgress ?? 0, 
       prevElapsedTime ?? 0, 
-      prevZoomIntensity ?? 0.5
+      prevZoomIntensity ?? 0.5,
+      params.prevAnimationDuration
     )
 
     // Use cubic easing for a smoother, more natural slide

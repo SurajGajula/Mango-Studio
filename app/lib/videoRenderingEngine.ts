@@ -1,6 +1,6 @@
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
-import { MainItem, calculateAnimationProgress } from '@/app/lib/renderUtils'
+import { MainItem, calculateAnimationProgress, calculateSourceTime } from '@/app/lib/renderUtils'
 import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
 import { applyEffect } from '@/app/lib/applyEffect'
 
@@ -28,6 +28,7 @@ export class VideoRenderingEngine {
   private currentVideoId: string | null = null
   private frameStallCount: number = 0
   private lastLogTime: number = 0
+  private lastTransformStates: Map<string, { x: number, y: number, w: number, h: number, time: number }> = new Map()
 
   public render(
     canvas: HTMLCanvasElement,
@@ -47,6 +48,12 @@ export class VideoRenderingEngine {
     const { videoElements, imageBitmaps, bufferCanvas, persistenceCanvases } = resources
 
     if (!bufferCanvas) return
+
+    // Cleanup stale transform states
+    const activeClipIds = new Set(state.videos.map(v => v.id))
+    this.lastTransformStates.forEach((_, id) => {
+      if (!activeClipIds.has(id)) this.lastTransformStates.delete(id)
+    })
 
     const bufferCtx = bufferCanvas.getContext('2d', { alpha: false })!
     const visibleCtx = canvas.getContext('2d', { alpha: false })!
@@ -78,9 +85,10 @@ export class VideoRenderingEngine {
           : true
     }
 
-    const stateKey = activeClip ? `${activeClip.id}-${activeClip.type}-${activeClip.item.x}-${activeClip.item.y}-${activeClip.item.width}-${activeClip.item.height}-${cr.width}-${cr.height}-${state.videos.length}-${state.images.length}-${effects.length}` : `none-${effects.length}`
+    const stateKey = activeClip ? `${activeClip.id}-${activeClip.type}-${activeClip.item.x}-${activeClip.item.y}-${activeClip.item.width}-${activeClip.item.height}-${activeClip.item.zoomIntensity}-${activeClip.item.animationDuration}-${cr.width}-${cr.height}-${state.videos.length}-${state.images.length}-${effects.length}-${activeClip.item.animation}` : `none-${effects.length}`
     const stateChanged = stateKey !== this.lastStateKey
     const isReady = isActiveReady && isNextReady
+    
     const timeChanged = Math.abs(newTime - this.lastRenderedTime) > 0.001
     const isVideo = activeClip?.type === 'video'
 
@@ -109,25 +117,116 @@ export class VideoRenderingEngine {
         const v = activeClip.item as VideoClass
         const vEl = videoElements.get(activeClip.id)
         if (vEl) {
-          const target = (v.trimStart ?? 0) + Math.max(0, newTime - activeClip.startTime) * (v.playbackSpeed ?? 1)
+          const elapsed = Math.max(0, newTime - activeClip.startTime)
+          const sourceElapsed = calculateSourceTime(
+            elapsed,
+            v.duration || 0,
+            v.speedStart ?? v.playbackSpeed ?? 1,
+            v.speedEnd ?? v.playbackSpeed ?? 1,
+            v.playbackSpeed ?? 1,
+            v.speedEasing
+          )
+          const target = (v.trimStart ?? 0) + sourceElapsed
           
           if (this.currentVideoId !== activeClip.id) {
             videoElements.forEach((el, id) => {
-              if (id !== activeClip.id && !el.paused) onVideoPlayState(id, false, 1)
+              if (id !== activeClip.id && (!nextClip || id !== nextClip.id) && !el.paused) {
+                onVideoPlayState(id, false, 1)
+              }
             })
             this.currentVideoId = activeClip.id
             if (state.selectedVideoId !== activeClip.id) onSelectionUpdate(activeClip.id)
-            vEl.currentTime = target
+            
+            // Only seek if we are far from the target.
+            // If the warmup worked, we should already be within a few frames.
+            if (Math.abs(vEl.currentTime - target) > 0.1) {
+              vEl.currentTime = target
+            }
           }
 
           if (isPlaying) {
-            if (Math.abs(vEl.currentTime - target) > 0.3) vEl.currentTime = target
-            onVideoPlayState(activeClip.id, true, rate * (v.playbackSpeed ?? 1))
+            // If the video is playing and relatively sync'd, let the hardware clock lead
+            // to avoid the micro-stutters caused by constant seeking.
+            const drift = Math.abs(vEl.currentTime - target)
+            if (drift > 0.2) {
+              vEl.currentTime = target
+            }
+            
+            const x = elapsed / Math.max(0.1, v.duration || 1)
+            let f = x
+            if (v.speedEasing === 'ease') {
+              f = 3 * Math.pow(x, 2) - 2 * Math.pow(x, 3)
+            }
+            const instantaneousSpeed = (v.speedStart ?? v.playbackSpeed ?? 1) + 
+              f * ((v.speedEnd ?? v.playbackSpeed ?? 1) - (v.speedStart ?? v.playbackSpeed ?? 1))
+            onVideoPlayState(activeClip.id, true, rate * instantaneousSpeed)
           } else {
             if (!vEl.paused) onVideoPlayState(activeClip.id, false, 1)
             // Throttle seeks during scroll to prevent browser lockup
             if (Math.abs(vEl.currentTime - target) > 0.15) {
               vEl.currentTime = target
+            }
+          }
+        }
+      }
+
+      // Pre-roll / Manage Next Video Element (for transitions)
+      if (nextClip && nextClip.type === 'video') {
+        const nv = nextClip.item as VideoClass
+        const nvEl = videoElements.get(nextClip.id)
+        if (nvEl) {
+          const elapsedB = Math.max(0, newTime - nextClip.startTime)
+          const sourceElapsedB = calculateSourceTime(
+            elapsedB,
+            nv.duration || 0,
+            nv.speedStart ?? nv.playbackSpeed ?? 1,
+            nv.speedEnd ?? nv.playbackSpeed ?? 1,
+            nv.playbackSpeed ?? 1,
+            nv.speedEasing
+          )
+          const targetB = (nv.trimStart ?? 0) + sourceElapsedB
+          
+          // If we are approaching the next clip or in transition, pre-seek it
+          const timeUntilNext = nextClip.startTime - newTime
+          const isInTransitionWindow = transitionActive || (timeUntilNext > 0 && timeUntilNext < 1.0)
+
+          if (isInTransitionWindow) {
+            // Pre-initialize persistence buffer for next clip to avoid 1-frame "pop"
+            if (!persistenceCanvases.has(nextClip.id) && isPlaying) {
+              const current = document.createElement('canvas')
+              const accumulation = document.createElement('canvas')
+              current.width = canvas.width; current.height = canvas.height
+              accumulation.width = canvas.width; accumulation.height = canvas.height
+              persistenceCanvases.set(nextClip.id, { current, accumulation })
+            }
+
+            if (isPlaying) {
+              // Pre-clip phase (e.g. during a slide-in transition)
+              // We start the video playing a tiny bit early (100ms) 
+              // so the decoder is already pushing frames when it becomes active.
+              const warmupWindow = 0.1 // 100ms
+              const shouldPlayNow = (nextClip.startTime - newTime) < warmupWindow
+
+              if (shouldPlayNow) {
+                if (Math.abs(nvEl.currentTime - targetB) > 0.2) nvEl.currentTime = targetB
+                const x = elapsedB / Math.max(0.1, nv.duration || 1)
+                let f = x
+                if (nv.speedEasing === 'ease') {
+                  f = 3 * Math.pow(x, 2) - 2 * Math.pow(x, 3)
+                }
+                const instantaneousSpeedB = (nv.speedStart ?? nv.playbackSpeed ?? 1) + 
+                  f * ((nv.speedEnd ?? nv.playbackSpeed ?? 1) - (nv.speedStart ?? nv.playbackSpeed ?? 1))
+                onVideoPlayState(nextClip.id, true, rate * instantaneousSpeedB)
+              } else {
+                if (!nvEl.paused) onVideoPlayState(nextClip.id, false, 1)
+                // Only seek if we are far from the target to avoid decoder hitches
+                if (Math.abs(nvEl.currentTime - targetB) > 0.05) {
+                  nvEl.currentTime = targetB
+                }
+              }
+            } else {
+              // Scrubbing: keep next video in sync
+              if (Math.abs(nvEl.currentTime - targetB) > 0.01) nvEl.currentTime = targetB
             }
           }
         }
@@ -157,7 +256,9 @@ export class VideoRenderingEngine {
         const xScale = cr.width / logicalW
         const yScale = cr.height / logicalH
 
-        if (transitionActive && nextClip && backgroundDrawn) {
+        // We only use the dedicated transition path if we haven't reached the next clip's start time yet.
+        // Once transProgress hit 1.0, we want to use the standard drawVideo path for consistency.
+        if (transitionActive && nextClip && backgroundDrawn && transProgress < 1.0) {
           transActive = true
           let nextEl: HTMLVideoElement | ImageBitmap | null = null
           let nextParams: any = undefined
@@ -195,11 +296,33 @@ export class VideoRenderingEngine {
             if (curEl && curParams) {
               const nextItem = nextClip.item
               const activeItem = activeClip.item
-              const elapsedB = newTime - nextClip.startTime
-              const elapsedA = newTime - activeClip.startTime
+              const elapsedB = Math.max(0, newTime - nextClip.startTime)
+              const elapsedA = Math.max(0, newTime - activeClip.startTime)
               const progB = calculateAnimationProgress(nextItem, newTime, nextClip.startTime)
               const progA = calculateAnimationProgress(activeItem, newTime, activeClip.startTime)
-              applyZoomTransform(bufferCtx, nextItem.animation, nextItem.transition, transProgress, nextEl, nextParams.x, nextParams.y, nextParams.w, nextParams.h, nextItem.cropSx, nextItem.cropSy, nextItem.cropSw, nextItem.cropSh, nextItem.zoomIntensity, elapsedB, curEl, activeItem.animation, progA, elapsedA, activeItem.zoomIntensity, curParams)
+              
+              // If the incoming item is a video, we should use drawVideo to get smoothing/blur
+              // But applyZoomTransform handles the dual-element transition logic.
+              // For now, let's ensure the parameters passed are perfectly consistent.
+              applyZoomTransform(
+              bufferCtx,
+              nextItem.animation,
+              nextItem.transition,
+              transProgress,
+              nextEl,
+              nextParams.x, nextParams.y, nextParams.w, nextParams.h,
+              nextItem.cropSx, nextItem.cropSy, nextItem.cropSw, nextItem.cropSh,
+              nextItem.zoomIntensity,
+              nextItem.animationDuration,
+              elapsedB,
+              curEl,
+              activeItem.animation,
+              progA,
+              elapsedA,
+              activeItem.zoomIntensity,
+              activeItem.animationDuration,
+              curParams
+            )
             }
           }
         }
@@ -261,8 +384,23 @@ export class VideoRenderingEngine {
     const drawWidth = (videoClip.width ?? logicalW) * xScale
     const drawHeight = (videoClip.height ?? logicalH) * yScale
     const progress = calculateAnimationProgress(videoClip, currentTime, videoClip.timestamp)
+    
+    // Calculate Instantaneous Speed for adaptive logic
+    const elapsed = Math.max(0, currentTime - videoClip.timestamp)
+    const x = elapsed / Math.max(0.1, videoClip.duration || 1)
+    let f = x
+    if (videoClip.speedEasing === 'ease') {
+      f = 3 * Math.pow(x, 2) - 2 * Math.pow(x, 3)
+    }
+    const instantaneousSpeed = (videoClip.speedStart ?? videoClip.playbackSpeed ?? 1) + 
+      f * ((videoClip.speedEnd ?? videoClip.playbackSpeed ?? 1) - (videoClip.speedStart ?? videoClip.playbackSpeed ?? 1))
 
-    if (videoClip.playbackSpeed < 1.0 && isPlaying) {
+    const isConstantOneX = Math.abs(instantaneousSpeed - 1) < 0.01 && 
+                           Math.abs((videoClip.speedStart ?? 1) - 1) < 0.01 && 
+                           Math.abs((videoClip.speedEnd ?? 1) - 1) < 0.01
+
+    // Dynamic Motion Blur / Persistence
+    if (isPlaying && !isConstantOneX) {
       let pCanvases = persistenceCanvases.get(videoClip.id)
       if (!pCanvases) {
         const current = document.createElement('canvas')
@@ -271,15 +409,76 @@ export class VideoRenderingEngine {
         accumulation.width = mainCanvas.width; accumulation.height = mainCanvas.height
         pCanvases = { current, accumulation }
         persistenceCanvases.set(videoClip.id, pCanvases)
+        
+        // Initialize accumulation with the first frame
+        const curCtx = current.getContext('2d', { alpha: true })!
+        const accCtx = accumulation.getContext('2d', { alpha: false })!
+        applyZoomTransform(curCtx, videoClip.animation, videoClip.transition, progress, videoEl, drawX, drawY, drawWidth, drawHeight, videoClip.cropSx, videoClip.cropSy, videoClip.cropSw, videoClip.cropSh, videoClip.zoomIntensity, videoClip.animationDuration, currentTime - videoClip.timestamp)
+        accCtx.drawImage(current, 0, 0)
+        
+        ctx.drawImage(accumulation, 0, 0)
+        return
       }
-      const curCtx = pCanvases.current.getContext('2d')!
-      const accCtx = pCanvases.accumulation.getContext('2d')!
+
+      const curCtx = pCanvases.current.getContext('2d', { alpha: true })!
+      const accCtx = pCanvases.accumulation.getContext('2d', { alpha: false })!
+      
+      // 1. Calculate Velocity for Directional Blur
+      const lastState = this.lastTransformStates.get(videoClip.id)
+      let vx = 0, vy = 0
+      if (lastState && isPlaying) {
+        vx = (drawX - lastState.x)
+        vy = (drawY - lastState.y)
+      }
+      this.lastTransformStates.set(videoClip.id, { x: drawX, y: drawY, w: drawWidth, h: drawHeight, time: currentTime })
+
+      // 2. Sub-pixel Jitter (Temporal Anti-Aliasing)
+      // When speed is low (< 0.25x), we jitter the position to break up aliasing
+      let jX = 0, jY = 0
+      if (instantaneousSpeed < 0.3) {
+        jX = (Math.random() - 0.5) * 0.5
+        jY = (Math.random() - 0.5) * 0.5
+      }
+
+      // 3. Render Current Frame to Buffer
       curCtx.clearRect(0, 0, pCanvases.current.width, pCanvases.current.height)
-      applyZoomTransform(curCtx, videoClip.animation, videoClip.transition, progress, videoEl, drawX, drawY, drawWidth, drawHeight, videoClip.cropSx, videoClip.cropSy, videoClip.cropSw, videoClip.cropSh, videoClip.zoomIntensity, currentTime - videoClip.timestamp)
-      accCtx.save(); accCtx.globalAlpha = 0.45; accCtx.drawImage(pCanvases.current, 0, 0); accCtx.restore()
+      
+      // Apply subtle directional blur to the current frame based on velocity
+      const speedMag = Math.sqrt(vx * vx + vy * vy)
+      if (speedMag > 0.5) {
+        curCtx.filter = `blur(${Math.min(2, speedMag * 0.2)}px)`
+      } else {
+        curCtx.filter = 'none'
+      }
+      
+      applyZoomTransform(curCtx, videoClip.animation, videoClip.transition, progress, videoEl, drawX + jX, drawY + jY, drawWidth, drawHeight, videoClip.cropSx, videoClip.cropSy, videoClip.cropSw, videoClip.cropSh, videoClip.zoomIntensity, videoClip.animationDuration, currentTime - videoClip.timestamp)
+      curCtx.filter = 'none'
+
+      // 4. Speed-Adaptive Alpha (Variable Shutter)
+      // Slower speed = lower alpha (longer persistence)
+      // Faster speed = higher alpha (shorter trails)
+      let adaptiveAlpha = Math.max(0.25, Math.min(0.6, instantaneousSpeed * 0.5))
+      
+      // CRITICAL: If this is the first frame of the clip, draw at 100% opacity
+      // to avoid a "fade-in" from an empty buffer which looks like a pause.
+      if (!lastState) {
+        adaptiveAlpha = 1.0
+      }
+
+      accCtx.save()
+      accCtx.globalAlpha = adaptiveAlpha
+      accCtx.drawImage(pCanvases.current, 0, 0)
+      accCtx.restore()
+
+      // 5. Final Output Filter (High-Pass Sharpening)
+      // Restores detail lost during accumulation
+      if (instantaneousSpeed < 0.5) {
+        ctx.filter = 'contrast(1.05) brightness(1.02)'
+      }
       ctx.drawImage(pCanvases.accumulation, 0, 0)
+      ctx.filter = 'none'
     } else {
-      applyZoomTransform(ctx, videoClip.animation, videoClip.transition, progress, videoEl, drawX, drawY, drawWidth, drawHeight, videoClip.cropSx, videoClip.cropSy, videoClip.cropSw, videoClip.cropSh, videoClip.zoomIntensity, currentTime - videoClip.timestamp)
+      applyZoomTransform(ctx, videoClip.animation, videoClip.transition, progress, videoEl, drawX, drawY, drawWidth, drawHeight, videoClip.cropSx, videoClip.cropSy, videoClip.cropSw, videoClip.cropSh, videoClip.zoomIntensity, videoClip.animationDuration, currentTime - videoClip.timestamp)
     }
   }
 
@@ -308,7 +507,7 @@ export class VideoRenderingEngine {
           const prevBitmap = imageBitmaps.get(lastEnded.id)
           if (prevBitmap) {
             ctx.save(); ctx.globalAlpha = image.opacity
-            applyZoomTransform(ctx, 'none', 'none', 0, prevBitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, lastEnded.cropSx, lastEnded.cropSy, lastEnded.cropSw, lastEnded.cropSh, 0, 0)
+            applyZoomTransform(ctx, 'none', 'none', 0, prevBitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, lastEnded.cropSx, lastEnded.cropSy, lastEnded.cropSw, lastEnded.cropSh, 0, undefined, 0)
             ctx.restore()
             return
           }
@@ -317,7 +516,7 @@ export class VideoRenderingEngine {
       if (!bitmap) return
       const progress = calculateAnimationProgress(image, currentTime, image.startTime)
       ctx.save(); ctx.globalAlpha = image.opacity
-      applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, currentTime - image.startTime)
+      applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, image.animationDuration, currentTime - image.startTime)
       ctx.restore()
     })
   }
@@ -340,17 +539,26 @@ export class VideoRenderingEngine {
       const bitmap = imageBitmaps.get(image.id); if (!bitmap) return
       const progress = calculateAnimationProgress(image, currentTime, image.startTime)
       ctx.save(); ctx.globalAlpha = image.opacity
-      applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, currentTime - image.startTime)
+      applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, image.animationDuration, currentTime - image.startTime)
       ctx.restore()
     })
     videos.filter(v => v.isOverlay).forEach(video => {
-      const localTime = (currentTime - video.timestamp) * (video.playbackSpeed ?? 1)
+      const elapsed = Math.max(0, currentTime - video.timestamp)
+      const sourceElapsed = calculateSourceTime(
+        elapsed,
+        video.duration || 1,
+        video.speedStart ?? video.playbackSpeed ?? 1,
+        video.speedEnd ?? video.playbackSpeed ?? 1,
+        video.playbackSpeed ?? 1,
+        video.speedEasing
+      )
+      const localTime = (video.trimStart ?? 0) + sourceElapsed
       const vEl = videoElements.get(video.id)
-      if (localTime < 0 || localTime >= (video.duration ?? 0) * (video.playbackSpeed ?? 1)) return
+      if (elapsed < 0 || elapsed >= (video.duration ?? 0)) return
       if (!vEl || vEl.readyState < 2 || vEl.seeking) return
       const progress = calculateAnimationProgress(video, currentTime, video.timestamp)
       ctx.save(); ctx.globalAlpha = video.opacity
-      applyZoomTransform(ctx, video.animation, video.transition, progress, vEl, cr.x + video.x * xScale, cr.y + video.y * yScale, video.width * xScale, video.height * yScale, video.cropSx ?? 0, video.cropSy ?? 0, video.cropSw ?? 1, video.cropSh ?? 1, video.zoomIntensity, currentTime - video.timestamp)
+      applyZoomTransform(ctx, video.animation, video.transition, progress, vEl, cr.x + video.x * xScale, cr.y + video.y * yScale, video.width * xScale, video.height * yScale, video.cropSx ?? 0, video.cropSy ?? 0, video.cropSw ?? 1, video.cropSh ?? 1, video.zoomIntensity, video.animationDuration, currentTime - video.timestamp)
       ctx.restore()
     })
   }

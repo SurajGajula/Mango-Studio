@@ -109,7 +109,6 @@ const MainTrackComponent = ({
                   onClick={(e) => {
                     e.stopPropagation()
                     selectVideo(isSelected ? null : v.id)
-                    onCloseTransitions?.()
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation()
@@ -200,7 +199,6 @@ const MainTrackComponent = ({
                   onClick={(e) => {
                     e.stopPropagation()
                     selectImage(isSelected ? null : img.id)
-                    onCloseTransitions?.()
                   }}
                   onMouseDown={(e) => handleImageDragStart(img.id, 'move', e)}
                   onContextMenu={(e) => {

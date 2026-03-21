@@ -58,7 +58,6 @@ const TextTrackComponent = ({
             onClick={(e) => {
               e.stopPropagation()
               selectText(isSelected ? null : text.id)
-              onCloseTransitions?.()
             }}
             onMouseDown={(e) => handleTextDragStart(text.id, 'move', e)}
             onContextMenu={(e) => {

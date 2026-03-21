@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useAuth } from './AuthProvider'
 import { useManifestStore } from '@/app/stores/manifestStore'
+import PaymentModal from './modals/PaymentModal'
 import type {
   ManifestMutation,
   SplitInstruction,
@@ -38,6 +39,7 @@ export default function ChatWindow() {
   const [inputValue, setInputValue] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
+  const [showPaymentModal, setShowPaymentModal] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -57,7 +59,24 @@ export default function ChatWindow() {
   const pendingPrompt = useManifestStore((state) => state.pendingPrompt)
   const setPendingPrompt = useManifestStore((state) => state.setPendingPrompt)
   const setItemPlaybackSpeed = useManifestStore((state) => state.setItemPlaybackSpeed)
-  const { user, supabase } = useAuth()
+  const { user, supabase, profile } = useAuth()
+
+  const handleManageSubscription = async () => {
+    try {
+      const response = await fetch('/api/customer-portal', {
+        method: 'POST',
+      })
+      const data = await response.json()
+      if (data.url) {
+        window.location.href = data.url
+      } else {
+        throw new Error(data.error || 'Failed to open billing portal')
+      }
+    } catch (error) {
+      console.error('Portal error:', error)
+      alert('Failed to open subscription management.')
+    }
+  }
 
   const handleSignOut = async () => {
     if (supabase) {
@@ -397,17 +416,32 @@ export default function ChatWindow() {
         <div className={styles.header}>
           <div className={styles.userInfo}>
             <span className={styles.userEmail}>{user.email}</span>
+            {profile?.requests_remaining !== undefined && (
+              <span className={styles.requestCount}>{profile.requests_remaining} requests left</span>
+            )}
           </div>
-          <button className={styles.signOutButton} onClick={handleSignOut} title="Sign Out">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
-            Sign Out
-          </button>
+          <div className={styles.headerButtons}>
+            {profile?.is_pro ? (
+              <button className={styles.manageButton} onClick={handleManageSubscription} title="Manage Subscription">
+                Pro
+              </button>
+            ) : (
+              <button className={styles.proButton} onClick={() => setShowPaymentModal(true)}>
+                Pro
+              </button>
+            )}
+            <button className={styles.signOutButton} onClick={handleSignOut} title="Sign Out">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+              Sign Out
+            </button>
+          </div>
         </div>
       )}
+      {showPaymentModal && <PaymentModal onClose={() => setShowPaymentModal(false)} />}
       <div className={styles.messages}>
         {messages.map((message) => (
           <div

@@ -11,6 +11,7 @@ interface ContextMenuProps {
   onOpenTransitions?: (id: string) => void
   onOpenAnimations?: (id: string) => void
   onOpenFont?: () => void
+  onOpenSpeed?: (id: string) => void
   onReplace?: (id: string) => void
   playbackTime: number
 }
@@ -19,6 +20,7 @@ export default function ContextMenu({
   onOpenTransitions,
   onOpenAnimations,
   onOpenFont,
+  onOpenSpeed,
   onReplace,
   playbackTime,
 }: ContextMenuProps) {
@@ -314,15 +316,12 @@ export default function ContextMenu({
       {(itemType === 'video' || itemType === 'audio') && currentItem && (
         <button
           className={styles.contextMenuItem}
-          onClick={() => handleAction(() => {
-            const steps = [0.5, 0.75, 1, 1.5, 2]
-            const idx = steps.indexOf(currentItem.playbackSpeed ?? 1)
-            const nextSpeed = steps[(idx + 1) % steps.length]
-            setItemPlaybackSpeed(itemId, nextSpeed)
-          })}
+          onClick={() => handleAction(() => onOpenSpeed?.(itemId))}
         >
           <div className={styles.contextMenuIcon}>
-            <span style={{ fontSize: '10px', fontWeight: 700 }}>{currentItem.playbackSpeed ?? 1}x</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+            </svg>
           </div>
           Playback Speed
         </button>

@@ -45,49 +45,53 @@ export const createGeneralSlice = (set: any, get: any) => ({
     }))
   },
 
-  setItemPlaybackSpeed: (id: string, speed: number) => {
+  setItemPlaybackSpeed: (id: string, speed: number, speedStart?: number, speedEnd?: number, speedEasing?: 'linear' | 'ease') => {
     const state = get()
     const video = state.videos.find((v: VideoClass) => v.id === id)
     const audio = state.audios.find((a: any) => a.id === id)
 
     if (video) {
       const currentDuration = video.duration ?? 0
-      const sourceDurationToPlay = currentDuration * speed
+      const sourceDurationToPlay = currentDuration * (video.playbackSpeed ?? 1)
       const origDuration = video.originalDuration ?? currentDuration
       const maxAvailableSource = origDuration - video.trimStart
-
-      let newDuration = currentDuration
-      let newTrimEnd = video.trimEnd
-
-      if (sourceDurationToPlay <= maxAvailableSource + 0.001) {
-        newTrimEnd = Math.max(0, origDuration - video.trimStart - sourceDurationToPlay)
-      } else {
-        newDuration = maxAvailableSource / speed
-        newTrimEnd = 0
-      }
+      
+      const newDuration = Math.min(maxAvailableSource / speed, sourceDurationToPlay / speed)
+      const newTrimEnd = Math.max(0, origDuration - video.trimStart - (newDuration * speed))
 
       const durationDelta = newDuration - currentDuration
       const isMainTrack = video.row === 0
 
+      const updates: any = { 
+        playbackSpeed: speed, 
+        speedStart: speedStart ?? speed, 
+        speedEnd: speedEnd ?? speed,
+        speedEasing: speedEasing ?? video.speedEasing ?? 'linear'
+      }
+
       if (durationDelta !== 0 && isMainTrack) {
         get().trimVideo(id, video.trimStart, newTrimEnd)
-        get().updateVideo(id, { playbackSpeed: speed })
+        get().updateVideo(id, updates)
       } else {
-        get().updateVideo(id, { playbackSpeed: speed, trimEnd: newTrimEnd, duration: newDuration })
+        get().updateVideo(id, { ...updates, trimEnd: newTrimEnd, duration: newDuration })
       }
     } else if (audio) {
       const currentDuration = audio.endTime - audio.startTime
-      const sourceDurationToPlay = currentDuration * speed
+      const sourceDurationToPlay = currentDuration * (audio.playbackSpeed ?? 1)
       const origDuration = audio.originalDuration
       const maxAvailableSource = origDuration - audio.trimStart
+      
+      const newEffectiveDuration = Math.min(maxAvailableSource / speed, sourceDurationToPlay / speed)
+      const newTrimEnd = Math.max(0, origDuration - audio.trimStart - (newEffectiveDuration * speed))
 
-      if (sourceDurationToPlay <= maxAvailableSource + 0.001) {
-        const newTrimEnd = Math.max(0, origDuration - audio.trimStart - sourceDurationToPlay)
-        get().updateAudio(id, { playbackSpeed: speed, trimEnd: newTrimEnd })
-      } else {
-        const newEffectiveDuration = maxAvailableSource / speed
-        get().updateAudio(id, { playbackSpeed: speed, trimEnd: 0, endTime: audio.startTime + newEffectiveDuration })
+      const updates: any = { 
+        playbackSpeed: speed, 
+        speedStart: speedStart ?? speed, 
+        speedEnd: speedEnd ?? speed,
+        speedEasing: speedEasing ?? audio.speedEasing ?? 'linear'
       }
+
+      get().updateAudio(id, { ...updates, trimEnd: newTrimEnd, endTime: audio.startTime + newEffectiveDuration })
     }
   },
 

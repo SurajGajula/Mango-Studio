@@ -70,7 +70,7 @@ export interface ManifestStore {
   splitAudio: (id: string, playbackTime: number) => void
   removeAudio: (id: string) => void
   trimAudio: (id: string, trimStart: number, trimEnd: number, startTime?: number) => void
-  setItemPlaybackSpeed: (id: string, speed: number) => void
+  setItemPlaybackSpeed: (id: string, speed: number, speedStart?: number, speedEnd?: number, speedEasing?: 'linear' | 'ease') => void
   splitVideoAtTimes: (id: string, times: number[]) => void
   splitImageAtTimes: (id: string, times: number[]) => void
   duplicateItem: (id: string) => void

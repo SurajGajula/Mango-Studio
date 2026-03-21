@@ -31,9 +31,10 @@ interface TimelineProps {
   onOpenAnimations?: (id?: string) => void
   onOpenFont?: () => void
   onOpenEffects?: () => void
+  onOpenSpeed?: (id: string) => void
 }
 
-export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpenAnimations, onOpenFont, onOpenEffects }: TimelineProps) {
+export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpenAnimations, onOpenFont, onOpenEffects, onOpenSpeed }: TimelineProps) {
   const videos = useManifestStore((state) => state.videos)
   const images = useManifestStore((state) => state.images)
   const texts = useManifestStore((state) => state.texts)
@@ -177,8 +178,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     setSelectedTextId(null)
     setSelectedAudioId(null)
     setSelectedEffectId(null)
-    onCloseTransitions?.()
-  }, [setSelectedVideoId, setSelectedImageId, setSelectedTextId, setSelectedAudioId, setSelectedEffectId, onCloseTransitions])
+  }, [setSelectedVideoId, setSelectedImageId, setSelectedTextId, setSelectedAudioId, setSelectedEffectId])
 
   const handleAddText = () => {
     const id = `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
@@ -343,6 +343,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
               onOpenTransitions={onOpenAnimations}
               onOpenFont={onOpenFont}
               onOpenEffects={onOpenEffects}
+              onOpenSpeed={onOpenSpeed}
               isExporting={isExporting}
               handleExport={handleExport}
               handleCancelExport={handleCancelExport}
@@ -461,6 +462,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
               onOpenTransitions={onOpenTransitions}
               onOpenAnimations={onOpenAnimations}
               onOpenFont={onOpenFont}
+              onOpenSpeed={onOpenSpeed}
               onReplace={(id) => {
                 setReplaceTargetId(id)
                 replaceInputRef.current?.click()

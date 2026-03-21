@@ -8,7 +8,7 @@ import { fetchFile, toBlobURL } from '@ffmpeg/util'
 import { wrapTextToLines } from '@/app/lib/textUtils'
 import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
 import { applyEffect } from '@/app/lib/applyEffect'
-import { getSortedMainItems, findActiveAndNextItems, checkTransition, calculateAnimationProgress } from '@/app/lib/renderUtils'
+import { getSortedMainItems, findActiveAndNextItems, checkTransition, calculateAnimationProgress, calculateSourceTime } from '@/app/lib/renderUtils'
 import { calculateTotalDuration } from '@/app/lib/timeUtils'
 import { audioBufferToWav } from '@/app/lib/audioUtils'
 
@@ -131,13 +131,41 @@ export async function exportVideo(
             
             const gainNode = offlineCtx.createGain()
             gainNode.gain.value = audioItem.volume ?? 1.0
+            
+            // Handle speed ramping for audio
+            const sStart = audioItem.speedStart ?? audioItem.playbackSpeed ?? 1
+            const sEnd = audioItem.speedEnd ?? audioItem.playbackSpeed ?? 1
+            const timelineDuration = audioItem.endTime - audioItem.startTime
+            const easing = audioItem.speedEasing ?? 'linear'
+            
+            if (Math.abs(sStart - sEnd) > 0.001) {
+              if (easing === 'ease') {
+                // Simulate cubic easing with a curve
+                const points = 20
+                const curve = new Float32Array(points)
+                for (let i = 0; i < points; i++) {
+                  const t = i / (points - 1)
+                  const f = 3 * t * t - 2 * t * t * t
+                  curve[i] = sStart + (sEnd - sStart) * f
+                }
+                source.playbackRate.setValueCurveAtTime(curve, audioItem.startTime, timelineDuration)
+              } else {
+                // Linear ramp for playbackRate
+                source.playbackRate.setValueAtTime(sStart, audioItem.startTime)
+                source.playbackRate.linearRampToValueAtTime(sEnd, audioItem.startTime + timelineDuration)
+              }
+            } else {
+              source.playbackRate.value = sStart
+            }
+            
             source.connect(gainNode)
             gainNode.connect(offlineCtx.destination)
 
-            // startTime is when it starts on the timeline, trimStart is where it starts in the file
-            // The 3rd parameter is the duration to play from the source
-            const durationToPlay = audioItem.originalDuration - audioItem.trimStart - audioItem.trimEnd
-            source.start(audioItem.startTime, audioItem.trimStart, durationToPlay)
+            // Calculate how much source duration to consume
+            const avgSpeed = (sStart + sEnd) / 2
+            const sourceDurationToPlay = timelineDuration * avgSpeed
+            
+            source.start(audioItem.startTime, audioItem.trimStart, sourceDurationToPlay)
           } catch (e) { console.error(`Failed to load audio ${audioItem.id} for offline mix`, e) }
         }
       }
@@ -224,16 +252,52 @@ export async function exportVideo(
         }
         if (activeMain!.type === 'video') {
           const av = activeMain!.item as VideoClass
-          const currentEl = videoElements.get(av.id); if (currentEl) { const localNow = (av.trimStart ?? 0) + (t - activeMain!.startTime) * (av.playbackSpeed ?? 1); videosToReady.push({ el: currentEl, time: localNow }) }
+          const currentEl = videoElements.get(av.id); if (currentEl) {
+            const elapsed = Math.max(0, t - activeMain!.startTime)
+            const sourceElapsed = calculateSourceTime(
+              elapsed,
+              av.duration || 1,
+              av.speedStart ?? av.playbackSpeed ?? 1,
+              av.speedEnd ?? av.playbackSpeed ?? 1,
+              av.playbackSpeed ?? 1,
+              av.speedEasing
+            )
+            const localNow = (av.trimStart ?? 0) + sourceElapsed
+            videosToReady.push({ el: currentEl, time: localNow })
+          }
         }
       } else if (activeMain && activeMain.type === 'video') {
         const v = activeMain.item as VideoClass
-        const vEl = videoElements.get(v.id); if (vEl) { const localTime = (v.trimStart ?? 0) + (t - activeMain.startTime) * (v.playbackSpeed ?? 1); videosToReady.push({ el: vEl, time: localTime }) }
+        const vEl = videoElements.get(v.id); if (vEl) {
+          const elapsed = Math.max(0, t - activeMain.startTime)
+          const sourceElapsed = calculateSourceTime(
+            elapsed,
+            v.duration || 1,
+            v.speedStart ?? v.playbackSpeed ?? 1,
+            v.speedEnd ?? v.playbackSpeed ?? 1,
+            v.playbackSpeed ?? 1,
+            v.speedEasing
+          )
+          const localTime = (v.trimStart ?? 0) + sourceElapsed
+          videosToReady.push({ el: vEl, time: localTime })
+        }
       }
 
       const ovs = overlayVideos.filter(v => t >= v.timestamp && t < v.timestamp + (v.duration || 0))
       for (const v of ovs) {
-        const vEl = videoElements.get(v.id); if (vEl) { const localTime = (v.trimStart ?? 0) + (t - v.timestamp) * (v.playbackSpeed ?? 1); videosToReady.push({ el: vEl, time: localTime }) }
+        const vEl = videoElements.get(v.id); if (vEl) {
+          const elapsed = Math.max(0, t - v.timestamp)
+          const sourceElapsed = calculateSourceTime(
+            elapsed,
+            v.duration || 1,
+            v.speedStart ?? v.playbackSpeed ?? 1,
+            v.speedEnd ?? v.playbackSpeed ?? 1,
+            v.playbackSpeed ?? 1,
+            v.speedEasing
+          )
+          const localTime = (v.trimStart ?? 0) + sourceElapsed
+          videosToReady.push({ el: vEl, time: localTime })
+        }
       }
 
       if (videosToReady.length > 0) {
@@ -267,7 +331,16 @@ export async function exportVideo(
             const av = activeMain.item as VideoClass
             curEl = videoElements.get(av.id) || null
             if (curEl && curEl.readyState >= 2) {
-              const localNow = (av.trimStart ?? 0) + (t - activeMain.startTime) * (av.playbackSpeed ?? 1)
+              const elapsed = Math.max(0, t - activeMain.startTime)
+            const sourceElapsed = calculateSourceTime(
+              elapsed,
+              av.duration || 1,
+              av.speedStart ?? av.playbackSpeed ?? 1,
+              av.speedEnd ?? av.playbackSpeed ?? 1,
+              av.playbackSpeed ?? 1,
+              av.speedEasing
+            )
+              const localNow = (av.trimStart ?? 0) + sourceElapsed
               curParams = { x: (av.x ?? 0) * xScale, y: (av.y ?? 0) * yScale, w: (av.width ?? logicalW) * xScale, h: (av.height ?? logicalH) * yScale, sx: curEl.videoWidth * (av.cropSx ?? 0), sy: curEl.videoHeight * (av.cropSy ?? 0), sw: curEl.videoWidth * (av.cropSw ?? 1), sh: curEl.videoHeight * (av.cropSh ?? 1) }
             }
           } else if (activeMain) {
@@ -294,12 +367,14 @@ export async function exportVideo(
               nextParams.x, nextParams.y, nextParams.w, nextParams.h,
               nextItem.cropSx, nextItem.cropSy, nextItem.cropSw, nextItem.cropSh,
               nextItem.zoomIntensity,
+              nextItem.animationDuration,
               elapsedB,
               curEl,
               activeItem.animation,
               progA,
               elapsedA,
               activeItem.zoomIntensity,
+              activeItem.animationDuration,
               curParams
             )
           }
@@ -312,14 +387,14 @@ export async function exportVideo(
           const vEl = videoElements.get(v.id)
           if (vEl && vEl.readyState >= 2) {
             const prog = calculateAnimationProgress(v, t, v.timestamp)
-            applyZoomTransform(ctx, v.animation, v.transition, prog, vEl, (v.x ?? 0) * xScale, (v.y ?? 0) * yScale, (v.width ?? logicalW) * xScale, (v.height ?? logicalH) * yScale, v.cropSx, v.cropSy, v.cropSw, v.cropSh, v.zoomIntensity, t - v.timestamp)
+            applyZoomTransform(ctx, v.animation, v.transition, prog, vEl, (v.x ?? 0) * xScale, (v.y ?? 0) * yScale, (v.width ?? logicalW) * xScale, (v.height ?? logicalH) * yScale, v.cropSx, v.cropSy, v.cropSw, v.cropSh, v.zoomIntensity, v.animationDuration, t - v.timestamp)
           }
         } else {
           const img = activeMain.item as ImageClass
           const iEl = imageElements.get(img.id)
           if (iEl) {
             const prog = calculateAnimationProgress(img, t, img.startTime)
-            applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, img.x * xScale, img.y * yScale, img.width * xScale, img.height * yScale, img.cropSx, img.cropSy, img.cropSw, img.cropSh, img.zoomIntensity, t - img.startTime)
+            applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, img.x * xScale, img.y * yScale, img.width * xScale, img.height * yScale, img.cropSx, img.cropSy, img.cropSw, img.cropSh, img.zoomIntensity, img.animationDuration, t - img.startTime)
           }
         }
       }
@@ -328,7 +403,7 @@ export async function exportVideo(
         const iEl = imageElements.get(img.id); if (!iEl) return
         ctx.save(); ctx.globalAlpha = img.opacity
         const prog = calculateAnimationProgress(img, t, img.startTime)
-        applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, img.x * xScale, img.y * yScale, img.width * xScale, img.height * yScale, img.cropSx, img.cropSy, img.cropSw, img.cropSh, img.zoomIntensity, t - img.startTime)
+        applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, img.x * xScale, img.y * yScale, img.width * xScale, img.height * yScale, img.cropSx, img.cropSy, img.cropSw, img.cropSh, img.zoomIntensity, img.animationDuration, t - img.startTime)
         ctx.restore()
       })
 
@@ -336,7 +411,7 @@ export async function exportVideo(
         const vEl = videoElements.get(v.id); if (!vEl || vEl.readyState < 2) continue
         const prog = calculateAnimationProgress(v, t, v.timestamp)
         ctx.save(); ctx.globalAlpha = v.opacity
-        applyZoomTransform(ctx, v.animation, v.transition, prog, vEl, v.x * xScale, v.y * yScale, v.width * xScale, v.height * yScale, v.cropSx, v.cropSy, v.cropSw, v.cropSh, v.zoomIntensity, t - v.timestamp)
+        applyZoomTransform(ctx, v.animation, v.transition, prog, vEl, v.x * xScale, v.y * yScale, v.width * xScale, v.height * yScale, v.cropSx, v.cropSy, v.cropSw, v.cropSh, v.zoomIntensity, v.animationDuration, t - v.timestamp)
         ctx.restore()
       }
 

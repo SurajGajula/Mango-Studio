@@ -78,7 +78,6 @@ const MediaOverlayTrackComponent = ({
               onClick={(e) => {
                 e.stopPropagation()
                 selectImage(isSelected ? null : image.id)
-                onCloseTransitions?.()
               }}
               onMouseDown={(e) => handleImageDragStart(image.id, 'move', e)}
               onContextMenu={(e) => {
@@ -129,7 +128,6 @@ const MediaOverlayTrackComponent = ({
               onClick={(e) => {
                 e.stopPropagation()
                 selectVideo(isSelected ? null : video.id)
-                onCloseTransitions?.()
               }}
               onDoubleClick={(e) => { e.stopPropagation(); handleVideoDoubleClick(video.id) }}
               onMouseDown={(e) => handleOverlayVideoDragStart(video.id, e)}

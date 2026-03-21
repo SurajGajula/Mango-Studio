@@ -34,6 +34,9 @@ export class VideoClass {
   sourceTrimStart?: number
   sourceDuration?: number
   playbackSpeed: number
+  speedStart?: number
+  speedEnd?: number
+  speedEasing: 'linear' | 'ease'
 
   constructor(
     id: string,
@@ -69,6 +72,9 @@ export class VideoClass {
     sourceTrimStart?: number,
     sourceDuration?: number,
     playbackSpeed?: number,
+    speedStart?: number,
+    speedEnd?: number,
+    speedEasing?: 'linear' | 'ease',
     zoom?: AnimationMode | TransitionMode // Migration field
   ) {
     this.id = id
@@ -107,7 +113,7 @@ export class VideoClass {
       this.transition = 'none'
     }
 
-    this.zoomIntensity = zoomIntensity ?? 0.5
+    this.zoomIntensity = zoomIntensity !== undefined ? zoomIntensity : 0.5
     this.transitionDuration = transitionDuration
     this.animationDuration = animationDuration
     this.muted = muted ?? false
@@ -120,6 +126,9 @@ export class VideoClass {
     this.sourceTrimStart = sourceTrimStart
     this.sourceDuration = sourceDuration
     this.playbackSpeed = playbackSpeed ?? 1
+    this.speedStart = speedStart ?? this.playbackSpeed
+    this.speedEnd = speedEnd ?? this.playbackSpeed
+    this.speedEasing = speedEasing ?? 'linear'
   }
 
   copy(updates: Partial<VideoClass>): VideoClass {
@@ -156,7 +165,10 @@ export class VideoClass {
       updates.sourceUrl ?? this.sourceUrl,
       updates.sourceTrimStart ?? this.sourceTrimStart,
       updates.sourceDuration ?? this.sourceDuration,
-      updates.playbackSpeed ?? this.playbackSpeed
+      updates.playbackSpeed ?? this.playbackSpeed,
+      updates.speedStart ?? this.speedStart,
+      updates.speedEnd ?? this.speedEnd,
+      updates.speedEasing ?? this.speedEasing
     )
   }
 }

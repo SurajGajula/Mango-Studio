@@ -17,6 +17,7 @@ interface PlaybackControlsProps {
   onOpenTransitions?: (id?: string) => void
   onOpenFont?: () => void
   onOpenEffects?: () => void
+  onOpenSpeed?: (id: string) => void
   isExporting: boolean
   handleExport: () => void
   handleCancelExport: () => void
@@ -32,6 +33,7 @@ export default function PlaybackControls({
   onOpenTransitions,
   onOpenFont,
   onOpenEffects,
+  onOpenSpeed,
   isExporting,
   handleExport,
   handleCancelExport,
@@ -114,7 +116,7 @@ export default function PlaybackControls({
         <button
           className={styles.speedButton}
           onClick={() => {
-            const steps = [0.5, 0.75, 1, 1.5, 2]
+            const steps = [0.25, 0.5, 0.75, 1, 1.5, 2]
             const idx = steps.indexOf(playbackRate)
             setPlaybackRate(steps[(idx + 1) % steps.length])
           }}
@@ -152,28 +154,6 @@ export default function PlaybackControls({
         >
           Fx
         </button>
-        {(selectedVideoId || selectedAudioId) && (() => {
-          const item = selectedVideoId 
-            ? videos.find(v => v.id === selectedVideoId)
-            : audios.find(a => a.id === selectedAudioId)
-          if (!item) return null
-          const itemSpeed = item.playbackSpeed ?? 1
-          return (
-            <button
-              className={styles.speedButton}
-              style={{ color: '#0070f3', border: '1px solid rgba(0, 112, 243, 0.3)' }}
-              onClick={() => {
-                const steps = [0.5, 0.75, 1, 1.5, 2]
-                const idx = steps.indexOf(itemSpeed)
-                const nextSpeed = steps[(idx + 1) % steps.length]
-                setItemPlaybackSpeed(selectedVideoId || selectedAudioId!, nextSpeed)
-              }}
-              title="Item playback speed"
-            >
-              {itemSpeed}×
-            </button>
-          )
-        })()}
         {audioAnalysis && userMarks.length > 0 && (
           <button
             className={styles.clearMarksButton}

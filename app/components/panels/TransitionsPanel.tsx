@@ -206,12 +206,19 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
   ) : null
   
   const [localDuration, setLocalDuration] = useState<number | null>(initialDuration)
+  const [localIntensity, setLocalIntensity] = useState<number | null>(selectedItem?.zoomIntensity ?? 0.5)
 
   // Adjust state during render if props change externally (e.g. Undo/Redo)
   const [prevInitialDuration, setPrevInitialDuration] = useState<number | null>(initialDuration)
   if (initialDuration !== prevInitialDuration) {
     setPrevInitialDuration(initialDuration)
     setLocalDuration(initialDuration)
+  }
+
+  const [prevInitialIntensity, setPrevInitialIntensity] = useState<number | null>(selectedItem?.zoomIntensity ?? 0.5)
+  if ((selectedItem?.zoomIntensity ?? 0.5) !== prevInitialIntensity) {
+    setPrevInitialIntensity(selectedItem?.zoomIntensity ?? 0.5)
+    setLocalIntensity(selectedItem?.zoomIntensity ?? 0.5)
   }
 
   const handleSelect = (val: string) => {
@@ -222,6 +229,10 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
       // When switching from 'none' to something, default to 1s if not already set
       if (val !== 'none' && (selectedItem?.animationDuration === undefined || selectedItem?.animationDuration === 0)) {
         updates.animationDuration = 1.0
+      }
+      // Reset intensity to 0.5 when switching animations to ensure a clean state
+      if (val !== 'none') {
+        updates.zoomIntensity = 0.5
       }
     } else {
       updates.transition = val
@@ -238,9 +249,28 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
 
   const itemDuration = selectedItem?.duration || 1.0
   const displayDuration = localDuration !== null ? localDuration : itemDuration
+  const displayIntensity = localIntensity !== null ? localIntensity : 0.5
 
   const options = mode === 'animation' ? ANIMATION_OPTIONS : TRANSITION_OPTIONS
   const currentValue = mode === 'animation' ? currentAnimation : currentTransition
+
+  const showIntensitySlider = mode === 'animation' && ['in', 'out', 'shake', 'jitter'].includes(currentAnimation)
+
+  const handleSliderUpdate = (updates: any, localSetter: (val: number) => void) => {
+    if (!selectedItem) return
+    const val = Object.values(updates)[0] as number
+    localSetter(val)
+    const isImage = images.some(img => img.id === selectedItem.id)
+    const state = useManifestStore.getState()
+    state.pauseHistory()
+    if (isImage) updateImage(selectedItem.id, updates)
+    else updateVideo(selectedItem.id, updates)
+    state.resumeHistory()
+  }
+
+  const handleSliderCommit = () => {
+    useManifestStore.getState().pushHistory()
+  }
 
   return (
     <div className={styles.container}>
@@ -285,16 +315,32 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
                   className={styles.durationSlider}
                   onInput={(e) => {
                     const val = parseFloat((e.target as HTMLInputElement).value)
-                    setLocalDuration(val)
-                  }}
-                  onChange={(e) => {
-                    const val = parseFloat((e.target as HTMLInputElement).value)
-                    if (!selectedItem) return
-                    const isImage = images.some(img => img.id === selectedItem.id)
                     const updates = mode === 'animation' ? { animationDuration: val } : { transitionDuration: val }
-                    if (isImage) updateImage(selectedItem.id, updates)
-                    else updateVideo(selectedItem.id, updates)
+                    handleSliderUpdate(updates, setLocalDuration)
                   }}
+                  onChange={handleSliderCommit}
+                />
+              </div>
+            )}
+
+            {showIntensitySlider && (
+              <div className={styles.durationControl}>
+                <div className={styles.durationHeader}>
+                  <label className={styles.durationLabel}>Intensity (Force)</label>
+                  <span className={styles.durationValue}>{Math.round(displayIntensity * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.01"
+                  max="1.0"
+                  step="0.01"
+                  value={displayIntensity}
+                  className={styles.durationSlider}
+                  onInput={(e) => {
+                    const val = parseFloat((e.target as HTMLInputElement).value)
+                    handleSliderUpdate({ zoomIntensity: val }, setLocalIntensity)
+                  }}
+                  onChange={handleSliderCommit}
                 />
               </div>
             )}

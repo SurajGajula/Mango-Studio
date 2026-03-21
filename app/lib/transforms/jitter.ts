@@ -1,10 +1,13 @@
 import type { TransformParams } from './types'
 
 export function applyJitter(params: TransformParams): void {
-  const { ctx, imgEl, x, y, w, h, sx, sy, sw, sh, zoomIntensity, elapsedTime } = params
+  const { ctx, imgEl, x, y, w, h, sx, sy, sw, sh, zoomIntensity, elapsedTime, animationDuration } = params
   
-  const jitterDuration = 0.4
-  const scale = 1.1 // Reduced zoom for a more subtle effect
+  const jitterDuration = animationDuration ?? 0.4
+  // Dynamically link scale to intensity. 
+  // 0% intensity = 1.0x zoom. 100% intensity = 2.5x zoom.
+  const scale = 1.0 + (zoomIntensity * 1.5)
+  
   const zoomedSw = sw / scale
   const zoomedSh = sh / scale
   const maxShiftX = (sw - zoomedSw) / 2
@@ -17,14 +20,14 @@ export function applyJitter(params: TransformParams): void {
     const pulse = Math.sin(t * Math.PI)
     
     // Cardinal oscillations (no rotation)
-    // Frequencies adjusted for a more natural jitter
-    const freqX1 = 20; const freqY1 = 16
-    const freqX2 = 8; const freqY2 = 6
+    // Higher frequencies for a violent, frantic jitter
+    const freqX1 = 32; const freqY1 = 28
+    const freqX2 = 12; const freqY2 = 10
     
-    // Reduced intensity for subtle movement
-    const intensity = Math.min(1.0, zoomIntensity * 0.6)
-    const shakeX = (Math.sin(t * Math.PI * freqX1) * 0.6 + Math.sin(t * Math.PI * freqX2) * 0.4) * pulse * maxShiftX * intensity
-    const shakeY = (Math.cos(t * Math.PI * freqY1) * 0.6 + Math.cos(t * Math.PI * freqY2) * 0.4) * pulse * maxShiftY * intensity
+    // The movement force is naturally constrained by the available "buffer" (maxShiftX/Y)
+    // which is now strictly tied to the zoom scale.
+    const shakeX = (Math.sin(t * Math.PI * freqX1) * 0.6 + Math.sin(t * Math.PI * freqX2) * 0.4) * pulse * maxShiftX
+    const shakeY = (Math.cos(t * Math.PI * freqY1) * 0.6 + Math.cos(t * Math.PI * freqY2) * 0.4) * pulse * maxShiftY
 
     ctx.save()
     ctx.beginPath()

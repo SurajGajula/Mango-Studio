@@ -56,7 +56,6 @@ const EffectTrackComponent = ({
             onClick={(e) => {
               e.stopPropagation()
               selectEffect(isSelected ? null : effect.id)
-              onCloseTransitions?.()
             }}
             onMouseDown={(e) => handleEffectDragStart(effect.id, 'move', e)}
             onContextMenu={(e) => {

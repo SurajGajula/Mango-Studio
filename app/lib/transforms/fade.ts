@@ -18,7 +18,8 @@ export function applyFade(params: TransformParams): void {
       prevAnimation ?? 'none', 
       prevAnimationProgress ?? 0, 
       prevElapsedTime ?? 0, 
-      prevZoomIntensity ?? 0.5
+      prevZoomIntensity ?? 0.5,
+      params.prevAnimationDuration
     )
     ctx.restore()
   }

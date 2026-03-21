@@ -15,12 +15,14 @@ export interface TransformParams {
   sw: number;
   sh: number;
   zoomIntensity: number;
+  animationDuration?: number;
   elapsedTime: number;
   prevEl?: HTMLImageElement | HTMLVideoElement | ImageBitmap;
   prevAnimation?: AnimationMode;
   prevAnimationProgress?: number;
   prevElapsedTime?: number;
   prevZoomIntensity?: number;
+  prevAnimationDuration?: number;
   prevParams?: {
     x: number;
     y: number;

@@ -6,7 +6,7 @@ import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useAudioStore } from '@/app/stores/audioStore'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
-import { getSortedMainItems, findActiveAndNextItems, checkTransition } from '@/app/lib/renderUtils'
+import { getSortedMainItems, findActiveAndNextItems, checkTransition, calculateSourceTime } from '@/app/lib/renderUtils'
 import { VideoRenderingEngine, RenderState, RenderResources } from '@/app/lib/videoRenderingEngine'
 
 export function useVideoPlayback(
@@ -26,6 +26,15 @@ export function useVideoPlayback(
   const audioCtxRef = useRef<AudioContext | null>(null)
   const audioNodesRef = useRef<Map<string, { source: MediaElementAudioSourceNode; gain: GainNode }>>(new Map())
   const rafRef = useRef<number | null>(null)
+  
+  // Initialize AudioContext lazily but reliably
+  const getAudioCtx = useCallback(() => {
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+    }
+    return audioCtxRef.current
+  }, [])
+
   const bufferCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const videoPlayPromisesRef = useRef<Map<string, Promise<void>>>(new Map())
   const audioPlayPromisesRef = useRef<Map<string, Promise<void>>>(new Map())
@@ -174,6 +183,14 @@ export function useVideoPlayback(
         el.src = ''
         audioElementsRef.current.delete(id)
         audioPlayPromisesRef.current.delete(id)
+        const nodes = audioNodesRef.current.get(id)
+        if (nodes) {
+          try {
+            nodes.source.disconnect()
+            nodes.gain.disconnect()
+          } catch (e) {}
+          audioNodesRef.current.delete(id)
+        }
       }
     })
 
@@ -186,12 +203,14 @@ export function useVideoPlayback(
         audioElementsRef.current.set(audioItem.id, el)
 
         // Setup Web Audio for volume > 100%
-        if (!audioCtxRef.current) {
-          audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
-        }
-        const ctx = audioCtxRef.current
+        const ctx = getAudioCtx()
+        if (ctx.state === 'suspended') ctx.resume().catch(() => {})
         const source = ctx.createMediaElementSource(el)
         const gain = ctx.createGain()
+        
+        // Use immediate values for initialization to avoid issues with suspended context
+        gain.gain.value = audioItem.volume ?? 1.0
+        
         source.connect(gain)
         gain.connect(ctx.destination)
         audioNodesRef.current.set(audioItem.id, { source, gain })
@@ -202,6 +221,22 @@ export function useVideoPlayback(
       }
     })
   }, [audios])
+
+  // Resume audio context on user interaction to satisfy browser policies
+  useEffect(() => {
+    const resume = () => {
+      const ctx = getAudioCtx()
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => {})
+      }
+    }
+    window.addEventListener('mousedown', resume)
+    window.addEventListener('keydown', resume)
+    return () => {
+      window.removeEventListener('mousedown', resume)
+      window.removeEventListener('keydown', resume)
+    }
+  }, [getAudioCtx])
 
   useEffect(() => {
     return () => {
@@ -273,6 +308,7 @@ export function useVideoPlayback(
 
     const loop = (timestamp: number) => {
       const state = getState(); const { playbackTime, isPlaying } = state
+      
       const rate = state.playbackRate ?? 1; const delta = lastTimestamp !== null ? (timestamp - lastTimestamp) / 1000 : 0; lastTimestamp = timestamp
       let newTime = playbackTime
       if (isPlaying) { newTime = playbackTime + delta * rate; const totalDur = state.getTotalDuration(); if (newTime >= totalDur) { state.setIsPlaying(false); state.setPlaybackTime(0); newTime = 0; lastTimestamp = null } else state.setPlaybackTime(newTime) } else lastTimestamp = null
@@ -288,23 +324,46 @@ export function useVideoPlayback(
         const audioEl = audioElementsRef.current.get(audioItem.id)
         const nodes = audioNodesRef.current.get(audioItem.id)
         if (audioEl && nodes) {
+          const elapsed = Math.max(0, newTime - audioItem.startTime)
+          const duration = audioItem.endTime - audioItem.startTime
+          const sourceElapsed = calculateSourceTime(
+            elapsed,
+            duration,
+            audioItem.speedStart ?? audioItem.playbackSpeed ?? 1,
+            audioItem.speedEnd ?? audioItem.playbackSpeed ?? 1,
+            audioItem.playbackSpeed ?? 1,
+            audioItem.speedEasing
+          )
           const isOutOfRange = newTime < audioItem.startTime || newTime >= audioItem.endTime
           const maxSourceTime = audioItem.originalDuration - audioItem.trimEnd
-          const targetAudioTime = Math.min(maxSourceTime, audioItem.trimStart + Math.max(0, newTime - audioItem.startTime) * (audioItem.playbackSpeed ?? 1))
+          const targetAudioTime = Math.min(maxSourceTime, audioItem.trimStart + sourceElapsed)
 
           if (isPlaying) {
-            if (audioCtxRef.current?.state === 'suspended') audioCtxRef.current.resume()
-            audioEl.playbackRate = rate * (audioItem.playbackSpeed ?? 1)
+            const ctx = getAudioCtx()
+            if (ctx.state === 'suspended') ctx.resume().catch(() => {})
+            
+            const x = elapsed / Math.max(0.1, duration)
+            let f = x
+            if (audioItem.speedEasing === 'ease') {
+              f = 3 * Math.pow(x, 2) - 2 * Math.pow(x, 3)
+            }
+            const instantaneousSpeed = (audioItem.speedStart ?? audioItem.playbackSpeed ?? 1) + 
+              f * ((audioItem.speedEnd ?? audioItem.playbackSpeed ?? 1) - (audioItem.speedStart ?? audioItem.playbackSpeed ?? 1))
+            const newAudioRate = rate * instantaneousSpeed
+            if (Math.abs(audioEl.playbackRate - newAudioRate) > 0.005) {
+              audioEl.playbackRate = newAudioRate
+            }
             
             if (isOutOfRange) {
-              nodes.gain.gain.setValueAtTime(0, audioCtxRef.current!.currentTime)
+              nodes.gain.gain.value = 0
               if (!audioEl.paused) {
                 const p = audioPlayPromisesRef.current.get(audioItem.id)
                 if (p) p.then(() => audioEl.pause()).catch(() => {})
                 else audioEl.pause()
               }
             } else {
-              nodes.gain.gain.setValueAtTime(audioItem.volume ?? 1.0, audioCtxRef.current!.currentTime)
+              // Use direct value setting for immediate volume response
+              nodes.gain.gain.value = audioItem.volume ?? 1.0
               if (Math.abs(audioEl.currentTime - targetAudioTime) > 0.2) audioEl.currentTime = targetAudioTime
               if (audioEl.paused && audioEl.readyState >= 2 && !audioPlayPromisesRef.current.has(audioItem.id)) {
                 const p = audioEl.play()
@@ -313,7 +372,7 @@ export function useVideoPlayback(
               }
             }
           } else {
-            nodes.gain.gain.setValueAtTime(0, audioCtxRef.current!.currentTime)
+            nodes.gain.gain.value = 0
             if (!audioEl.paused) {
               const p = audioPlayPromisesRef.current.get(audioItem.id)
               if (p) p.then(() => audioEl.pause()).catch(() => {})
@@ -372,7 +431,11 @@ export function useVideoPlayback(
               const el = videoElementsRef.current.get(id)
               if (!el) return
               if (playing) {
-                el.playbackRate = pRate
+                // Only update playbackRate if it has changed significantly to avoid hitches
+                if (Math.abs(el.playbackRate - pRate) > 0.005) {
+                  el.playbackRate = pRate
+                }
+                
                 if (el.paused && el.readyState >= 2 && !videoPlayPromisesRef.current.has(id)) {
                   const p = el.play()
                   videoPlayPromisesRef.current.set(id, p)

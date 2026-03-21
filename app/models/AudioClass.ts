@@ -9,6 +9,9 @@ export class AudioClass {
   trimEnd: number
   originalDuration: number
   playbackSpeed: number
+  speedStart?: number
+  speedEnd?: number
+  speedEasing: 'linear' | 'ease'
   isOverlay: boolean
   row: number
   volume: number
@@ -28,7 +31,10 @@ export class AudioClass {
     playbackSpeed?: number,
     isOverlay?: boolean,
     row?: number,
-    volume?: number
+    volume?: number,
+    speedStart?: number,
+    speedEnd?: number,
+    speedEasing?: 'linear' | 'ease'
   ) {
     this.id = id
     this.name = name
@@ -43,6 +49,9 @@ export class AudioClass {
     this.isOverlay = isOverlay ?? false
     this.row = row ?? 0
     this.volume = volume ?? 1.0
+    this.speedStart = speedStart ?? this.playbackSpeed
+    this.speedEnd = speedEnd ?? this.playbackSpeed
+    this.speedEasing = speedEasing ?? 'linear'
     this.createdAt = createdAt ?? new Date()
   }
 
@@ -61,7 +70,10 @@ export class AudioClass {
       updates.playbackSpeed ?? this.playbackSpeed,
       updates.isOverlay ?? this.isOverlay,
       updates.row ?? this.row,
-      updates.volume ?? this.volume
+      updates.volume ?? this.volume,
+      updates.speedStart ?? this.speedStart,
+      updates.speedEnd ?? this.speedEnd,
+      updates.speedEasing ?? this.speedEasing
     )
   }
 }

@@ -180,6 +180,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    // Check request limits
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('is_pro, requests_remaining')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError) {
+      return NextResponse.json({ error: 'Failed to fetch user profile' }, { status: 500 })
+    }
+
+    if (profile.requests_remaining <= 0) {
+      return NextResponse.json({ 
+        error: profile.is_pro 
+          ? 'Pro request limit reached (1000). Please contact support for more.' 
+          : 'Request limit reached. Please upgrade to Pro for more requests.',
+        limitReached: true 
+      }, { status: 403 })
+    }
+
     const body: RoutePromptRequest = await request.json()
 
     if (!body.prompt || typeof body.prompt !== 'string' || body.prompt.trim().length === 0) {
@@ -233,6 +253,12 @@ export async function POST(request: NextRequest) {
 
     const { name, args } = functionCallPart.functionCall
     const action = name as RoutedAction
+
+    // Decrement request count
+    await supabase
+      .from('profiles')
+      .update({ requests_remaining: profile.requests_remaining - 1 })
+      .eq('id', user.id)
 
     let result: RoutePromptResponse
 
