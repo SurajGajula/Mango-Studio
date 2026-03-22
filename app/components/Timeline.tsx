@@ -392,6 +392,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
                         effectivePadding={effectivePadding}
                         handleEffectDragStart={handleEffectDragStart}
                         onCloseTransitions={onCloseTransitions}
+                        onOpenEffects={onOpenEffects}
                       />
                     ))
                   })()}
@@ -462,6 +463,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
               onOpenTransitions={onOpenTransitions}
               onOpenAnimations={onOpenAnimations}
               onOpenFont={onOpenFont}
+              onOpenEffects={onOpenEffects}
               onOpenSpeed={onOpenSpeed}
               onReplace={(id) => {
                 setReplaceTargetId(id)

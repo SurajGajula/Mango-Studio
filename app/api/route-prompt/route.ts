@@ -24,6 +24,9 @@ interface ManifestItem {
   trimStart?: number
   trimEnd?: number
   playbackSpeed?: number
+  speedStart?: number
+  speedEnd?: number
+  speedEasing?: 'linear' | 'ease'
   muted?: boolean
 }
 
@@ -55,6 +58,9 @@ export interface ManifestMutation {
   trimStart?: number
   trimEnd?: number
   playbackSpeed?: number
+  speedStart?: number
+  speedEnd?: number
+  speedEasing?: 'linear' | 'ease'
   muted?: boolean
 }
 
@@ -79,13 +85,14 @@ export interface AddEffectInstruction {
   type: 'crt-dither' | 'flashing-black-vignette'
   startTime: number
   endTime: number
+  intensity?: number
 }
 
 export interface TransitionInstruction {
   type: 'image' | 'video'
   id: string
   animation?: 'none' | 'in' | 'out' | 'shake' | 'jitter'
-  transition?: 'none' | 'split-horizontal' | 'split-vertical' | 'fade'
+  transition?: 'none' | 'split-horizontal' | 'split-vertical' | 'fade' | 'slide-in-top' | 'slide-in-bottom' | 'slide-in-left' | 'slide-in-right' | 'circle' | 'rotate'
   zoomIntensity?: number
   transitionDuration?: number
   animationDuration?: number
@@ -143,7 +150,10 @@ function buildManifestContext(manifest: SerializedManifest): string {
     const sorted = [...manifest.videos].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
     lines.push(`Videos (${sorted.length}):`)
     sorted.forEach((vid, i) => {
-      lines.push(`  - #${i + 1} id="${vid.id}" title="${vid.title}" timestamp=${vid.timestamp}s duration=${vid.duration}s playbackSpeed=${vid.playbackSpeed ?? 1}x muted=${vid.muted ?? false} isOverlay=${vid.isOverlay} animation=${vid.animation ?? 'none'} transition=${vid.transition ?? 'none'}${vid.zoomIntensity ? ` zoomIntensity=${vid.zoomIntensity}` : ''}${vid.transitionDuration ? ` transitionDuration=${vid.transitionDuration}s` : ''}${vid.animationDuration ? ` animationDuration=${vid.animationDuration}s` : ''} cropAspect=${vid.cropAspect ?? 'none'}`)
+      const speedStr = vid.speedStart !== undefined && vid.speedEnd !== undefined && vid.speedStart !== vid.speedEnd
+        ? `speedStart=${vid.speedStart}x speedEnd=${vid.speedEnd}x easing=${vid.speedEasing ?? 'linear'}`
+        : `playbackSpeed=${vid.playbackSpeed ?? 1}x`
+      lines.push(`  - #${i + 1} id="${vid.id}" title="${vid.title}" timestamp=${vid.timestamp}s duration=${vid.duration}s ${speedStr} muted=${vid.muted ?? false} isOverlay=${vid.isOverlay} animation=${vid.animation ?? 'none'} transition=${vid.transition ?? 'none'}${vid.zoomIntensity ? ` zoomIntensity=${vid.zoomIntensity}` : ''}${vid.transitionDuration ? ` transitionDuration=${vid.transitionDuration}s` : ''}${vid.animationDuration ? ` animationDuration=${vid.animationDuration}s` : ''} cropAspect=${vid.cropAspect ?? 'none'}`)
     })
   }
   if (manifest.texts?.length) {

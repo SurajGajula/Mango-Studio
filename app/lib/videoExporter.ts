@@ -431,13 +431,18 @@ export async function exportVideo(
             ctx.globalCompositeOperation = 'difference'
             ctx.fillStyle = '#ffffff' // White in difference mode inverts the background
             // No shadow for negative style as it would also be inverted and look messy
+          } else if (text.style === 'highlight') {
+            ctx.globalCompositeOperation = 'source-over'
+            ctx.fillStyle = '#000000'
+            ctx.fillRect(text.x * xScale, text.y * yScale, text.width * xScale, lines.length * lineHeight)
+            ctx.fillStyle = '#ffff00'
           } else {
             ctx.shadowColor = '#000000'; ctx.shadowBlur = fontPx * 0.12; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0
             ctx.fillStyle = text.color
           }
           // Draw twice to increase shadow density/darkness to match the multi-layered CSS shadow in the editor
           lines.forEach((line, i) => ctx.fillText(line, textX, text.y * yScale + i * lineHeight))
-          if (text.style !== 'negative') {
+          if (text.style !== 'negative' && text.style !== 'highlight') {
             lines.forEach((line, i) => ctx.fillText(line, textX, text.y * yScale + i * lineHeight))
           }
           ctx.restore()

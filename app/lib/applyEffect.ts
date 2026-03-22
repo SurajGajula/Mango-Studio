@@ -70,7 +70,8 @@ function applyCrtDither(
 function applyFlashingBlackVignette(
   ctx: CanvasRenderingContext2D,
   rx: number, ry: number, rw: number, rh: number,
-  playbackTime: number
+  playbackTime: number,
+  intensity: number = 0.5
 ): void {
   if (rw <= 0 || rh <= 0) return
 
@@ -87,8 +88,10 @@ function applyFlashingBlackVignette(
   ctx.scale(scale, scale)
 
   const flashSpeed = 50 // rad/s (faster flash)
-  const flashIntensity = (Math.sin(playbackTime * flashSpeed) + 1) / 2
-  const opacity = 0.2 + flashIntensity * 0.5
+  const flashCycle = (Math.sin(playbackTime * flashSpeed) + 1) / 2
+  // intensity 0: no vignette (opacity 0)
+  // intensity 1: full range 0.2 to 0.7
+  const opacity = (0.2 + flashCycle * 0.5) * intensity
 
   const grad = ctx.createRadialGradient(
     V_WIDTH / 2, vHeight / 2, V_WIDTH * 0.1,
@@ -111,11 +114,12 @@ export function applyEffect(
   y: number,
   width: number,
   height: number,
-  playbackTime: number
+  playbackTime: number,
+  intensity: number = 0.5
 ): void {
   if (type === 'crt-dither') {
     applyCrtDither(ctx, x, y, width, height, playbackTime)
   } else if (type === 'flashing-black-vignette') {
-    applyFlashingBlackVignette(ctx, x, y, width, height, playbackTime)
+    applyFlashingBlackVignette(ctx, x, y, width, height, playbackTime, intensity)
   }
 }

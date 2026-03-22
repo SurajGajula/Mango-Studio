@@ -1,5 +1,5 @@
 export type AnimationMode = 'none' | 'in' | 'out' | 'shake' | 'jitter'
-export type TransitionMode = 'none' | 'split-horizontal' | 'split-vertical' | 'fade' | 'slide-in-top' | 'slide-in-bottom' | 'slide-in-left' | 'slide-in-right'
+export type TransitionMode = 'none' | 'split-horizontal' | 'split-vertical' | 'fade' | 'slide-in-top' | 'slide-in-bottom' | 'slide-in-left' | 'slide-in-right' | 'circle' | 'rotate'
 
 export class ImageClass {
   id: string
@@ -77,7 +77,7 @@ export class ImageClass {
 
     if (transition) {
       this.transition = transition
-    } else if (zoom && ['split-horizontal', 'split-vertical'].includes(zoom)) {
+    } else if (zoom && ['split-horizontal', 'split-vertical', 'fade', 'circle'].includes(zoom)) {
       this.transition = zoom as TransitionMode
     } else {
       this.transition = 'none'

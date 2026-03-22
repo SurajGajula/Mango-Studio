@@ -84,6 +84,8 @@ const MainTrackComponent = ({
                 style={{ left: `${transitionButtonLeft}%` }}
                 onClick={(e) => {
                   e.stopPropagation()
+                  if (isVideo) setSelectedVideoId(item.id)
+                  else setSelectedImageId(item.id)
                   onOpenTransitions?.(item.id)
                 }}
                 title="Edit Transition"

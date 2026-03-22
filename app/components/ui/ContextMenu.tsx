@@ -11,6 +11,7 @@ interface ContextMenuProps {
   onOpenTransitions?: (id: string) => void
   onOpenAnimations?: (id: string) => void
   onOpenFont?: () => void
+  onOpenEffects?: () => void
   onOpenSpeed?: (id: string) => void
   onReplace?: (id: string) => void
   playbackTime: number
@@ -20,6 +21,7 @@ export default function ContextMenu({
   onOpenTransitions,
   onOpenAnimations,
   onOpenFont,
+  onOpenEffects,
   onOpenSpeed,
   onReplace,
   playbackTime,
@@ -310,6 +312,26 @@ export default function ContextMenu({
             <span style={{ fontSize: '11px', fontWeight: 700 }}>F</span>
           </div>
           Font & Style
+        </button>
+      )}
+
+      {itemType === 'effect' && (
+        <button
+          className={styles.contextMenuItem}
+          onClick={() => handleAction(() => {
+            const effect = useManifestStore.getState().effects.find(e => e.id === itemId)
+            if (effect) {
+              useManifestStore.getState().setPlaybackTime(effect.startTime + 0.001)
+              onOpenEffects?.()
+            }
+          })}
+        >
+          <div className={styles.contextMenuIcon}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+            </svg>
+          </div>
+          Effect Settings
         </button>
       )}
 

@@ -161,6 +161,28 @@ const TRANSITION_OPTIONS: { value: TransitionMode; label: string; desc: string; 
       </svg>
     ),
   },
+  {
+    value: 'circle',
+    label: 'Circle',
+    desc: 'This item expands from a circle in the center to reveal the content',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <circle cx="12" cy="12" r="4" fill="currentColor" />
+      </svg>
+    ),
+  },
+  {
+    value: 'rotate',
+    label: 'Rotate',
+    desc: 'The items rotate through 180 degrees to switch',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+        <path d="M21 3v5h-5" />
+      </svg>
+    ),
+  },
 ]
 
 export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
@@ -195,7 +217,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
   const previousItem = selectedIdx > 0 ? allMainItems[selectedIdx - 1] : null
   
   // Max duration depends on transition type
-  const isTransitionAffectingPrevious = ['split-horizontal', 'split-vertical', 'fade', 'slide-in-left', 'slide-in-right', 'slide-in-top', 'slide-in-bottom'].includes(currentTransition)
+  const isTransitionAffectingPrevious = ['split-horizontal', 'split-vertical', 'fade', 'slide-in-left', 'slide-in-right', 'slide-in-top', 'slide-in-bottom', 'circle'].includes(currentTransition)
   const maxDuration = (mode === 'transition' && isTransitionAffectingPrevious) ? (previousItem?.duration || 1.0) : (selectedItem?.duration || 1.0)
 
   // Use a local state for the slider to ensure it's always responsive

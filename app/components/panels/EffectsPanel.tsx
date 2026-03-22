@@ -1,7 +1,10 @@
 'use client'
 
+import { useMemo } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
+import { useSelectionStore } from '@/app/stores/selectionStore'
 import { EffectClass, type EffectType } from '@/app/models/EffectClass'
+import { generateId } from '@/app/lib/idUtils'
 import styles from './TransitionsPanel.module.css'
 
 interface Props {
@@ -39,9 +42,21 @@ const EFFECT_OPTIONS: { value: EffectType; label: string; desc: string; icon: Re
 export default function EffectsPanel({ onClose }: Props) {
   const effects = useManifestStore((s) => s.effects)
   const addEffect = useManifestStore((s) => s.addEffect)
+  const updateEffect = useManifestStore((s) => s.updateEffect)
   const playbackTime = useManifestStore((s) => s.playbackTime)
+  const selectedEffectId = useSelectionStore((s) => s.selectedEffectId)
 
-  const activeEffect = effects.find(e => playbackTime >= e.startTime && playbackTime < e.endTime) ?? null
+  // Prioritize selected effect if it's active at the current playback time
+  const activeEffect = useMemo(() => {
+    if (selectedEffectId) {
+      const selected = effects.find(e => e.id === selectedEffectId)
+      if (selected && playbackTime >= selected.startTime && playbackTime < selected.endTime) {
+        return selected
+      }
+    }
+    return effects.find(e => playbackTime >= e.startTime && playbackTime < e.endTime) ?? null
+  }, [effects, selectedEffectId, playbackTime])
+
   const activeType: EffectType | null = activeEffect?.type ?? null
 
   const findFreeRow = (
@@ -67,12 +82,19 @@ export default function EffectsPanel({ onClose }: Props) {
     const row = findFreeRow(effectItems, start, end)
     
     addEffect(new EffectClass(
-      `effect-${Date.now()}`,
+      generateId('effect'),
       value,
       start,
       end,
       row
     ))
+  }
+
+  const handleIntensityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (activeEffect) {
+      const newIntensity = parseFloat(e.target.value)
+      updateEffect(activeEffect.id, { intensity: newIntensity })
+    }
   }
 
   return (
@@ -98,6 +120,24 @@ export default function EffectsPanel({ onClose }: Props) {
             </button>
           ))}
         </div>
+
+        {activeEffect?.type === 'flashing-black-vignette' && (
+          <div className={styles.durationControl} style={{ marginTop: '2rem' }}>
+            <div className={styles.durationHeader}>
+              <span className={styles.durationLabel}>Vignette Intensity</span>
+              <span className={styles.durationValue}>{((activeEffect.intensity ?? 0.5) * 100).toFixed(0)}%</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={activeEffect.intensity ?? 0.5}
+              onChange={handleIntensityChange}
+              className={styles.durationSlider}
+            />
+          </div>
+        )}
       </div>
     </div>
   )

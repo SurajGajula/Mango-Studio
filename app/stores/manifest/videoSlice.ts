@@ -1,6 +1,7 @@
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { useSelectionStore } from '@/app/stores/selectionStore'
+import { generateId } from '@/app/lib/idUtils'
 import { ManifestStore, BlobEntry } from './types'
 
 export const createVideoSlice = (set: any, get: any) => ({
@@ -62,18 +63,39 @@ export const createVideoSlice = (set: any, get: any) => ({
   },
 
   updateVideo: (id: string, updates: Partial<VideoClass>) => {
-    set((state: ManifestStore) => ({
-      videos: state.videos.map((video) => {
-        if (video.id !== id) return video
-        const newDuration = updates.duration ?? video.duration
-        const newOrigDuration = updates.originalDuration ?? video.originalDuration ?? newDuration
-        return video.copy({
-          ...updates,
-          updatedAt: new Date(),
-          originalDuration: newOrigDuration,
-          duration: newDuration
-        })
+    const state = get()
+    const video = state.videos.find((v: VideoClass) => v.id === id)
+    if (!video) return
+
+    const isMainTrack = video.row === 0
+    const newDuration = updates.duration ?? video.duration ?? 0
+    const newTimestamp = updates.timestamp ?? video.timestamp
+    const durationDelta = (updates.duration !== undefined) ? (newDuration - (video.duration ?? 0)) : 0
+    const timestampDelta = (updates.timestamp !== undefined) ? (newTimestamp - video.timestamp) : 0
+    const totalDelta = durationDelta + timestampDelta
+
+    set((s: ManifestStore) => ({
+      videos: s.videos.map((v) => {
+        if (v.id === id) {
+          return v.copy({
+            ...updates,
+            updatedAt: new Date(),
+            originalDuration: updates.originalDuration ?? v.originalDuration ?? newDuration,
+            duration: newDuration,
+            timestamp: newTimestamp
+          })
+        }
+        if (isMainTrack && v.row === 0 && v.timestamp > video.timestamp) {
+          return v.copy({ timestamp: v.timestamp + totalDelta })
+        }
+        return v
       }),
+      images: s.images.map((img) => {
+        if (isMainTrack && img.row === 0 && img.startTime > video.timestamp) {
+          return img.copy({ startTime: img.startTime + totalDelta, endTime: img.endTime + totalDelta })
+        }
+        return img
+      })
     }))
     get().pushHistory()
   },
@@ -148,7 +170,7 @@ export const createVideoSlice = (set: any, get: any) => ({
     })
 
     const secondHalf = video.copy({
-      id: `video-${Date.now()}`,
+      id: generateId('video'),
       duration: duration - localTime,
       timestamp: video.timestamp + localTime,
       trimStart: originalSplitPoint,
@@ -188,7 +210,7 @@ export const createVideoSlice = (set: any, get: any) => ({
     const newClips: VideoClass[] = boundaries.slice(0, -1).map((segStart, i) => {
       const segEnd = boundaries[i + 1]
       return video.copy({
-        id: i === 0 ? video.id : `video-${Date.now()}-${i}`,
+        id: i === 0 ? video.id : generateId('video'),
         duration: segEnd - segStart,
         timestamp: video.timestamp + segStart,
         createdAt: i === 0 ? video.createdAt : new Date(),

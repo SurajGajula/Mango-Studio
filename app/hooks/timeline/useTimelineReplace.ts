@@ -4,6 +4,7 @@ import { ImageClass } from '@/app/models/ImageClass'
 import { resolveVideoMetadata, computeCropForAspect, computeImageDimensions, ASPECT_RATIOS } from '@/app/lib/mediaUtils'
 import { extractVideoClip } from '@/app/lib/videoExporter'
 import { useManifestStore } from '@/app/stores/manifestStore'
+import { generateId } from '@/app/lib/idUtils'
 
 interface UseTimelineReplaceProps {
   videos: VideoClass[]
@@ -37,6 +38,9 @@ export function useTimelineReplace({
     height: number
     windowDuration: number
     playbackSpeed: number
+    speedStart?: number
+    speedEnd?: number
+    speedEasing?: 'linear' | 'ease'
     initialTrimStart: number
     projectStartTime?: number
     isNew?: boolean
@@ -74,16 +78,22 @@ export function useTimelineReplace({
         const url = URL.createObjectURL(file)
         const { duration, width, height } = await resolveVideoMetadata(url)
         const windowDuration = image.duration
+        let playbackSpeed = 1
+        let speedStart = 1
+        let speedEnd = 1
+        let sourceWindowDuration = windowDuration
 
         if (duration < windowDuration) {
-          alert(`Video is too short. Selected image is ${windowDuration.toFixed(1)}s, but video is only ${duration.toFixed(1)}s.`)
-          URL.revokeObjectURL(url)
-          return
+          // Instead of blocking, we slow down the video to fit the window
+          playbackSpeed = duration / windowDuration
+          speedStart = playbackSpeed
+          speedEnd = playbackSpeed
+          sourceWindowDuration = duration
         }
 
-        if (duration === windowDuration) {
+        if (duration === sourceWindowDuration) {
           const videoInstance = new VideoClass(
-            `video-${Date.now()}`,
+            generateId('video'),
             file.name,
             url,
             windowDuration,
@@ -111,7 +121,9 @@ export function useTimelineReplace({
             undefined,
             undefined,
             undefined,
-            1
+            playbackSpeed,
+            speedStart,
+            speedEnd
           )
           replaceImageWithVideo(replaceTargetId, videoInstance)
           setReplaceTargetId(null)
@@ -125,7 +137,9 @@ export function useTimelineReplace({
             width,
             height,
             windowDuration,
-            playbackSpeed: 1,
+            playbackSpeed,
+            speedStart,
+            speedEnd,
             initialTrimStart: 0,
             projectStartTime: image.startTime,
             isNew: true,
@@ -136,7 +150,7 @@ export function useTimelineReplace({
       if (file.type.startsWith('image/')) {
         const url = URL.createObjectURL(file)
         const imageInstance = new ImageClass(
-          `image-${Date.now()}`,
+          generateId('image'),
           file.name,
           url,
           video.timestamp,
@@ -163,15 +177,23 @@ export function useTimelineReplace({
         const url = URL.createObjectURL(file)
         const { duration, width, height } = await resolveVideoMetadata(url)
         const windowDuration = video.duration ?? 5
+        let playbackSpeed = video.playbackSpeed ?? 1
+        let speedStart = video.speedStart ?? playbackSpeed
+        let speedEnd = video.speedEnd ?? playbackSpeed
+        let sourceWindowDuration = windowDuration * playbackSpeed
 
-        if (duration < windowDuration) {
-          alert(`Video is too short. Current video clip is ${windowDuration.toFixed(1)}s, but new video is only ${duration.toFixed(1)}s.`)
-          URL.revokeObjectURL(url)
-          return
+        if (duration < sourceWindowDuration) {
+          // Instead of blocking, we slow down the video to fit the window
+          const scale = duration / sourceWindowDuration
+          playbackSpeed = playbackSpeed * scale
+          speedStart = speedStart * scale
+          speedEnd = speedEnd * scale
+          sourceWindowDuration = duration
         }
 
-        if (duration === windowDuration) {
+        if (duration === sourceWindowDuration) {
           replaceVideoSource(replaceTargetId, url, file.name)
+          updateVideo(replaceTargetId, { playbackSpeed, speedStart, speedEnd })
           setReplaceTargetId(null)
         } else {
           setReplaceVideoData({
@@ -183,7 +205,10 @@ export function useTimelineReplace({
             width,
             height,
             windowDuration,
-            playbackSpeed: video.playbackSpeed ?? 1,
+            playbackSpeed,
+            speedStart,
+            speedEnd,
+            speedEasing: video.speedEasing,
             initialTrimStart: 0,
             projectStartTime: video.timestamp,
             isNew: true,
@@ -240,7 +265,7 @@ export function useTimelineReplace({
         const image = images.find((img) => img.id === replaceVideoData.targetId)
         if (!image) return
         const videoInstance = new VideoClass(
-          `video-${Date.now()}`,
+          generateId('video'),
           replaceVideoData.title,
           finalUrl,
           replaceVideoData.windowDuration,
@@ -269,7 +294,10 @@ export function useTimelineReplace({
           sourceUrl,
           sourceTrimStart,
           sourceDuration,
-          1
+          replaceVideoData.playbackSpeed,
+          replaceVideoData.speedStart,
+          replaceVideoData.speedEnd,
+          replaceVideoData.speedEasing
         )
         replaceImageWithVideo(replaceVideoData.targetId, videoInstance)
       } else {
@@ -282,6 +310,10 @@ export function useTimelineReplace({
           originalDuration: finalOriginalDuration,
           trimStart: finalTrimStart,
           trimEnd: finalTrimEnd,
+          playbackSpeed: replaceVideoData.playbackSpeed,
+          speedStart: replaceVideoData.speedStart,
+          speedEnd: replaceVideoData.speedEnd,
+          speedEasing: replaceVideoData.speedEasing,
           sourceUrl,
           sourceTrimStart,
           sourceDuration
@@ -311,6 +343,9 @@ export function useTimelineReplace({
       height: video.height,
       windowDuration: video.duration!,
       playbackSpeed: video.playbackSpeed ?? 1,
+      speedStart: video.speedStart ?? video.playbackSpeed ?? 1,
+      speedEnd: video.speedEnd ?? video.playbackSpeed ?? 1,
+      speedEasing: video.speedEasing,
       initialTrimStart: initialTrimStart,
       projectStartTime: video.timestamp
     })

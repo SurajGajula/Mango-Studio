@@ -94,15 +94,27 @@ export default function ChatWindow() {
 
   const applyMutations = (mutations: ManifestMutation[]) => {
     for (const m of mutations) {
-      if (m.type === 'updateImage') updateImage(m.id, { startTime: m.startTime, endTime: m.endTime })
-      else if (m.type === 'updateVideo') {
-        if (m.playbackSpeed !== undefined) {
+      if (m.type === 'updateImage') {
+        const updates: any = { startTime: m.startTime, endTime: m.endTime }
+        if (m.duration !== undefined) {
+          const image = useManifestStore.getState().images.find((i) => i.id === m.id)
+          if (image) {
+            updates.endTime = (m.startTime ?? image.startTime) + m.duration
+          }
+        }
+        updateImage(m.id, updates)
+      } else if (m.type === 'updateVideo') {
+        if (m.speedStart !== undefined || m.speedEnd !== undefined) {
+          setItemPlaybackSpeed(m.id, m.playbackSpeed ?? 1, m.speedStart, m.speedEnd, m.speedEasing)
+        } else if (m.playbackSpeed !== undefined) {
           setItemPlaybackSpeed(m.id, m.playbackSpeed)
         }
         updateVideo(m.id, { timestamp: m.timestamp, duration: m.duration, muted: m.muted })
       } else if (m.type === 'updateText') updateText(m.id, { startTime: m.startTime, endTime: m.endTime })
       else if (m.type === 'updateAudio') {
-        if (m.playbackSpeed !== undefined) {
+        if (m.speedStart !== undefined || m.speedEnd !== undefined) {
+          setItemPlaybackSpeed(m.id, m.playbackSpeed ?? 1, m.speedStart, m.speedEnd, m.speedEasing)
+        } else if (m.playbackSpeed !== undefined) {
           setItemPlaybackSpeed(m.id, m.playbackSpeed)
         }
         const audio = useManifestStore.getState().audios.find((a) => a.id === m.id)
@@ -143,7 +155,8 @@ export default function ChatWindow() {
         e.type,
         e.startTime,
         e.endTime,
-        0 // Default row
+        0, // Default row
+        e.intensity ?? 0.5
       ))
     }
   }
@@ -310,9 +323,9 @@ export default function ChatWindow() {
       const { videos, images, texts, audios } = useManifestStore.getState()
       const manifest = {
         images: images.map((i) => ({ id: i.id, name: i.name, startTime: i.startTime, endTime: i.endTime, animation: i.animation, transition: i.transition, zoomIntensity: i.zoomIntensity, transitionDuration: i.transitionDuration, animationDuration: i.animationDuration, cropAspect: i.cropAspect })),
-        videos: videos.map((v) => ({ id: v.id, title: v.title, timestamp: v.timestamp, duration: v.duration, playbackSpeed: v.playbackSpeed, muted: v.muted, isOverlay: v.isOverlay, animation: v.animation, transition: v.transition, zoomIntensity: v.zoomIntensity, transitionDuration: v.transitionDuration, animationDuration: v.animationDuration, cropAspect: v.cropAspect })),
+        videos: videos.map((v) => ({ id: v.id, title: v.title, timestamp: v.timestamp, duration: v.duration, playbackSpeed: v.playbackSpeed, speedStart: v.speedStart, speedEnd: v.speedEnd, speedEasing: v.speedEasing, muted: v.muted, isOverlay: v.isOverlay, animation: v.animation, transition: v.transition, zoomIntensity: v.zoomIntensity, transitionDuration: v.transitionDuration, animationDuration: v.animationDuration, cropAspect: v.cropAspect })),
         texts: texts.map((t) => ({ id: t.id, content: t.content, startTime: t.startTime, endTime: t.endTime })),
-        audios: audios.map((a) => ({ id: a.id, name: a.name, startTime: a.startTime, endTime: a.endTime, originalDuration: a.originalDuration, trimStart: a.trimStart, trimEnd: a.trimEnd, playbackSpeed: a.playbackSpeed, marks: a.marks })),
+        audios: audios.map((a) => ({ id: a.id, name: a.name, startTime: a.startTime, endTime: a.endTime, originalDuration: a.originalDuration, trimStart: a.trimStart, trimEnd: a.trimEnd, playbackSpeed: a.playbackSpeed, speedStart: a.speedStart, speedEnd: a.speedEnd, speedEasing: a.speedEasing, marks: a.marks })),
       }
 
       const filesSnapshot = uploadedFiles

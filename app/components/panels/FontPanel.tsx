@@ -51,6 +51,11 @@ const STYLE_OPTIONS: { value: TextStyle; label: string; desc: string }[] = [
     label: 'Negative',
     desc: 'Shows negative of background',
   },
+  {
+    value: 'highlight',
+    label: 'Highlight',
+    desc: 'Yellow text on black box',
+  },
 ]
 
 export default function FontPanel({ onClose }: Props) {
@@ -171,8 +176,10 @@ export default function FontPanel({ onClose }: Props) {
                       style={{
                         fontSize: '0.9rem',
                         fontWeight: 600,
-                        backgroundColor: opt.value === 'negative' ? '#fff' : undefined,
-                        color: opt.value === 'negative' ? (isActive ? '#000' : '#444') : (isActive ? '#fff' : '#aaa'),
+                        backgroundColor: opt.value === 'negative' ? '#fff' : (opt.value === 'highlight' ? '#000' : undefined),
+                        color: opt.value === 'negative' ? (isActive ? '#000' : '#444') : (opt.value === 'highlight' ? '#ffff00' : (isActive ? '#fff' : '#aaa')),
+                        padding: opt.value === 'highlight' ? '2px 4px' : undefined,
+                        borderRadius: opt.value === 'highlight' ? '2px' : undefined,
                       }}
                     >
                       {opt.value === 'negative' ? '±' : 'Ab'}

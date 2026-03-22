@@ -3,6 +3,8 @@ import { drawWithAnimation } from './transforms/animationUtils'
 import { applySplit } from './transforms/split'
 import { applyFade } from './transforms/fade'
 import { applySlide } from './transforms/slide'
+import { applyCircle } from './transforms/circle'
+import { applyRotate } from './transforms/rotate'
 import type { TransformParams } from './transforms/types'
 
 export function applyZoomTransform(
@@ -63,27 +65,46 @@ export function applyZoomTransform(
 
   ctx.save()
   // Clip to the target bounds to ensure everything (animations, transitions) stays within the video frame
-  ctx.beginPath()
-  ctx.rect(x, y, w, h)
-  ctx.clip()
-
+  // EXCEPT for rotate transition which needs more space
   const isSlideTransition = transition && transition.startsWith('slide-in-')
+  const isCircleTransition = transition === 'circle'
+  const isRotateTransition = transition === 'rotate'
 
-  if (isSlideTransition && prevEl && prevParams && progress < 1) {
+  // Optimization: Only clip if necessary.
+  // Clipping is expensive. If the item is a standard full-frame item with no rotation,
+  // and it's not a special transition that needs it, we can skip clipping.
+  const isFullFrame = Math.abs(x) < 0.1 && Math.abs(y) < 0.1 && Math.abs(w - ctx.canvas.width) < 0.1 && Math.abs(h - ctx.canvas.height) < 0.1
+  const needsClip = !isRotateTransition && (!isFullFrame || (transition && transition !== 'none'))
+
+  if (needsClip) {
+    ctx.beginPath()
+    ctx.rect(x, y, w, h)
+    ctx.clip()
+  }
+
+  if ((isSlideTransition || isCircleTransition || isRotateTransition) && prevEl && prevParams && progress < 1) {
     // 1. Draw previous item first (outgoing)
-    const { x: px, y: py, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh } = prevParams
-    drawWithAnimation(
-      { ...params, x: px, y: py, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh },
-      prevEl,
-      prevAnimation ?? 'none',
-      prevAnimationProgress ?? 0,
-      prevElapsedTime ?? 0,
-      prevZoomIntensity ?? 0.5,
-      prevAnimationDuration
-    )
+    if (isRotateTransition) {
+      applyRotate(params)
+    } else {
+      const { x: px, y: py, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh } = prevParams
+      drawWithAnimation(
+        { ...params, x: px, y: py, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh },
+        prevEl,
+        prevAnimation ?? 'none',
+        prevAnimationProgress ?? 0,
+        prevElapsedTime ?? 0,
+        prevZoomIntensity ?? 0.5,
+        prevAnimationDuration
+      )
 
-    // 2. Draw current item sliding in on top (incoming)
-    applySlide(params)
+      // 2. Draw current item on top (incoming)
+      if (isCircleTransition) {
+        applyCircle(params)
+      } else {
+        applySlide(params)
+      }
+    }
   } else {
     // Draw the current element with its animation
     drawWithAnimation(params, imgEl, animation ?? 'none', progress, elapsedTime, zoomIntensity !== undefined ? zoomIntensity : 0.5, animationDuration)

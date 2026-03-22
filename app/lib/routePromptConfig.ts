@@ -63,6 +63,18 @@ export const functionDeclarations: FunctionDeclaration[] = [
                 type: Type.NUMBER,
                 description: 'Playback speed as a multiplier (e.g. 0.5 for half speed, 2.0 for double speed). Only for videos and audios.',
               },
+              speedStart: {
+                type: Type.NUMBER,
+                description: 'Initial playback speed for a speed ramp (e.g. 0.5). If specified, you should also include speedEnd.',
+              },
+              speedEnd: {
+                type: Type.NUMBER,
+                description: 'Final playback speed for a speed ramp (e.g. 0.1). If specified, you should also include speedStart.',
+              },
+              speedEasing: {
+                type: Type.STRING,
+                description: 'Easing for the speed ramp: "linear" or "ease". Default is "linear".',
+              },
               muted: {
                 type: Type.BOOLEAN,
                 description: 'Whether the video should be muted. Only for videos.',
@@ -154,7 +166,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'set_transitions',
-    description: 'Set the animation (none, in, out, shake, or jitter) or transition (none, split-horizontal, split-vertical, fade, slide-in-top, slide-in-bottom, slide-in-left, or slide-in-right) on one or more images or videos. Use this when the user asks to set, apply, add, or remove animations or transitions on timeline images or videos — for example "set zoom in on images 2 to 25", "add shake to image 1", "add split transition", "add fade transition", "add slide in from left", or "remove animations from all images". Use the image/video ids from the manifest.',
+    description: 'Set the animation (none, in, out, shake, or jitter) or transition (none, split-horizontal, split-vertical, fade, slide-in-top, slide-in-bottom, slide-in-left, slide-in-right, circle, or rotate) on one or more images or videos. Use this when the user asks to set, apply, add, or remove animations or transitions on timeline images or videos — for example "set zoom in on images 2 to 25", "add shake to image 1", "add split transition", "add fade transition", "add slide in from left", "add circle transition", "add rotate transition", or "remove animations from all images". Use the image/video ids from the manifest.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -178,7 +190,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
               },
               transition: {
                 type: Type.STRING,
-                description: 'The transition mode to apply: "none", "split-horizontal", "split-vertical", "fade", "slide-in-top", "slide-in-bottom", "slide-in-left", or "slide-in-right".',
+                description: 'The transition mode to apply: "none", "split-horizontal", "split-vertical", "fade", "slide-in-top", "slide-in-bottom", "slide-in-left", "slide-in-right", "circle", or "rotate".',
               },
               zoomIntensity: {
                 type: Type.NUMBER,
@@ -296,6 +308,10 @@ export const functionDeclarations: FunctionDeclaration[] = [
                 type: Type.NUMBER,
                 description: 'End time in seconds.',
               },
+              intensity: {
+                type: Type.NUMBER,
+                description: 'The intensity of the effect (0.0 to 1.0). Only for "flashing-black-vignette". Default is 0.5.',
+              },
             },
             required: ['type', 'startTime', 'endTime'],
           },
@@ -314,12 +330,12 @@ export const tools: Tool[] = [{ functionDeclarations }]
 
 export const systemInstruction =
   'You are a timeline editing assistant for a media studio. Your only job is to call the correct function:\n' +
-    '- edit_manifest: when the user asks to change timing, duration, position, playback speed, or mute status of existing items. You MUST include all affected items as separate entries in the mutations array in a SINGLE call — never call edit_manifest multiple times. For audio mutations (type=updateAudio): ALWAYS use trimStart and trimEnd fields (not endTime). To restore an audio to its full original length set trimStart=0 and trimEnd=0. The active playing duration of an audio is: originalDuration - trimStart - trimEnd. Use playbackSpeed for video and audio playback speed changes (e.g. 0.5 for half speed), and muted for video mute status (true to mute, false to unmute). ALWAYS use the exact id strings from the manifest (e.g. "audio-1234-abc") — never make up or shorten ids.\n' +
+    '- edit_manifest: when the user asks to change timing, duration, position, playback speed, or mute status of existing items. You MUST include all affected items as separate entries in the mutations array in a SINGLE call — never call edit_manifest multiple times. For audio mutations (type=updateAudio): ALWAYS use trimStart and trimEnd fields (not endTime). To restore an audio to its full original length set trimStart=0 and trimEnd=0. The active playing duration of an audio is: originalDuration - trimStart - trimEnd. Use playbackSpeed for constant video and audio playback speed changes (e.g. 0.5 for half speed). For speed ramps (e.g. "0.5x start to 0.1x end"), use both speedStart and speedEnd (and optionally speedEasing: "linear" or "ease"). If speedStart/speedEnd are used, they will override any constant playbackSpeed. Use muted for video mute status (true to mute, false to unmute). ALWAYS use the exact id strings from the manifest (e.g. "audio-1234-abc") — never make up or shorten ids.\n' +
   '- split_at_marks: when the user asks to split, cut, or divide images or videos at specific positions, or into equal parts (like halves or fourths). You must compute the absolute timeline split times yourself from the item\'s timing data (halves = 1 split at midpoint, fourths = 3 splits at 25%/50%/75%). Also use this for splitting at audio marks (use the marks listed in the audio data)\n' +
   '- add_text: when the user asks to add text overlays to the timeline at a computed time range\n' +
-  '- add_effect: when the user asks to add visual effects (like "crt-dither" or "flashing-black-vignette") over a specific time range\n' +
+  '- add_effect: when the user asks to add visual effects (like "crt-dither" or "flashing-black-vignette") over a specific time range; include intensity (0.0–1.0) if specified for flashing-black-vignette\n' +
     '- replace_images: when the user has attached files and asks to replace, swap, or update existing timeline images or videos with them\n' +
-  '- set_transitions: when the user asks to set, apply, add, or remove animations (none, in, out, shake, or jitter) or transitions (none, split-horizontal, split-vertical, fade, slide-in-top, slide-in-bottom, slide-in-left, or slide-in-right) on images or videos; include zoomIntensity (0.05–1.0) if specified, transitionDuration (for transitions) if specified, or animationDuration (for Zoom In/Out animations) if specified\n' +
+  '- set_transitions: when the user asks to set, apply, add, or remove animations (none, in, out, shake, or jitter) or transitions (none, split-horizontal, split-vertical, fade, slide-in-top, slide-in-bottom, slide-in-left, slide-in-right, circle, or rotate) on images or videos; include zoomIntensity (0.05–1.0) if specified, transitionDuration (for transitions) if specified, or animationDuration (for Zoom In/Out animations) if specified\n' +
   '- set_crop: when the user asks to set or change the aspect ratio of images or videos (e.g. "make images 2-25 16:9"); cropAspect must be one of "16:9", "4:3", "1:1", "3:4", "9:16", or "none"\n' +
   '- no_op: for anything else\n' +
   'Always call exactly one function. Compute exact numeric values from the timeline data provided.\n' +

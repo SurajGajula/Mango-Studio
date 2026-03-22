@@ -6,6 +6,7 @@ export class EffectClass {
   startTime: number
   endTime: number
   row: number
+  intensity: number
   createdAt: Date
 
   constructor(
@@ -14,6 +15,7 @@ export class EffectClass {
     startTime: number,
     endTime: number,
     row: number = 0,
+    intensity: number = 0.5,
     createdAt?: Date
   ) {
     this.id = id
@@ -21,17 +23,19 @@ export class EffectClass {
     this.startTime = startTime
     this.endTime = endTime
     this.row = row
+    this.intensity = intensity
     this.createdAt = createdAt || new Date()
   }
 
   copy(updates: Partial<EffectClass>): EffectClass {
     return new EffectClass(
-      updates.id ?? this.id,
-      updates.type ?? this.type,
-      updates.startTime ?? this.startTime,
-      updates.endTime ?? this.endTime,
-      updates.row ?? this.row,
-      updates.createdAt ?? this.createdAt
+      updates.id !== undefined ? updates.id : this.id,
+      updates.type !== undefined ? updates.type : this.type,
+      updates.startTime !== undefined ? updates.startTime : this.startTime,
+      updates.endTime !== undefined ? updates.endTime : this.endTime,
+      updates.row !== undefined ? updates.row : this.row,
+      updates.intensity !== undefined ? updates.intensity : this.intensity,
+      updates.createdAt !== undefined ? updates.createdAt : this.createdAt
     )
   }
 }

@@ -12,6 +12,7 @@ interface EffectTrackProps {
   effectivePadding: number
   handleEffectDragStart: (effectId: string, handle: 'move' | 'start' | 'end', e: React.MouseEvent) => void
   onCloseTransitions?: () => void
+  onOpenEffects?: () => void
 }
 
 const EffectTrackComponent = ({
@@ -21,8 +22,10 @@ const EffectTrackComponent = ({
   effectivePadding,
   handleEffectDragStart,
   onCloseTransitions,
+  onOpenEffects,
 }: EffectTrackProps) => {
   const effects = useManifestStore((state) => state.effects)
+  const setPlaybackTime = useManifestStore((state) => state.setPlaybackTime)
   const selectedEffectId = useSelectionStore((state) => state.selectedEffectId)
   const selectEffect = useSelectionStore((state) => state.selectEffect)
   const setContextMenu = useSelectionStore((state) => state.setContextMenu)
@@ -56,6 +59,11 @@ const EffectTrackComponent = ({
             onClick={(e) => {
               e.stopPropagation()
               selectEffect(isSelected ? null : effect.id)
+              if (!isSelected) {
+                // Seek to slightly after startTime to ensure effect is active for the panel
+                setPlaybackTime(effect.startTime + 0.001)
+                onOpenEffects?.()
+              }
             }}
             onMouseDown={(e) => handleEffectDragStart(effect.id, 'move', e)}
             onContextMenu={(e) => {

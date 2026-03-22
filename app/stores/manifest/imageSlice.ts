@@ -1,6 +1,7 @@
 import { ImageClass } from '@/app/models/ImageClass'
 import { VideoClass } from '@/app/models/VideoClass'
 import { useSelectionStore } from '@/app/stores/selectionStore'
+import { generateId } from '@/app/lib/idUtils'
 import { ManifestStore } from './types'
 
 export const createImageSlice = (set: any, get: any) => ({
@@ -100,7 +101,7 @@ export const createImageSlice = (set: any, get: any) => ({
 
     const firstHalf = image.copy({ endTime: playbackTime })
     const secondHalf = image.copy({
-      id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: generateId('image'),
       startTime: playbackTime,
       createdAt: new Date()
     })
@@ -130,7 +131,7 @@ export const createImageSlice = (set: any, get: any) => ({
     const newSegments: ImageClass[] = boundaries.slice(0, -1).map((segStart, i) => {
       const segEnd = boundaries[i + 1]
       return image.copy({
-        id: i === 0 ? image.id : `image-${Date.now()}-${i}`,
+        id: i === 0 ? image.id : generateId('image'),
         startTime: segStart,
         endTime: segEnd,
         createdAt: i === 0 ? image.createdAt : new Date()

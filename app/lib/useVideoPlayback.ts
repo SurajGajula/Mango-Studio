@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
-import { useAudioStore } from '@/app/stores/audioStore'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { getSortedMainItems, findActiveAndNextItems, checkTransition, calculateSourceTime } from '@/app/lib/renderUtils'
@@ -38,6 +37,7 @@ export function useVideoPlayback(
   const bufferCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const videoPlayPromisesRef = useRef<Map<string, Promise<void>>>(new Map())
   const audioPlayPromisesRef = useRef<Map<string, Promise<void>>>(new Map())
+  const internalPlaybackTimeRef = useRef(0)
   const [contentRect, setContentRect] = useState({ x: 0, y: 0, width: 0, height: 0 })
   const contentRectRef = useRef({ x: 0, y: 0, width: 0, height: 0 })
 
@@ -48,7 +48,6 @@ export function useVideoPlayback(
   const aspectRatio = useManifestStore((state) => state.aspectRatio)
   const effects = useManifestStore((state) => state.effects)
 
-  const audioUrl = useAudioStore((state) => state.audioUrl)
   const getState = useManifestStore.getState
   const getSelectionState = useSelectionStore.getState
 
@@ -303,15 +302,45 @@ export function useVideoPlayback(
   }, [computeContentRect])
 
   useEffect(() => {
-    const setupCanvas = (canvas: HTMLCanvasElement, container: HTMLDivElement) => { const rect = container.getBoundingClientRect(); if (rect.width === 0 || rect.height === 0) return null; const cw = Math.round(rect.width); const ch = Math.round(rect.height); const cr = applyCanvasSize(canvas, cw, ch); const ctx = canvas.getContext('2d'); return ctx ? { ctx, cr } : null }
     let lastTimestamp: number | null = null
+    let lastStoreUpdateTime = 0
+    let lastRectUpdate = 0
+    let currentCW = 0
+    let currentCH = 0
+    let currentCR = { x: 0, y: 0, width: 0, height: 0 }
 
     const loop = (timestamp: number) => {
-      const state = getState(); const { playbackTime, isPlaying } = state
+      const state = getState(); 
+      const { isPlaying } = state
       
-      const rate = state.playbackRate ?? 1; const delta = lastTimestamp !== null ? (timestamp - lastTimestamp) / 1000 : 0; lastTimestamp = timestamp
-      let newTime = playbackTime
-      if (isPlaying) { newTime = playbackTime + delta * rate; const totalDur = state.getTotalDuration(); if (newTime >= totalDur) { state.setIsPlaying(false); state.setPlaybackTime(0); newTime = 0; lastTimestamp = null } else state.setPlaybackTime(newTime) } else lastTimestamp = null
+      const rate = state.playbackRate ?? 1
+      const delta = lastTimestamp !== null ? (timestamp - lastTimestamp) / 1000 : 0
+      lastTimestamp = timestamp
+      
+      let newTime = 0
+      if (isPlaying) { 
+        internalPlaybackTimeRef.current += delta * rate
+        newTime = internalPlaybackTimeRef.current
+        
+        const totalDur = state.getTotalDuration()
+        if (newTime >= totalDur) { 
+          state.setIsPlaying(false)
+          state.setPlaybackTime(0)
+          internalPlaybackTimeRef.current = 0
+          newTime = 0
+          lastTimestamp = null 
+        } else {
+          if (timestamp - lastStoreUpdateTime >= 16) { 
+            state.setPlaybackTime(newTime)
+            lastStoreUpdateTime = timestamp
+          }
+        }
+      } else {
+        internalPlaybackTimeRef.current = state.playbackTime
+        newTime = state.playbackTime
+        lastTimestamp = null
+        lastStoreUpdateTime = 0
+      }
 
       const sorted = sortedMainItems
       const { activeItem: activeClip, nextItem: nextClip } = findActiveAndNextItems(sorted, newTime)
@@ -319,75 +348,95 @@ export function useVideoPlayback(
 
       const canvas = canvasRef.current; const container = containerRef.current
       
-      // Handle multiple audio elements
-      state.audios.forEach(audioItem => {
-        const audioEl = audioElementsRef.current.get(audioItem.id)
+      // Audio Playback Synchronization
+      audios.forEach(audioItem => {
+        const el = audioElementsRef.current.get(audioItem.id)
         const nodes = audioNodesRef.current.get(audioItem.id)
-        if (audioEl && nodes) {
-          const elapsed = Math.max(0, newTime - audioItem.startTime)
-          const duration = audioItem.endTime - audioItem.startTime
-          const sourceElapsed = calculateSourceTime(
+        if (!el || !nodes) return
+
+        const isInside = newTime >= audioItem.startTime && newTime < audioItem.endTime
+        
+        if (isInside && isPlaying) {
+          const elapsed = newTime - audioItem.startTime
+          const timelineDuration = audioItem.endTime - audioItem.startTime
+          const sourceTimeOffset = calculateSourceTime(
             elapsed,
-            duration,
+            timelineDuration,
             audioItem.speedStart ?? audioItem.playbackSpeed ?? 1,
             audioItem.speedEnd ?? audioItem.playbackSpeed ?? 1,
             audioItem.playbackSpeed ?? 1,
-            audioItem.speedEasing
+            audioItem.speedEasing ?? 'linear'
           )
-          const isOutOfRange = newTime < audioItem.startTime || newTime >= audioItem.endTime
-          const maxSourceTime = audioItem.originalDuration - audioItem.trimEnd
-          const targetAudioTime = Math.min(maxSourceTime, audioItem.trimStart + sourceElapsed)
 
-          if (isPlaying) {
-            const ctx = getAudioCtx()
-            if (ctx.state === 'suspended') ctx.resume().catch(() => {})
-            
-            const x = elapsed / Math.max(0.1, duration)
-            let f = x
-            if (audioItem.speedEasing === 'ease') {
-              f = 3 * Math.pow(x, 2) - 2 * Math.pow(x, 3)
-            }
-            const instantaneousSpeed = (audioItem.speedStart ?? audioItem.playbackSpeed ?? 1) + 
-              f * ((audioItem.speedEnd ?? audioItem.playbackSpeed ?? 1) - (audioItem.speedStart ?? audioItem.playbackSpeed ?? 1))
-            const newAudioRate = rate * instantaneousSpeed
-            if (Math.abs(audioEl.playbackRate - newAudioRate) > 0.005) {
-              audioEl.playbackRate = newAudioRate
-            }
-            
-            if (isOutOfRange) {
-              nodes.gain.gain.value = 0
-              if (!audioEl.paused) {
-                const p = audioPlayPromisesRef.current.get(audioItem.id)
-                if (p) p.then(() => audioEl.pause()).catch(() => {})
-                else audioEl.pause()
-              }
-            } else {
-              // Use direct value setting for immediate volume response
-              nodes.gain.gain.value = audioItem.volume ?? 1.0
-              if (Math.abs(audioEl.currentTime - targetAudioTime) > 0.2) audioEl.currentTime = targetAudioTime
-              if (audioEl.paused && audioEl.readyState >= 2 && !audioPlayPromisesRef.current.has(audioItem.id)) {
-                const p = audioEl.play()
-                audioPlayPromisesRef.current.set(audioItem.id, p)
-                p.catch(() => {}).finally(() => { audioPlayPromisesRef.current.delete(audioItem.id) })
-              }
-            }
-          } else {
-            nodes.gain.gain.value = 0
-            if (!audioEl.paused) {
-              const p = audioPlayPromisesRef.current.get(audioItem.id)
-              if (p) p.then(() => audioEl.pause()).catch(() => {})
-              else audioEl.pause()
-            }
-            if (Math.abs(audioEl.currentTime - targetAudioTime) > 0.15) audioEl.currentTime = targetAudioTime
+          const target = (audioItem.trimStart ?? 0) + sourceTimeOffset
+          
+          if (nodes.gain.gain.value !== (audioItem.volume ?? 1.0)) {
+            nodes.gain.gain.setTargetAtTime(audioItem.volume ?? 1.0, getAudioCtx().currentTime, 0.01)
+          }
+
+          const x = elapsed / Math.max(0.1, timelineDuration)
+          let f = x
+          if (audioItem.speedEasing === 'ease') {
+            f = 3 * Math.pow(x, 2) - 2 * Math.pow(x, 3)
+          }
+          const instantaneousSpeed = (audioItem.speedStart ?? audioItem.playbackSpeed ?? 1) + 
+            f * ((audioItem.speedEnd ?? audioItem.playbackSpeed ?? 1) - (audioItem.speedStart ?? audioItem.playbackSpeed ?? 1))
+          
+          const targetRate = rate * instantaneousSpeed
+          if (Math.abs(el.playbackRate - targetRate) > 0.01) {
+            el.playbackRate = targetRate
+          }
+
+          const drift = Math.abs(el.currentTime - target)
+          if (drift > 0.15) {
+            el.currentTime = target
+          }
+
+          if (el.paused && !audioPlayPromisesRef.current.has(audioItem.id)) {
+            const p = el.play()
+            audioPlayPromisesRef.current.set(audioItem.id, p)
+            p.catch(() => {}).finally(() => {
+              audioPlayPromisesRef.current.delete(audioItem.id)
+            })
+          }
+        } else {
+          if (!el.paused) {
+            el.pause()
+          }
+          
+          if (isInside) {
+             const elapsed = newTime - audioItem.startTime
+             const timelineDuration = audioItem.endTime - audioItem.startTime
+             const sourceTimeOffset = calculateSourceTime(
+               elapsed,
+               timelineDuration,
+               audioItem.speedStart ?? audioItem.playbackSpeed ?? 1,
+               audioItem.speedEnd ?? audioItem.playbackSpeed ?? 1,
+               audioItem.playbackSpeed ?? 1,
+               audioItem.speedEasing ?? 'linear'
+             )
+             const target = (audioItem.trimStart ?? 0) + sourceTimeOffset
+             if (Math.abs(el.currentTime - target) > 0.05) {
+               el.currentTime = target
+             }
           }
         }
       })
-
+      
       if (canvas && container) {
-        const res = setupCanvas(canvas, container)
-        if (res) {
-          const { cr } = res
-          
+        // Optimization: Only update layout dimensions every 500ms or on first run
+        // This avoids expensive getBoundingClientRect calls every frame
+        if (timestamp - lastRectUpdate > 500 || currentCW === 0) {
+          const rect = container.getBoundingClientRect()
+          if (rect.width > 0 && rect.height > 0) {
+            currentCW = Math.round(rect.width)
+            currentCH = Math.round(rect.height)
+            currentCR = applyCanvasSize(canvas, currentCW, currentCH)
+            lastRectUpdate = timestamp
+          }
+        }
+
+        if (currentCW > 0) {
           if (!bufferCanvasRef.current) bufferCanvasRef.current = document.createElement('canvas')
           const bufferCanvas = bufferCanvasRef.current
           if (bufferCanvas.width !== canvas.width || bufferCanvas.height !== canvas.height) {
@@ -415,7 +464,7 @@ export function useVideoPlayback(
 
           engineRef.current?.render(
             canvas,
-            cr,
+            currentCR,
             renderState,
             resources,
             sorted,
@@ -427,11 +476,11 @@ export function useVideoPlayback(
               const el = videoElementsRef.current.get(id)
               if (el) el.currentTime = time
             },
-            (id, playing, pRate) => {
-              const el = videoElementsRef.current.get(id)
-              if (!el) return
+             (id, playing, pRate) => {
+               const el = videoElementsRef.current.get(id)
+               if (!el) return
+               
               if (playing) {
-                // Only update playbackRate if it has changed significantly to avoid hitches
                 if (Math.abs(el.playbackRate - pRate) > 0.005) {
                   el.playbackRate = pRate
                 }

@@ -107,7 +107,7 @@ export class VideoClass {
 
     if (transition) {
       this.transition = transition
-    } else if (zoom && ['split-horizontal', 'split-vertical'].includes(zoom)) {
+    } else if (zoom && ['split-horizontal', 'split-vertical', 'fade', 'circle'].includes(zoom)) {
       this.transition = zoom as TransitionMode
     } else {
       this.transition = 'none'

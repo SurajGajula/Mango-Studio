@@ -50,14 +50,27 @@ export const createGeneralSlice = (set: any, get: any) => ({
     const video = state.videos.find((v: VideoClass) => v.id === id)
     const audio = state.audios.find((a: any) => a.id === id)
 
+    // Calculate effective speed for duration purposes
+    // For a ramp, the average speed determines the timeline duration for the same source content
+    let effectiveSpeed = speed
+    if (speedStart !== undefined && speedEnd !== undefined) {
+      if (speedEasing === 'ease') {
+        // Integral of 3x^2 - 2x^3 from 0 to 1 is 1 - 0.5 = 0.5
+        // So average is (speedStart + speedEnd) / 2, same as linear!
+        effectiveSpeed = (speedStart + speedEnd) / 2
+      } else {
+        effectiveSpeed = (speedStart + speedEnd) / 2
+      }
+    }
+
     if (video) {
       const currentDuration = video.duration ?? 0
       const sourceDurationToPlay = currentDuration * (video.playbackSpeed ?? 1)
       const origDuration = video.originalDuration ?? currentDuration
       const maxAvailableSource = origDuration - video.trimStart
       
-      const newDuration = Math.min(maxAvailableSource / speed, sourceDurationToPlay / speed)
-      const newTrimEnd = Math.max(0, origDuration - video.trimStart - (newDuration * speed))
+      const newDuration = Math.min(maxAvailableSource / effectiveSpeed, sourceDurationToPlay / effectiveSpeed)
+      const newTrimEnd = Math.max(0, origDuration - video.trimStart - (newDuration * effectiveSpeed))
 
       const durationDelta = newDuration - currentDuration
       const isMainTrack = video.row === 0
@@ -81,8 +94,8 @@ export const createGeneralSlice = (set: any, get: any) => ({
       const origDuration = audio.originalDuration
       const maxAvailableSource = origDuration - audio.trimStart
       
-      const newEffectiveDuration = Math.min(maxAvailableSource / speed, sourceDurationToPlay / speed)
-      const newTrimEnd = Math.max(0, origDuration - audio.trimStart - (newEffectiveDuration * speed))
+      const newEffectiveDuration = Math.min(maxAvailableSource / effectiveSpeed, sourceDurationToPlay / effectiveSpeed)
+      const newTrimEnd = Math.max(0, origDuration - audio.trimStart - (newEffectiveDuration * effectiveSpeed))
 
       const updates: any = { 
         playbackSpeed: speed, 

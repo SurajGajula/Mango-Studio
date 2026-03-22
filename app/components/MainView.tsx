@@ -38,17 +38,18 @@ export default function MainView() {
         if (currentSelectedId !== speedItemId) {
           setSpeedItemId(currentSelectedId)
         }
-      } else {
+      } else if (!speedItemId) {
         setRightPanel('chat')
         setSpeedItemId(null)
       }
     } else if (rightPanel === 'transitions' || rightPanel === 'animations') {
       const currentSelectedId = selectedVideoId || selectedImageId
       if (currentSelectedId) {
-        if (currentSelectedId !== transitionItemId) {
+        // Only sync selection to panel if we don't have a transitionItemId yet
+        if (!transitionItemId) {
           setTransitionItemId(currentSelectedId)
         }
-      } else {
+      } else if (!transitionItemId) {
         setRightPanel('chat')
         setTransitionItemId(null)
       }
