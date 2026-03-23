@@ -103,8 +103,8 @@ export function useTimelineMedia({
           'none',
           'none',
           0.5,
-          1.0,
-          undefined,
+          1.0, // transitionDuration
+          1.0, // animationDuration
           row,
           false,
           cropAspect,
@@ -152,8 +152,8 @@ export function useTimelineMedia({
           cropAspect,
           cropSx, cropSy, cropSw, cropSh,
           0.5,
-          1.0,
-          undefined,
+          1.0, // transitionDuration
+          1.0, // animationDuration
           row
         ))
       } else if (file.type.startsWith('audio/')) {

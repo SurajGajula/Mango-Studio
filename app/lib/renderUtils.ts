@@ -31,12 +31,8 @@ export function getSortedMainItems(videos: VideoClass[], images: ImageClass[]): 
 
 export function calculateAnimationProgress(item: VideoClass | ImageClass, currentTime: number, startTime: number): number {
   const elapsed = currentTime - startTime
-  if (item.animation === 'in' || item.animation === 'out') {
-    const animDur = Math.max(0.1, item.animationDuration ?? item.transitionDuration ?? 1.0)
-    return Math.max(0, Math.min(1, elapsed / animDur))
-  }
   const duration = (item as any).startTime !== undefined ? (item as ImageClass).duration : (item as VideoClass).duration
-  return (duration && duration > 0) ? elapsed / duration : 0
+  return (duration && duration > 0) ? Math.max(0, Math.min(1, elapsed / duration)) : 0
 }
 
 // Easing function for smoother speed transitions

@@ -15,6 +15,7 @@ export interface TransformParams {
   sw: number;
   sh: number;
   zoomIntensity: number;
+  itemDuration?: number;
   animationDuration?: number;
   elapsedTime: number;
   prevEl?: HTMLImageElement | HTMLVideoElement | ImageBitmap;
@@ -22,6 +23,7 @@ export interface TransformParams {
   prevAnimationProgress?: number;
   prevElapsedTime?: number;
   prevZoomIntensity?: number;
+  prevItemDuration?: number;
   prevAnimationDuration?: number;
   prevParams?: {
     x: number;

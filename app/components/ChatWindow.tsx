@@ -49,7 +49,6 @@ export default function ChatWindow() {
   const trimAudio = useManifestStore((state) => state.trimAudio)
   const splitVideoAtTimes = useManifestStore((state) => state.splitVideoAtTimes)
   const splitImageAtTimes = useManifestStore((state) => state.splitImageAtTimes)
-  const replaceImageSource = useManifestStore((state) => state.replaceImageSource)
   const replaceVideoWithImage = useManifestStore((state) => state.replaceVideoWithImage)
   const addText = useManifestStore((state) => state.addText)
   const addEffect = useManifestStore((state) => state.addEffect)
@@ -241,7 +240,8 @@ export default function ChatWindow() {
             const patch = await computeCropForAspect(tempImage, aspectRatio, ratio[0], ratio[1], originalImage.cropAspect)
             updateImage(r.targetId, { ...patch, url, name: file.name })
           } else {
-            replaceImageSource(r.targetId, url, file.name)
+            const dims = await computeImageDimensions(url, aspectRatio, originalImage.isMainTrack)
+            updateImage(r.targetId, { ...dims, url, name: file.name })
           }
         } else {
           const dims = await computeImageDimensions(url, aspectRatio, originalImage.isMainTrack)

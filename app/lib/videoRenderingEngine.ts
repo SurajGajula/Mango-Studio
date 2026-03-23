@@ -308,6 +308,7 @@ export class VideoRenderingEngine {
               nextParams.x, nextParams.y, nextParams.w, nextParams.h,
               nextItem.cropSx, nextItem.cropSy, nextItem.cropSw, nextItem.cropSh,
               nextItem.zoomIntensity,
+              nextItem.duration,
               nextItem.animationDuration,
               elapsedB,
               curEl,
@@ -315,6 +316,7 @@ export class VideoRenderingEngine {
               progA,
               elapsedA,
               activeItem.zoomIntensity,
+              activeItem.duration,
               activeItem.animationDuration,
               curParams
             )
@@ -418,7 +420,7 @@ export class VideoRenderingEngine {
         
         // Initialize accumulation with the first frame
         const curCtx = current.getContext('2d', { alpha: true })!
-        applyZoomTransform(curCtx, videoClip.animation, videoClip.transition, progress, videoEl, drawX, drawY, drawWidth, drawHeight, videoClip.cropSx, videoClip.cropSy, videoClip.cropSw, videoClip.cropSh, videoClip.zoomIntensity, videoClip.animationDuration, currentTime - videoClip.timestamp)
+        applyZoomTransform(curCtx, videoClip.animation, videoClip.transition, progress, videoEl, drawX, drawY, drawWidth, drawHeight, videoClip.cropSx, videoClip.cropSy, videoClip.cropSw, videoClip.cropSh, videoClip.zoomIntensity, videoClip.duration, videoClip.animationDuration, currentTime - videoClip.timestamp)
         
         const accCtx = accumulation.getContext('2d', { alpha: false })!
         accCtx.drawImage(current, 0, 0)
@@ -457,7 +459,7 @@ export class VideoRenderingEngine {
         curCtx.filter = 'none'
       }
       
-      applyZoomTransform(curCtx, videoClip.animation, videoClip.transition, progress, videoEl, drawX + jX, drawY + jY, drawWidth, drawHeight, videoClip.cropSx, videoClip.cropSy, videoClip.cropSw, videoClip.cropSh, videoClip.zoomIntensity, videoClip.animationDuration, currentTime - videoClip.timestamp)
+      applyZoomTransform(curCtx, videoClip.animation, videoClip.transition, progress, videoEl, drawX + jX, drawY + jY, drawWidth, drawHeight, videoClip.cropSx, videoClip.cropSy, videoClip.cropSw, videoClip.cropSh, videoClip.zoomIntensity, videoClip.duration, videoClip.animationDuration, currentTime - videoClip.timestamp)
       curCtx.filter = 'none'
 
       // 4. Speed-Adaptive Alpha (Variable Shutter)
@@ -478,7 +480,7 @@ export class VideoRenderingEngine {
     } else {
       // Normal playback without expensive motion blur
       this.lastTransformStates.delete(videoClip.id)
-      applyZoomTransform(ctx, videoClip.animation, videoClip.transition, progress, videoEl, drawX, drawY, drawWidth, drawHeight, videoClip.cropSx, videoClip.cropSy, videoClip.cropSw, videoClip.cropSh, videoClip.zoomIntensity, videoClip.animationDuration, currentTime - videoClip.timestamp)
+      applyZoomTransform(ctx, videoClip.animation, videoClip.transition, progress, videoEl, drawX, drawY, drawWidth, drawHeight, videoClip.cropSx, videoClip.cropSy, videoClip.cropSw, videoClip.cropSh, videoClip.zoomIntensity, videoClip.duration, videoClip.animationDuration, currentTime - videoClip.timestamp)
     }
   }
 
@@ -516,7 +518,7 @@ export class VideoRenderingEngine {
       if (!bitmap) return
       const progress = calculateAnimationProgress(image, currentTime, image.startTime)
       ctx.save(); ctx.globalAlpha = image.opacity
-      applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, image.animationDuration, currentTime - image.startTime)
+      applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, image.duration, image.animationDuration, currentTime - image.startTime)
       ctx.restore()
     })
   }
@@ -539,7 +541,7 @@ export class VideoRenderingEngine {
       const bitmap = imageBitmaps.get(image.id); if (!bitmap) return
       const progress = calculateAnimationProgress(image, currentTime, image.startTime)
       ctx.save(); ctx.globalAlpha = image.opacity
-      applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, image.animationDuration, currentTime - image.startTime)
+      applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, image.duration, image.animationDuration, currentTime - image.startTime)
       ctx.restore()
     })
     videos.filter(v => v.isOverlay).forEach(video => {
@@ -558,7 +560,7 @@ export class VideoRenderingEngine {
       if (!vEl || vEl.readyState < 2 || vEl.seeking) return
       const progress = calculateAnimationProgress(video, currentTime, video.timestamp)
       ctx.save(); ctx.globalAlpha = video.opacity
-      applyZoomTransform(ctx, video.animation, video.transition, progress, vEl, cr.x + video.x * xScale, cr.y + video.y * yScale, video.width * xScale, video.height * yScale, video.cropSx ?? 0, video.cropSy ?? 0, video.cropSw ?? 1, video.cropSh ?? 1, video.zoomIntensity, video.animationDuration, currentTime - video.timestamp)
+      applyZoomTransform(ctx, video.animation, video.transition, progress, vEl, cr.x + video.x * xScale, cr.y + video.y * yScale, video.width * xScale, video.height * yScale, video.cropSx ?? 0, video.cropSy ?? 0, video.cropSw ?? 1, video.cropSh ?? 1, video.zoomIntensity, video.duration, video.animationDuration, currentTime - video.timestamp)
       ctx.restore()
     })
   }

@@ -22,6 +22,7 @@ export function applyZoomTransform(
   cropSw = 1,
   cropSh = 1,
   zoomIntensity = 0.5,
+  itemDuration?: number,
   animationDuration?: number,
   elapsedTime = 0,
   prevEl?: HTMLImageElement | HTMLVideoElement | ImageBitmap,
@@ -29,6 +30,7 @@ export function applyZoomTransform(
   prevAnimationProgress?: number,
   prevElapsedTime?: number,
   prevZoomIntensity?: number,
+  prevItemDuration?: number,
   prevAnimationDuration?: number,
   prevParams?: {
     x: number;
@@ -60,7 +62,8 @@ export function applyZoomTransform(
 
   const params: TransformParams = {
     ctx, animation: animation ?? 'none', transition: transition ?? 'none', progress, imgEl, x, y, w, h, sx, sy, sw, sh,
-    zoomIntensity: zoomIntensity !== undefined ? zoomIntensity : 0.5, animationDuration, elapsedTime, prevEl, prevAnimation, prevAnimationProgress, prevElapsedTime, prevZoomIntensity, prevAnimationDuration, prevParams
+    zoomIntensity: zoomIntensity !== undefined ? zoomIntensity : 0.5, 
+    itemDuration, animationDuration, elapsedTime, prevEl, prevAnimation, prevAnimationProgress, prevElapsedTime, prevZoomIntensity, prevItemDuration, prevAnimationDuration, prevParams
   }
 
   ctx.save()
@@ -95,6 +98,7 @@ export function applyZoomTransform(
         prevAnimationProgress ?? 0,
         prevElapsedTime ?? 0,
         prevZoomIntensity ?? 0.5,
+        prevItemDuration,
         prevAnimationDuration
       )
 
@@ -107,7 +111,7 @@ export function applyZoomTransform(
     }
   } else {
     // Draw the current element with its animation
-    drawWithAnimation(params, imgEl, animation ?? 'none', progress, elapsedTime, zoomIntensity !== undefined ? zoomIntensity : 0.5, animationDuration)
+    drawWithAnimation(params, imgEl, animation ?? 'none', progress, elapsedTime, zoomIntensity !== undefined ? zoomIntensity : 0.5, itemDuration, animationDuration)
 
     // Handle transition overlay if active
     if (transition && transition !== 'none' && prevEl && prevParams && progress < 1) {

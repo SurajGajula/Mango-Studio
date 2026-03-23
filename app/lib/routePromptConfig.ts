@@ -166,7 +166,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'set_transitions',
-    description: 'Set the animation (none, in, out, shake, or jitter) or transition (none, split-horizontal, split-vertical, fade, slide-in-top, slide-in-bottom, slide-in-left, slide-in-right, circle, or rotate) on one or more images or videos. Use this when the user asks to set, apply, add, or remove animations or transitions on timeline images or videos — for example "set zoom in on images 2 to 25", "add shake to image 1", "add split transition", "add fade transition", "add slide in from left", "add circle transition", "add rotate transition", or "remove animations from all images". Use the image/video ids from the manifest.',
+    description: 'Set the animation (none, pulse, shake, or jitter) or transition (none, split-horizontal, split-vertical, fade, slide-in-top, slide-in-bottom, slide-in-left, slide-in-right, circle, or rotate) on one or more images or videos. Use this when the user asks to set, apply, add, or remove animations or transitions on timeline images or videos — for example "set pulse on images 2 to 25", "add shake to image 1", "add split transition", "add fade transition", "add slide in from left", "add circle transition", "add rotate transition", or "remove animations from all images". Use the image/video ids from the manifest.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -186,7 +186,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
               },
               animation: {
                 type: Type.STRING,
-                description: 'The animation mode to apply: "none", "in", "out", "shake", or "jitter".',
+                description: 'The animation mode to apply: "none", "pulse", "shake", or "jitter".',
               },
               transition: {
                 type: Type.STRING,
@@ -202,7 +202,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
               },
               animationDuration: {
                 type: Type.NUMBER,
-                description: 'Duration of the animation (Zoom In/Out) in seconds (min 0.1s). Defaults to 1.0s.',
+                description: 'Duration of the animation (Pulse) in seconds (min 0.1s). Defaults to 1.0s.',
               },
             },
             required: ['type', 'id'],
@@ -335,7 +335,7 @@ export const systemInstruction =
   '- add_text: when the user asks to add text overlays to the timeline at a computed time range\n' +
   '- add_effect: when the user asks to add visual effects (like "crt-dither" or "flashing-black-vignette") over a specific time range; include intensity (0.0–1.0) if specified for flashing-black-vignette\n' +
     '- replace_images: when the user has attached files and asks to replace, swap, or update existing timeline images or videos with them\n' +
-  '- set_transitions: when the user asks to set, apply, add, or remove animations (none, in, out, shake, or jitter) or transitions (none, split-horizontal, split-vertical, fade, slide-in-top, slide-in-bottom, slide-in-left, slide-in-right, circle, or rotate) on images or videos; include zoomIntensity (0.05–1.0) if specified, transitionDuration (for transitions) if specified, or animationDuration (for Zoom In/Out animations) if specified\n' +
+  '- set_transitions: when the user asks to set, apply, add, or remove animations (none, pulse, shake, or jitter) or transitions (none, split-horizontal, split-vertical, fade, slide-in-top, slide-in-bottom, slide-in-left, slide-in-right, circle, or rotate) on images or videos; include zoomIntensity (0.05–1.0) if specified, transitionDuration (for transitions) if specified, or animationDuration (for the initial Pulse animation) if specified\n' +
   '- set_crop: when the user asks to set or change the aspect ratio of images or videos (e.g. "make images 2-25 16:9"); cropAspect must be one of "16:9", "4:3", "1:1", "3:4", "9:16", or "none"\n' +
   '- no_op: for anything else\n' +
   'Always call exactly one function. Compute exact numeric values from the timeline data provided.\n' +

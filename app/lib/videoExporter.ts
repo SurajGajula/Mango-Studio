@@ -362,11 +362,12 @@ export async function exportVideo(
               ctx,
               nextItem.animation,
               nextItem.transition,
-              progress,
+              progB,
               nextEl,
               nextParams.x, nextParams.y, nextParams.w, nextParams.h,
               nextItem.cropSx, nextItem.cropSy, nextItem.cropSw, nextItem.cropSh,
               nextItem.zoomIntensity,
+              nextItem.duration,
               nextItem.animationDuration,
               elapsedB,
               curEl,
@@ -374,6 +375,7 @@ export async function exportVideo(
               progA,
               elapsedA,
               activeItem.zoomIntensity,
+              activeItem.duration,
               activeItem.animationDuration,
               curParams
             )
@@ -387,14 +389,14 @@ export async function exportVideo(
           const vEl = videoElements.get(v.id)
           if (vEl && vEl.readyState >= 2) {
             const prog = calculateAnimationProgress(v, t, v.timestamp)
-            applyZoomTransform(ctx, v.animation, v.transition, prog, vEl, (v.x ?? 0) * xScale, (v.y ?? 0) * yScale, (v.width ?? logicalW) * xScale, (v.height ?? logicalH) * yScale, v.cropSx, v.cropSy, v.cropSw, v.cropSh, v.zoomIntensity, v.animationDuration, t - v.timestamp)
+            applyZoomTransform(ctx, v.animation, v.transition, prog, vEl, (v.x ?? 0) * xScale, (v.y ?? 0) * yScale, (v.width ?? logicalW) * xScale, (v.height ?? logicalH) * yScale, v.cropSx, v.cropSy, v.cropSw, v.cropSh, v.zoomIntensity, v.duration, v.animationDuration, t - v.timestamp)
           }
         } else {
           const img = activeMain.item as ImageClass
           const iEl = imageElements.get(img.id)
           if (iEl) {
             const prog = calculateAnimationProgress(img, t, img.startTime)
-            applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, img.x * xScale, img.y * yScale, img.width * xScale, img.height * yScale, img.cropSx, img.cropSy, img.cropSw, img.cropSh, img.zoomIntensity, img.animationDuration, t - img.startTime)
+            applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, img.x * xScale, img.y * yScale, img.width * xScale, img.height * yScale, img.cropSx, img.cropSy, img.cropSw, img.cropSh, img.zoomIntensity, img.duration, img.animationDuration, t - img.startTime)
           }
         }
       }
@@ -403,7 +405,7 @@ export async function exportVideo(
         const iEl = imageElements.get(img.id); if (!iEl) return
         ctx.save(); ctx.globalAlpha = img.opacity
         const prog = calculateAnimationProgress(img, t, img.startTime)
-        applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, img.x * xScale, img.y * yScale, img.width * xScale, img.height * yScale, img.cropSx, img.cropSy, img.cropSw, img.cropSh, img.zoomIntensity, img.animationDuration, t - img.startTime)
+        applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, img.x * xScale, img.y * yScale, img.width * xScale, img.height * yScale, img.cropSx, img.cropSy, img.cropSw, img.cropSh, img.zoomIntensity, img.duration, img.animationDuration, t - img.startTime)
         ctx.restore()
       })
 
@@ -411,7 +413,7 @@ export async function exportVideo(
         const vEl = videoElements.get(v.id); if (!vEl || vEl.readyState < 2) continue
         const prog = calculateAnimationProgress(v, t, v.timestamp)
         ctx.save(); ctx.globalAlpha = v.opacity
-        applyZoomTransform(ctx, v.animation, v.transition, prog, vEl, v.x * xScale, v.y * yScale, v.width * xScale, v.height * yScale, v.cropSx, v.cropSy, v.cropSw, v.cropSh, v.zoomIntensity, v.animationDuration, t - v.timestamp)
+        applyZoomTransform(ctx, v.animation, v.transition, prog, vEl, v.x * xScale, v.y * yScale, v.width * xScale, v.height * yScale, v.cropSx, v.cropSy, v.cropSw, v.cropSh, v.zoomIntensity, v.duration, v.animationDuration, t - v.timestamp)
         ctx.restore()
       }
 

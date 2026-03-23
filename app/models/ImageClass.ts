@@ -1,4 +1,4 @@
-export type AnimationMode = 'none' | 'in' | 'out' | 'shake' | 'jitter'
+export type AnimationMode = 'none' | 'pulse' | 'shake' | 'jitter'
 export type TransitionMode = 'none' | 'split-horizontal' | 'split-vertical' | 'fade' | 'slide-in-top' | 'slide-in-bottom' | 'slide-in-left' | 'slide-in-right' | 'circle' | 'rotate'
 
 export class ImageClass {
@@ -50,7 +50,7 @@ export class ImageClass {
     transitionDuration?: number,
     animationDuration?: number,
     row?: number,
-    zoom?: AnimationMode | TransitionMode // Migration field
+    zoom?: any // Migration field
   ) {
     this.id = id
     this.name = name
@@ -69,8 +69,10 @@ export class ImageClass {
     // Migration logic
     if (animation) {
       this.animation = animation
-    } else if (zoom && ['none', 'in', 'out', 'shake', 'jitter'].includes(zoom)) {
+    } else if (zoom && ['none', 'pulse', 'shake', 'jitter'].includes(zoom)) {
       this.animation = zoom as AnimationMode
+    } else if (zoom === 'in' || zoom === 'out') {
+      this.animation = 'pulse'
     } else {
       this.animation = 'none'
     }

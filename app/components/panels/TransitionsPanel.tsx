@@ -25,27 +25,15 @@ const ANIMATION_OPTIONS: { value: AnimationMode; label: string; desc: string; ic
     ),
   },
   {
-    value: 'in',
-    label: 'Zoom In',
-    desc: 'Slowly zooms into the item',
+    value: 'pulse',
+    label: 'Pulse',
+    desc: 'Zooms in fast, curves, then zooms out fast',
     icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="11" cy="11" r="8" />
-        <line x1="21" y1="21" x2="16.65" y2="16.65" />
-        <line x1="11" y1="8" x2="11" y2="14" />
-        <line x1="8" y1="11" x2="14" y2="11" />
-      </svg>
-    ),
-  },
-  {
-    value: 'out',
-    label: 'Zoom Out',
-    desc: 'Slowly zooms out from the item',
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="11" cy="11" r="8" />
-        <line x1="21" y1="21" x2="16.65" y2="16.65" />
-        <line x1="8" y1="11" x2="14" y2="11" />
+      <svg 
+        width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+        style={{ animation: 'pulse-preview 2s infinite' }}
+      >
+        <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
       </svg>
     ),
   },
@@ -243,6 +231,9 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
     setLocalIntensity(selectedItem?.zoomIntensity ?? 0.5)
   }
 
+  const setPlaybackTime = useManifestStore((s) => s.setPlaybackTime)
+  const setIsPlaying = useManifestStore((s) => s.setIsPlaying)
+
   const handleSelect = (val: string) => {
     if (!selectedItem) return
     const updates: any = {}
@@ -255,6 +246,13 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
       // Reset intensity to 0.5 when switching animations to ensure a clean state
       if (val !== 'none') {
         updates.zoomIntensity = 0.5
+      }
+
+      // UX: Seek to item start and play to show feedback for animations
+      if (val !== 'none') {
+        const itemStart = (selectedItem as any).startTime !== undefined ? (selectedItem as any).startTime : (selectedItem as any).timestamp
+        setPlaybackTime(itemStart)
+        setIsPlaying(true)
       }
     } else {
       updates.transition = val
@@ -276,12 +274,10 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
   const options = mode === 'animation' ? ANIMATION_OPTIONS : TRANSITION_OPTIONS
   const currentValue = mode === 'animation' ? currentAnimation : currentTransition
 
-  const showIntensitySlider = mode === 'animation' && ['in', 'out', 'shake', 'jitter'].includes(currentAnimation)
+  const showIntensitySlider = mode === 'animation' && ['shake', 'jitter'].includes(currentAnimation)
 
-  const handleSliderUpdate = (updates: any, localSetter: (val: number) => void) => {
+  const handleUpdates = (updates: any) => {
     if (!selectedItem) return
-    const val = Object.values(updates)[0] as number
-    localSetter(val)
     const isImage = images.some(img => img.id === selectedItem.id)
     const state = useManifestStore.getState()
     state.pauseHistory()
@@ -290,8 +286,23 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
     state.resumeHistory()
   }
 
+  const handleSliderUpdate = (updates: any, localSetter: (val: any) => void) => {
+    if (!selectedItem) return
+    const val = Object.values(updates)[0]
+    localSetter(val)
+    handleUpdates(updates)
+  }
+
   const handleSliderCommit = () => {
     useManifestStore.getState().pushHistory()
+  }
+
+  const handleDurationChange = (newDur: number) => {
+    handleSliderUpdate({ animationDuration: newDur }, setLocalDuration)
+  }
+
+  const handleIntensityChange = (newIntensity: number) => {
+    handleSliderUpdate({ zoomIntensity: newIntensity }, setLocalIntensity)
   }
 
   return (
@@ -322,7 +333,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
               ))}
             </div>
             
-            {(currentValue !== 'none' || (mode === 'animation' && (currentAnimation === 'in' || currentAnimation === 'out'))) && (
+            {currentValue !== 'none' && currentAnimation !== 'pulse' && (
               <div className={styles.durationControl}>
                 <div className={styles.durationHeader}>
                   <label className={styles.durationLabel}>Duration</label>
@@ -366,6 +377,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
                 />
               </div>
             )}
+
           </>
         )}
       </div>

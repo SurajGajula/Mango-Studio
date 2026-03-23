@@ -22,10 +22,16 @@ export default function MainView() {
   const [speedItemId, setSpeedItemId] = useState<string | null>(null)
   const { user, loading } = useAuth()
   const aspectRatio = useManifestStore((s) => s.aspectRatio)
+  const videos = useManifestStore((s) => s.videos)
+  const images = useManifestStore((s) => s.images)
+  const audios = useManifestStore((s) => s.audios)
   const selectedImageId = useSelectionStore((s) => s.selectedImageId)
   const selectedVideoId = useSelectionStore((s) => s.selectedVideoId)
   const selectedTextId = useSelectionStore((s) => s.selectedTextId)
   const selectedAudioId = useSelectionStore((s) => s.selectedAudioId)
+  const selectVideo = useSelectionStore((s) => s.selectVideo)
+  const selectImage = useSelectionStore((s) => s.selectImage)
+  const selectAudio = useSelectionStore((s) => s.selectAudio)
 
   const timelineHeight = 'max(212px, calc(100vh - 75vw * 9 / 16))'
 
@@ -42,7 +48,17 @@ export default function MainView() {
         setRightPanel('chat')
         setSpeedItemId(null)
       }
-    } else if (rightPanel === 'transitions' || rightPanel === 'animations') {
+    } else if (rightPanel === 'animations') {
+      const currentSelectedId = selectedVideoId || selectedImageId
+      if (currentSelectedId) {
+        if (currentSelectedId !== transitionItemId) {
+          setTransitionItemId(currentSelectedId)
+        }
+      } else {
+        setRightPanel('chat')
+        setTransitionItemId(null)
+      }
+    } else if (rightPanel === 'transitions') {
       const currentSelectedId = selectedVideoId || selectedImageId
       if (currentSelectedId) {
         // Only sync selection to panel if we don't have a transitionItemId yet
@@ -75,15 +91,29 @@ export default function MainView() {
 
   const onOpenAnimations = useCallback((id?: string) => {
     setRightPanel('animations')
-    if (id) setTransitionItemId(id)
-  }, [])
+    if (id) {
+      setTransitionItemId(id)
+      const isVideo = videos.some(v => v.id === id)
+      if (isVideo) selectVideo(id)
+      else {
+        const isImage = images.some(i => i.id === id)
+        if (isImage) selectImage(id)
+      }
+    }
+  }, [videos, images, selectVideo, selectImage])
 
   const onOpenFont = useCallback(() => setRightPanel('font'), [])
   const onOpenEffects = useCallback(() => setRightPanel('effects'), [])
   const onOpenSpeed = useCallback((id: string) => {
     setRightPanel('speed')
     setSpeedItemId(id)
-  }, [])
+    const isVideo = videos.some(v => v.id === id)
+    if (isVideo) selectVideo(id)
+    else {
+      const isAudio = audios.some(a => a.id === id)
+      if (isAudio) selectAudio(id)
+    }
+  }, [videos, audios, selectVideo, selectAudio])
 
   if (loading) {
     return (

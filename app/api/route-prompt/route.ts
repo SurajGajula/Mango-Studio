@@ -91,7 +91,7 @@ export interface AddEffectInstruction {
 export interface TransitionInstruction {
   type: 'image' | 'video'
   id: string
-  animation?: 'none' | 'in' | 'out' | 'shake' | 'jitter'
+  animation?: 'none' | 'pulse' | 'shake' | 'jitter'
   transition?: 'none' | 'split-horizontal' | 'split-vertical' | 'fade' | 'slide-in-top' | 'slide-in-bottom' | 'slide-in-left' | 'slide-in-right' | 'circle' | 'rotate'
   zoomIntensity?: number
   transitionDuration?: number

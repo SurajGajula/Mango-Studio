@@ -75,7 +75,7 @@ export class VideoClass {
     speedStart?: number,
     speedEnd?: number,
     speedEasing?: 'linear' | 'ease',
-    zoom?: AnimationMode | TransitionMode // Migration field
+    zoom?: any // Migration field
   ) {
     this.id = id
     this.title = title
@@ -99,8 +99,10 @@ export class VideoClass {
     // Migration logic
     if (animation) {
       this.animation = animation
-    } else if (zoom && ['none', 'in', 'out', 'shake', 'jitter'].includes(zoom)) {
+    } else if (zoom && ['none', 'pulse', 'shake', 'jitter'].includes(zoom)) {
       this.animation = zoom as AnimationMode
+    } else if (zoom === 'in' || zoom === 'out') {
+      this.animation = 'pulse'
     } else {
       this.animation = 'none'
     }

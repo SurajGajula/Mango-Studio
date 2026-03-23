@@ -63,8 +63,6 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
   const setIsPlaying = useManifestStore((state) => state.setIsPlaying)
   const getTotalDuration = useManifestStore((state) => state.getTotalDuration)
   const trimVideo = useManifestStore((state) => state.trimVideo)
-  const replaceImageSource = useManifestStore((state) => state.replaceImageSource)
-  const replaceVideoSource = useManifestStore((state) => state.replaceVideoSource)
   const replaceImageWithVideo = useManifestStore((state) => state.replaceImageWithVideo)
   const replaceVideoWithImage = useManifestStore((state) => state.replaceVideoWithImage)
   const pushHistory = useManifestStore((state) => state.pushHistory)
@@ -131,9 +129,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
   const { replaceTargetId, setReplaceTargetId, replaceVideoData, setReplaceVideoData, isReplacingClip, handleReplaceSelect, handleConfirmReplaceVideo, handleVideoDoubleClick } = useTimelineReplace({
     videos,
     images,
-    replaceImageSource,
     replaceImageWithVideo,
-    replaceVideoSource,
     replaceVideoWithImage,
     updateVideo,
     setExportProgress,
