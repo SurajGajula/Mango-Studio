@@ -79,6 +79,9 @@ export interface ManifestStore {
   updateEffect: (id: string, updates: Partial<EffectClass>) => void
   removeEffect: (id: string) => void
   removeAllEffects: () => void
+  moveItemToRow: (id: string, targetRow: number, newTime?: number) => void
+  insertRow: (atIndex: number) => void
+  deleteRow: (atIndex: number) => void
   resetStore: () => void
 }
 

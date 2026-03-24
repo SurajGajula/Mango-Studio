@@ -61,8 +61,10 @@ const MainTrackComponent = ({
     })
   }, [videos, images])
 
+  const adjacentEpsilon = 0.01
+
   return (
-    <div className={styles.timelineRow}>
+    <div className={styles.timelineRow} data-row-index={0}>
       {sortedItems.map((entry, idx) => {
         const item = entry.item
         const isVideo = entry.type === 'video'
@@ -71,9 +73,16 @@ const MainTrackComponent = ({
         const leftPercent = getContentPosition(startTime)
         const widthPercent = totalDuration > 0 && duration ? (duration / (totalDuration + effectivePadding * 2)) * 100 : 0
         const isSelected = isVideo ? selectedVideoId === item.id : selectedImageId === item.id
-        
-        // Transition button before this item (if not the first item)
-        const showTransitionButton = idx > 0
+
+        const prevEntry = idx > 0 ? sortedItems[idx - 1] : null
+        const prevEnd = prevEntry
+          ? prevEntry.type === 'video'
+            ? (prevEntry.item as VideoClass).timestamp + ((prevEntry.item as VideoClass).duration ?? 0)
+            : (prevEntry.item as ImageClass).endTime
+          : null
+        const showTransitionButton =
+          prevEnd !== null && Math.abs(startTime - prevEnd) < adjacentEpsilon
+
         const transitionButtonLeft = leftPercent
 
         return (

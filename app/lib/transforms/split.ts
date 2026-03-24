@@ -39,7 +39,7 @@ export function applySplit(params: TransformParams): void {
     // Use cubic easing for a smoother, more natural slide
     const ease = t * t * (3 - 2 * t)
 
-    if (transition === 'split-horizontal') {
+    if (params.transitionAxis === 'vertical') {
       const halfW = pw / 2
       
       // Ensure pieces move far enough to clear the reveal target's entire width

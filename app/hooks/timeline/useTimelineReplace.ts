@@ -119,6 +119,7 @@ export function useTimelineReplace({
             image.zoomIntensity,
             image.transitionDuration,
             image.animationDuration,
+            undefined, undefined, undefined,
             image.row,
             false,
             patch.cropAspect ?? image.cropAspect,
@@ -188,6 +189,7 @@ export function useTimelineReplace({
           video.zoomIntensity,
           video.transitionDuration,
           video.animationDuration,
+          undefined, undefined, undefined,
           video.row
         )
         replaceVideoWithImage(replaceTargetId, imageInstance)
@@ -325,6 +327,7 @@ export function useTimelineReplace({
           image.zoomIntensity,
           image.transitionDuration,
           image.animationDuration,
+          undefined, undefined, undefined,
           image.row,
           false,
           patch.cropAspect ?? image.cropAspect,

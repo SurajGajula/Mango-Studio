@@ -58,6 +58,7 @@ const AudioTrack = ({
   return (
     <div
       className={styles.audioRow}
+      data-row-index={-1}
       onClick={(e) => {
         e.stopPropagation()
         selectAudio(isSelected ? null : audioItem.id)

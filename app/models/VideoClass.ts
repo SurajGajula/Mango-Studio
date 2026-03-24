@@ -23,6 +23,9 @@ export class VideoClass {
   zoomIntensity: number
   transitionDuration?: number
   animationDuration?: number
+  transitionColor?: string
+  transitionDirection?: 'left' | 'right' | 'top' | 'bottom'
+  transitionAxis?: 'horizontal' | 'vertical'
   row: number
   muted: boolean
   cropAspect?: string
@@ -57,10 +60,13 @@ export class VideoClass {
     height?: number,
     opacity?: number,
     animation?: AnimationMode,
-    transition?: TransitionMode,
+    transition?: any,
     zoomIntensity?: number,
     transitionDuration?: number,
     animationDuration?: number,
+    transitionColor?: string,
+    transitionDirection?: 'left' | 'right' | 'top' | 'bottom',
+    transitionAxis?: 'horizontal' | 'vertical',
     row?: number,
     muted?: boolean,
     cropAspect?: string,
@@ -108,13 +114,41 @@ export class VideoClass {
     }
 
     if (transition) {
-      this.transition = transition
-    } else if (zoom && ['split-horizontal', 'split-vertical', 'fade', 'circle'].includes(zoom)) {
-      this.transition = zoom as TransitionMode
+      if (transition.startsWith('slide-in-')) {
+        this.transition = 'slide-in'
+        this.transitionDirection = transition.replace('slide-in-', '') as any
+      } else if (transition === 'split-horizontal') {
+        this.transition = 'split'
+        this.transitionAxis = 'vertical'
+      } else if (transition === 'split-vertical') {
+        this.transition = 'split'
+        this.transitionAxis = 'horizontal'
+      } else if (transition === 'flash-white') {
+        this.transition = 'flash'
+        this.transitionColor = '#FFFFFF'
+      } else if (transition === 'flash-black') {
+        this.transition = 'flash'
+        this.transitionColor = '#000000'
+      } else {
+        this.transition = transition as TransitionMode
+      }
+    } else if (zoom && ['split-horizontal', 'split-vertical', 'fade', 'circle', 'rotate', 'flash-white', 'flash-black'].includes(zoom)) {
+      if (zoom === 'split-horizontal' || zoom === 'split-vertical') {
+        this.transition = 'split'
+        this.transitionAxis = zoom === 'split-horizontal' ? 'vertical' : 'horizontal'
+      } else if (zoom === 'flash-white' || zoom === 'flash-black') {
+        this.transition = 'flash'
+        this.transitionColor = zoom === 'flash-white' ? '#FFFFFF' : '#000000'
+      } else {
+        this.transition = zoom as TransitionMode
+      }
     } else {
       this.transition = 'none'
     }
 
+    this.transitionColor = transitionColor ?? this.transitionColor ?? '#FFFFFF'
+    this.transitionDirection = transitionDirection ?? this.transitionDirection ?? 'left'
+    this.transitionAxis = transitionAxis ?? this.transitionAxis ?? 'horizontal'
     this.zoomIntensity = zoomIntensity !== undefined ? zoomIntensity : 0.5
     this.transitionDuration = transitionDuration
     this.animationDuration = animationDuration
@@ -157,6 +191,9 @@ export class VideoClass {
       updates.zoomIntensity ?? this.zoomIntensity,
       updates.transitionDuration ?? this.transitionDuration,
       updates.animationDuration ?? this.animationDuration,
+      updates.transitionColor ?? this.transitionColor,
+      updates.transitionDirection ?? this.transitionDirection,
+      updates.transitionAxis ?? this.transitionAxis,
       updates.row ?? this.row,
       updates.muted ?? this.muted,
       updates.cropAspect ?? this.cropAspect,

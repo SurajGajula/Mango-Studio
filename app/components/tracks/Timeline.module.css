@@ -444,6 +444,7 @@
   flex-direction: column;
   gap: 0.25rem;
   padding-bottom: 0.5rem;
+  position: relative;
 }
 
 .addOverlayButton {
@@ -467,8 +468,8 @@
 
 .overlayRow {
   position: relative;
-  height: 32px;
-  min-height: 32px;
+  height: 40px;
+  min-height: 40px;
   background-color: transparent;
 }
 
@@ -482,8 +483,8 @@
 
 .effectRow {
   position: relative;
-  height: 32px;
-  min-height: 32px;
+  height: 40px;
+  min-height: 40px;
   background-color: transparent;
 }
 
@@ -497,8 +498,8 @@
 
 .textRow {
   position: relative;
-  height: 32px;
-  min-height: 32px;
+  height: 40px;
+  min-height: 40px;
   background-color: transparent;
 }
 
@@ -1201,4 +1202,41 @@
   border-radius: 50%;
   cursor: pointer;
   border: none;
+}
+
+.dragPreview {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0.5;
+  z-index: 100;
+  border: 1px dashed #ffffff;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  color: white;
+  text-transform: capitalize;
+}
+
+.insertionIndicator {
+  position: absolute;
+  height: 2px;
+  background-color: #4a9eff;
+  z-index: 101;
+  pointer-events: none;
+  border-radius: 2px;
+  box-shadow: 0 0 8px rgba(74, 158, 255, 0.8);
+}
+
+.draggingActive .overlayItem,
+.draggingActive .timelineItem,
+.draggingActive .audioRowBackground,
+.draggingActive .audioRow,
+.draggingActive .overlayRow,
+.draggingActive .timelineRow,
+.draggingActive .transitionButton,
+.draggingActive .addOverlayButton,
+.draggingActive .addTextButton {
+  pointer-events: none !important;
 }

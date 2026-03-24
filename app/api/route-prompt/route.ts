@@ -92,10 +92,13 @@ export interface TransitionInstruction {
   type: 'image' | 'video'
   id: string
   animation?: 'none' | 'pulse' | 'shake' | 'jitter'
-  transition?: 'none' | 'split-horizontal' | 'split-vertical' | 'fade' | 'slide-in-top' | 'slide-in-bottom' | 'slide-in-left' | 'slide-in-right' | 'circle' | 'rotate'
+  transition?: 'none' | 'split' | 'fade' | 'slide-in' | 'circle' | 'rotate' | 'flash'
   zoomIntensity?: number
   transitionDuration?: number
   animationDuration?: number
+  transitionColor?: string
+  transitionDirection?: 'left' | 'right' | 'top' | 'bottom'
+  transitionAxis?: 'horizontal' | 'vertical'
 }
 
 export interface CropInstruction {

@@ -35,4 +35,7 @@ export interface TransformParams {
     sw: number;
     sh: number;
   };
+  transitionColor?: string;
+  transitionDirection?: 'left' | 'right' | 'top' | 'bottom';
+  transitionAxis?: 'horizontal' | 'vertical';
 }

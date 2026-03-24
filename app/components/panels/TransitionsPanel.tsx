@@ -71,26 +71,14 @@ const TRANSITION_OPTIONS: { value: TransitionMode; label: string; desc: string; 
     ),
   },
   {
-    value: 'split-horizontal',
-    label: 'Split (H)',
-    desc: 'The previous item splits and slides horizontally to reveal this item',
+    value: 'split',
+    label: 'Split',
+    desc: 'The previous item splits and slides to reveal this item',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="3" width="18" height="18" rx="2" />
         <line x1="12" y1="3" x2="12" y2="21" />
         <path d="M9 9l-3 3 3 3M15 9l3 3-3 3" />
-      </svg>
-    ),
-  },
-  {
-    value: 'split-vertical',
-    label: 'Split (V)',
-    desc: 'The previous item splits and slides vertically to reveal this item',
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="3" width="18" height="18" rx="2" />
-        <line x1="3" y1="12" x2="21" y2="12" />
-        <path d="M9 9l3-3 3 3M9 15l3 3 3-3" />
       </svg>
     ),
   },
@@ -106,46 +94,13 @@ const TRANSITION_OPTIONS: { value: TransitionMode; label: string; desc: string; 
     ),
   },
   {
-    value: 'slide-in-left',
-    label: 'Slide Left',
-    desc: 'This item slides in from the left, on top of the previous item',
+    value: 'slide-in',
+    label: 'Slide In',
+    desc: 'This item slides in from a direction, on top of the previous item',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="3" width="18" height="18" rx="2" />
         <path d="M9 12h9M15 9l3 3-3 3" />
-      </svg>
-    ),
-  },
-  {
-    value: 'slide-in-right',
-    label: 'Slide Right',
-    desc: 'This item slides in from the right, on top of the previous item',
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="3" width="18" height="18" rx="2" />
-        <path d="M15 12H6M9 9l-3 3 3 3" />
-      </svg>
-    ),
-  },
-  {
-    value: 'slide-in-top',
-    label: 'Slide Top',
-    desc: 'This item slides in from the top, on top of the previous item',
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="3" width="18" height="18" rx="2" />
-        <path d="M12 9v9M9 15l3 3 3-3" />
-      </svg>
-    ),
-  },
-  {
-    value: 'slide-in-bottom',
-    label: 'Slide Bottom',
-    desc: 'This item slides in from the bottom, on top of the previous item',
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="3" width="18" height="18" rx="2" />
-        <path d="M12 15V6M9 9l3-3 3 3" />
       </svg>
     ),
   },
@@ -168,6 +123,17 @@ const TRANSITION_OPTIONS: { value: TransitionMode; label: string; desc: string; 
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
         <path d="M21 3v5h-5" />
+      </svg>
+    ),
+  },
+  {
+    value: 'flash',
+    label: 'Flash',
+    desc: 'The screen flashes a color between items',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <circle cx="12" cy="12" r="6" fill="currentColor" />
       </svg>
     ),
   },
@@ -205,7 +171,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
   const previousItem = selectedIdx > 0 ? allMainItems[selectedIdx - 1] : null
   
   // Max duration depends on transition type
-  const isTransitionAffectingPrevious = ['split-horizontal', 'split-vertical', 'fade', 'slide-in-left', 'slide-in-right', 'slide-in-top', 'slide-in-bottom', 'circle'].includes(currentTransition)
+  const isTransitionAffectingPrevious = ['split', 'fade', 'slide-in', 'circle', 'rotate', 'flash'].includes(currentTransition)
   const maxDuration = (mode === 'transition' && isTransitionAffectingPrevious) ? (previousItem?.duration || 1.0) : (selectedItem?.duration || 1.0)
 
   // Use a local state for the slider to ensure it's always responsive
@@ -353,6 +319,71 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
                   }}
                   onChange={handleSliderCommit}
                 />
+              </div>
+            )}
+
+            {mode === 'transition' && currentTransition === 'split' && (
+              <div className={styles.durationControl}>
+                <label className={styles.sectionLabel}>Split Axis</label>
+                <div className={styles.segmentedControl}>
+                  <button 
+                    className={`${styles.segmentButton} ${selectedItem.transitionAxis === 'horizontal' ? styles.segmentActive : ''}`}
+                    onClick={() => handleUpdates({ transitionAxis: 'horizontal' })}
+                  >
+                    Horizontal
+                  </button>
+                  <button 
+                    className={`${styles.segmentButton} ${selectedItem.transitionAxis === 'vertical' ? styles.segmentActive : ''}`}
+                    onClick={() => handleUpdates({ transitionAxis: 'vertical' })}
+                  >
+                    Vertical
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {mode === 'transition' && currentTransition === 'slide-in' && (
+              <div className={styles.durationControl}>
+                <label className={styles.sectionLabel}>Slide Direction</label>
+                <div className={styles.segmentedControl}>
+                  {(['left', 'right', 'top', 'bottom'] as const).map(dir => (
+                    <button 
+                      key={dir}
+                      className={`${styles.segmentButton} ${selectedItem.transitionDirection === dir ? styles.segmentActive : ''}`}
+                      onClick={() => handleUpdates({ transitionDirection: dir })}
+                    >
+                      {dir.charAt(0).toUpperCase() + dir.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {mode === 'transition' && currentTransition === 'flash' && (
+              <div className={styles.durationControl}>
+                <label className={styles.sectionLabel}>Flash Color</label>
+                <div className={styles.colorPresets}>
+                  {[
+                    { name: 'White', color: '#FFFFFF' },
+                    { name: 'Black', color: '#000000' },
+                    { name: 'Red', color: '#FF0000' },
+                    { name: 'Yellow', color: '#FFFF00' }
+                  ].map(preset => (
+                    <button 
+                      key={preset.color}
+                      className={`${styles.colorChip} ${selectedItem.transitionColor === preset.color ? styles.chipActive : ''}`}
+                      style={{ backgroundColor: preset.color }}
+                      onClick={() => handleUpdates({ transitionColor: preset.color })}
+                      title={preset.name}
+                    />
+                  ))}
+                  <input 
+                    type="color" 
+                    value={selectedItem.transitionColor || '#FFFFFF'} 
+                    onChange={(e) => handleUpdates({ transitionColor: e.target.value })}
+                    className={styles.colorPicker}
+                  />
+                </div>
               </div>
             )}
 

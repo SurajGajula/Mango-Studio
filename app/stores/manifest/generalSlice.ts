@@ -26,6 +26,126 @@ export const createGeneralSlice = (set: any, get: any) => ({
     return calculateTotalDuration(state.videos, state.images, state.texts, state.audios)
   },
 
+  moveItemToRow: (id: string, targetRow: number, newTime?: number) => {
+    const state = get()
+    let item: any
+    let type: 'video' | 'image' | 'text' | 'audio' | 'effect' = 'video'
+
+    const vMatch = state.videos.find((v: any) => v.id === id)
+    if (vMatch) {
+      item = vMatch
+      type = 'video'
+    } else {
+      const imgMatch = state.images.find((img: any) => img.id === id)
+      if (imgMatch) {
+        item = imgMatch
+        type = 'image'
+      } else {
+        const tMatch = state.texts.find((t: any) => t.id === id)
+        if (tMatch) {
+          item = tMatch
+          type = 'text'
+        } else {
+          const aMatch = state.audios.find((a: any) => a.id === id)
+          if (aMatch) {
+            item = aMatch
+            type = 'audio'
+          } else {
+            const eMatch = state.effects.find((e: any) => e.id === id)
+            if (eMatch) {
+              item = eMatch
+              type = 'effect'
+            }
+          }
+        }
+      }
+    }
+
+    if (!item) return
+
+    const oldRow = item.row
+    if (oldRow === targetRow && newTime === undefined) return
+
+    const startTime = type === 'video' ? item.timestamp : item.startTime
+    const duration = type === 'audio' ? (item.originalDuration - item.trimStart - item.trimEnd) / (item.playbackSpeed ?? 1) : (item.duration ?? (item.endTime - item.startTime))
+    const finalTime = newTime !== undefined ? newTime : startTime
+
+    set((s: ManifestStore) => {
+      let nextVideos = [...s.videos]
+      let nextImages = [...s.images]
+      let nextTexts = [...s.texts]
+      let nextAudios = [...s.audios]
+      let nextEffects = [...s.effects]
+
+      if (oldRow === 0 && (type === 'video' || (type === 'image' && item.isMainTrack))) {
+        const delta = -duration
+        nextVideos = nextVideos.map(v => (v.row === 0 && v.timestamp > startTime) ? v.copy({ timestamp: v.timestamp + delta }) : v)
+        nextImages = nextImages.map(img => (img.row === 0 && img.startTime > startTime) ? img.copy({ startTime: img.startTime + delta, endTime: img.endTime + delta }) : img)
+      }
+
+      if (targetRow === 0 && (type === 'video' || type === 'image')) {
+        const delta = duration
+        nextVideos = nextVideos.map(v => (v.row === 0 && v.timestamp >= finalTime) ? v.copy({ timestamp: v.timestamp + delta }) : v)
+        nextImages = nextImages.map(img => (img.row === 0 && img.startTime >= finalTime) ? img.copy({ startTime: img.startTime + delta, endTime: img.endTime + delta }) : img)
+      }
+
+      const updates: any = { row: targetRow }
+      if (newTime !== undefined) {
+        if (type === 'video') updates.timestamp = newTime
+        else {
+          updates.startTime = newTime
+          updates.endTime = newTime + duration
+        }
+      }
+      
+      if (type === 'video') updates.isOverlay = targetRow !== 0
+      if (type === 'image') updates.isMainTrack = targetRow === 0
+      if (type === 'audio') updates.isOverlay = targetRow !== -1
+
+      if (type === 'video') nextVideos = nextVideos.map(v => v.id === id ? v.copy(updates) : v)
+      else if (type === 'image') nextImages = nextImages.map(img => img.id === id ? img.copy(updates) : img)
+      else if (type === 'text') nextTexts = nextTexts.map(t => t.id === id ? t.copy(updates) : t)
+      else if (type === 'audio') nextAudios = nextAudios.map(a => a.id === id ? a.copy(updates) : a)
+      else if (type === 'effect') nextEffects = nextEffects.map(e => e.id === id ? e.copy(updates) : e)
+
+      return {
+        videos: nextVideos,
+        images: nextImages,
+        texts: nextTexts,
+        audios: nextAudios,
+        effects: nextEffects
+      }
+    })
+
+    get().pushHistory()
+  },
+
+  insertRow: (atIndex: number) => {
+    if (atIndex <= 0) return
+    set((s: ManifestStore) => ({
+      videos: s.videos.map(v => v.row >= atIndex ? v.copy({ row: v.row + 1 }) : v),
+      images: s.images.map(img => img.row >= atIndex ? img.copy({ row: img.row + 1 }) : img),
+      texts: s.texts.map(t => t.row >= atIndex ? t.copy({ row: t.row + 1 }) : t),
+      audios: s.audios.map(a => a.row >= atIndex ? a.copy({ row: a.row + 1 }) : a),
+      effects: s.effects.map(e => e.row >= atIndex ? e.copy({ row: e.row + 1 }) : e),
+    }))
+    get().pushHistory()
+  },
+
+  deleteRow: (atIndex: number) => {
+    if (atIndex <= 0) return
+    set((s: ManifestStore) => {
+      return {
+        videos: s.videos.map(v => v.row === atIndex ? v.copy({ row: v.row - 1 }) : (v.row > atIndex ? v.copy({ row: v.row - 1 }) : v)),
+        images: s.images.map(img => img.row === atIndex ? img.copy({ row: img.row - 1 }) : (img.row > atIndex ? img.copy({ row: img.row - 1 }) : img)),
+        texts: s.texts.map(t => t.row === atIndex ? t.copy({ row: t.row - 1 }) : (t.row > atIndex ? t.copy({ row: t.row - 1 }) : t)),
+        audios: s.audios.map(a => a.row === atIndex ? a.copy({ row: a.row - 1 }) : (a.row > atIndex ? a.copy({ row: a.row - 1 }) : a)),
+        effects: s.effects.map(e => e.row === atIndex ? e.copy({ row: e.row - 1 }) : (e.row > atIndex ? e.copy({ row: e.row - 1 }) : e)),
+      }
+    })
+    get().pushHistory()
+  },
+
   recalculateTimestamps: () => {},
 
   bulkUpdateMainTrackItems: (imagePatches: any[], videoTimestampPatches: any[]) => {

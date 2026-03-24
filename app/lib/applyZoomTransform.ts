@@ -2,6 +2,7 @@ import type { AnimationMode, TransitionMode } from '@/app/models/ImageClass'
 import { drawWithAnimation } from './transforms/animationUtils'
 import { applySplit } from './transforms/split'
 import { applyFade } from './transforms/fade'
+import { applyFlash } from './transforms/flash'
 import { applySlide } from './transforms/slide'
 import { applyCircle } from './transforms/circle'
 import { applyRotate } from './transforms/rotate'
@@ -41,7 +42,10 @@ export function applyZoomTransform(
     sy: number;
     sw: number;
     sh: number;
-  }
+  },
+  transitionColor?: string,
+  transitionDirection?: 'left' | 'right' | 'top' | 'bottom',
+  transitionAxis?: 'horizontal' | 'vertical'
 ): void {
   let nw = 0
   let nh = 0
@@ -63,13 +67,14 @@ export function applyZoomTransform(
   const params: TransformParams = {
     ctx, animation: animation ?? 'none', transition: transition ?? 'none', progress, imgEl, x, y, w, h, sx, sy, sw, sh,
     zoomIntensity: zoomIntensity !== undefined ? zoomIntensity : 0.5, 
-    itemDuration, animationDuration, elapsedTime, prevEl, prevAnimation, prevAnimationProgress, prevElapsedTime, prevZoomIntensity, prevItemDuration, prevAnimationDuration, prevParams
+    itemDuration, animationDuration, elapsedTime, prevEl, prevAnimation, prevAnimationProgress, prevElapsedTime, prevZoomIntensity, prevItemDuration, prevAnimationDuration, prevParams,
+    transitionColor, transitionDirection, transitionAxis
   }
 
   ctx.save()
   // Clip to the target bounds to ensure everything (animations, transitions) stays within the video frame
   // EXCEPT for rotate transition which needs more space
-  const isSlideTransition = transition && transition.startsWith('slide-in-')
+  const isSlideTransition = transition === 'slide-in'
   const isCircleTransition = transition === 'circle'
   const isRotateTransition = transition === 'rotate'
 
@@ -117,7 +122,9 @@ export function applyZoomTransform(
     if (transition && transition !== 'none' && prevEl && prevParams && progress < 1) {
       if (transition === 'fade') {
         applyFade(params)
-      } else {
+      } else if (transition === 'flash') {
+        applyFlash(params)
+      } else if (transition === 'split') {
         applySplit(params)
       }
     }

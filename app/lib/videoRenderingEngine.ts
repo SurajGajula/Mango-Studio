@@ -318,7 +318,10 @@ export class VideoRenderingEngine {
               activeItem.zoomIntensity,
               activeItem.duration,
               activeItem.animationDuration,
-              curParams
+              curParams,
+              nextItem.transitionColor,
+              nextItem.transitionDirection,
+              nextItem.transitionAxis
             )
             }
           }
@@ -480,7 +483,7 @@ export class VideoRenderingEngine {
     } else {
       // Normal playback without expensive motion blur
       this.lastTransformStates.delete(videoClip.id)
-      applyZoomTransform(ctx, videoClip.animation, videoClip.transition, progress, videoEl, drawX, drawY, drawWidth, drawHeight, videoClip.cropSx, videoClip.cropSy, videoClip.cropSw, videoClip.cropSh, videoClip.zoomIntensity, videoClip.duration, videoClip.animationDuration, currentTime - videoClip.timestamp)
+      applyZoomTransform(ctx, videoClip.animation, videoClip.transition, progress, videoEl, drawX, drawY, drawWidth, drawHeight, videoClip.cropSx, videoClip.cropSy, videoClip.cropSw, videoClip.cropSh, videoClip.zoomIntensity, videoClip.duration, videoClip.animationDuration, currentTime - videoClip.timestamp, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, videoClip.transitionColor, videoClip.transitionDirection, videoClip.transitionAxis)
     }
   }
 
@@ -509,7 +512,7 @@ export class VideoRenderingEngine {
           const prevBitmap = imageBitmaps.get(lastEnded.id)
           if (prevBitmap) {
             ctx.save(); ctx.globalAlpha = image.opacity
-            applyZoomTransform(ctx, 'none', 'none', 0, prevBitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, lastEnded.cropSx, lastEnded.cropSy, lastEnded.cropSw, lastEnded.cropSh, 0, undefined, 0)
+            applyZoomTransform(ctx, 'none', 'none', 0, prevBitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, lastEnded.cropSx, lastEnded.cropSy, lastEnded.cropSw, lastEnded.cropSh, 0, undefined, 0, 0, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, image.transitionColor, image.transitionDirection, image.transitionAxis)
             ctx.restore()
             return
           }
@@ -518,7 +521,7 @@ export class VideoRenderingEngine {
       if (!bitmap) return
       const progress = calculateAnimationProgress(image, currentTime, image.startTime)
       ctx.save(); ctx.globalAlpha = image.opacity
-      applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, image.duration, image.animationDuration, currentTime - image.startTime)
+      applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, image.duration, image.animationDuration, currentTime - image.startTime, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, image.transitionColor, image.transitionDirection, image.transitionAxis)
       ctx.restore()
     })
   }
@@ -541,7 +544,7 @@ export class VideoRenderingEngine {
       const bitmap = imageBitmaps.get(image.id); if (!bitmap) return
       const progress = calculateAnimationProgress(image, currentTime, image.startTime)
       ctx.save(); ctx.globalAlpha = image.opacity
-      applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, image.duration, image.animationDuration, currentTime - image.startTime)
+      applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, image.duration, image.animationDuration, currentTime - image.startTime, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, image.transitionColor, image.transitionDirection, image.transitionAxis)
       ctx.restore()
     })
     videos.filter(v => v.isOverlay).forEach(video => {
@@ -560,7 +563,7 @@ export class VideoRenderingEngine {
       if (!vEl || vEl.readyState < 2 || vEl.seeking) return
       const progress = calculateAnimationProgress(video, currentTime, video.timestamp)
       ctx.save(); ctx.globalAlpha = video.opacity
-      applyZoomTransform(ctx, video.animation, video.transition, progress, vEl, cr.x + video.x * xScale, cr.y + video.y * yScale, video.width * xScale, video.height * yScale, video.cropSx ?? 0, video.cropSy ?? 0, video.cropSw ?? 1, video.cropSh ?? 1, video.zoomIntensity, video.duration, video.animationDuration, currentTime - video.timestamp)
+      applyZoomTransform(ctx, video.animation, video.transition, progress, vEl, cr.x + video.x * xScale, cr.y + video.y * yScale, video.width * xScale, video.height * yScale, video.cropSx ?? 0, video.cropSy ?? 0, video.cropSw ?? 1, video.cropSh ?? 1, video.zoomIntensity, video.duration, video.animationDuration, currentTime - video.timestamp, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, video.transitionColor, video.transitionDirection, video.transitionAxis)
       ctx.restore()
     })
   }

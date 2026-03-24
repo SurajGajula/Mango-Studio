@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useAudioStore } from '@/app/stores/audioStore'
@@ -9,11 +9,8 @@ import { drawAudioGraph } from '@/app/lib/drawAudioGraph'
 import { formatTime } from '@/app/lib/timeUtils'
 import VideoReplaceModal from './modals/VideoReplaceModal'
 import PlaybackControls from './PlaybackControls'
+import UnifiedRow from './tracks/UnifiedRow'
 import AudioTrack from './tracks/AudioTrack'
-import OverlayAudioTrack from './tracks/OverlayAudioTrack'
-import MediaOverlayTrack from './tracks/MediaOverlayTrack'
-import EffectTrack from './tracks/EffectTrack'
-import TextTrack from './tracks/TextTrack'
 import MainTrack from './tracks/MainTrack'
 import ContextMenu from './ui/ContextMenu'
 import { useTimelineShortcuts } from '@/app/hooks/useTimelineShortcuts'
@@ -100,6 +97,51 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
 
   const { videoThumbnails } = useVideoThumbnails(videos)
 
+  const {
+    activeDrag,
+    dragPreview,
+    handleTrimStart,
+    handleAudioTrimStart,
+    handleAudioBodyDragStart,
+    handleImageDragStart,
+    handleOverlayVideoDragStart,
+    handleTextDragStart,
+    handleEffectDragStart
+  } = useTimelineDrag({
+    videos,
+    images,
+    texts,
+    audios,
+    totalDuration,
+    effectivePadding,
+    timelineRowRef,
+    setIsPlaying,
+    trimVideo,
+    updateImage,
+    updateVideo,
+    updateText,
+    updateEffect,
+    trimAudio,
+    moveItemToRow: useManifestStore.getState().moveItemToRow,
+    insertRow: useManifestStore.getState().insertRow,
+    deleteRow: useManifestStore.getState().deleteRow,
+    pushHistory,
+  })
+
+  const overlayRows = useMemo(() => {
+    const rows = new Set<number>()
+    videos.forEach(v => { if (v.row > 0) rows.add(v.row) })
+    images.forEach(img => { if (img.row > 0) rows.add(img.row) })
+    texts.forEach(t => { if (t.row > 0) rows.add(t.row) })
+    audios.forEach(a => { if (a.row > 0) rows.add(a.row) })
+    effects.forEach(e => { if (e.row > 0) rows.add(e.row) })
+    // Ensure we have at least one overlay row if we are dragging and want to drop between or above
+    if (activeDrag && dragPreview && !rows.has(dragPreview.targetRow) && dragPreview.targetRow > 0) {
+      rows.add(dragPreview.targetRow)
+    }
+    return Array.from(rows).sort((a, b) => b - a)
+  }, [videos, images, texts, audios, effects, activeDrag, dragPreview])
+
   const { isExporting, exportProgress, handleExport, handleCancelExport, setExportProgress } = useTimelineExport({
     videos,
     aspectRatio,
@@ -133,32 +175,6 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     replaceVideoWithImage,
     updateVideo,
     setExportProgress,
-  })
-
-  const {
-    handleTrimStart,
-    handleAudioTrimStart,
-    handleAudioBodyDragStart,
-    handleImageDragStart,
-    handleOverlayVideoDragStart,
-    handleTextDragStart,
-    handleEffectDragStart
-  } = useTimelineDrag({
-    videos,
-    images,
-    texts,
-    audios,
-    totalDuration,
-    effectivePadding,
-    timelineRowRef,
-    setIsPlaying,
-    trimVideo,
-    updateImage,
-    updateVideo,
-    updateText,
-    updateEffect,
-    trimAudio,
-    pushHistory,
   })
 
   const getContentPosition = useCallback((time: number) => {
@@ -351,7 +367,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
               <div ref={scrollContainerRef} className={styles.scrollContainer} onScroll={handleScroll}>
                 <div
                   ref={timelineRowRef}
-                  className={styles.timelineContent}
+                  className={`${styles.timelineContent} ${activeDrag ? styles.draggingActive : ''}`}
                   style={{ width: `${totalTimelineWidth}%` }}
                   onClick={handleTimelineDeselect}
                 >
@@ -363,77 +379,25 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
                     handleAudioTrimStart={handleAudioTrimStart}
                     audioCanvasRef={audioCanvasRef}
                   />
-                  {(() => {
-                    const audioOverlayRows = [...new Set(audios.filter((a) => a.isOverlay).map((a) => a.row))].sort((a, b) => a - b)
-                    return audioOverlayRows.map((rowIndex) => (
-                      <OverlayAudioTrack
-                        key={`audio-overlay-row-${rowIndex}`}
-                        rowIndex={rowIndex}
-                        getContentPosition={getContentPosition}
-                        totalDuration={totalDuration}
-                        effectivePadding={effectivePadding}
-                        handleAudioBodyDragStart={handleAudioBodyDragStart}
-                        handleAudioTrimStart={handleAudioTrimStart}
-                      />
-                    ))
-                  })()}
-                  {(() => {
-                    const effectRows = [...new Set(effects.map((e) => e.row))].sort((a, b) => b - a)
-                    return effectRows.map((rowIndex) => (
-                      <EffectTrack
-                        key={`effect-row-${rowIndex}`}
-                        rowIndex={rowIndex}
-                        getContentPosition={getContentPosition}
-                        totalDuration={totalDuration}
-                        effectivePadding={effectivePadding}
-                        handleEffectDragStart={handleEffectDragStart}
-                        onCloseTransitions={onCloseTransitions}
-                        onOpenEffects={onOpenEffects}
-                      />
-                    ))
-                  })()}
-                  {(() => {
-                    const mediaOverlayRows = [...new Set([
-                      ...images.filter((img) => !img.isMainTrack).map((img) => img.row),
-                      ...videos.filter((v) => v.isOverlay).map((v) => v.row),
-                    ])].sort((a, b) => b - a)
-                    return mediaOverlayRows.map((rowIndex) => (
-                      <MediaOverlayTrack
-                        key={`overlay-row-${rowIndex}`}
-                        rowIndex={rowIndex}
-                        getContentPosition={getContentPosition}
-                        totalDuration={totalDuration}
-                        effectivePadding={effectivePadding}
-                        setSelectedImageId={setSelectedImageId}
-                        setSelectedVideoId={setSelectedVideoId}
-                        handleImageDragStart={handleImageDragStart}
-                        handleOverlayVideoDragStart={handleOverlayVideoDragStart}
-                        handleTrimStart={handleTrimStart}
-                        handleVideoDoubleClick={handleVideoDoubleClick}
-                        replaceTargetId={replaceTargetId}
-                        setReplaceTargetId={setReplaceTargetId}
-                        replaceInputRef={replaceInputRef}
-                        onCloseTransitions={onCloseTransitions}
-                      />
-                    ))
-                  })()}
-                  {(() => {
-                    const textRows = [...new Set(texts.map((t) => t.row))].sort((a, b) => a - b)
-                    return textRows.map((rowIndex) => (
-                      <TextTrack
-                        key={`text-row-${rowIndex}`}
-                        rowIndex={rowIndex}
-                        getContentPosition={getContentPosition}
-                        totalDuration={totalDuration}
-                        effectivePadding={effectivePadding}
-                        setSelectedTextId={setSelectedTextId}
-                        setSelectedVideoId={setSelectedVideoId}
-                        setSelectedImageId={setSelectedImageId}
-                        handleTextDragStart={handleTextDragStart}
-                        onCloseTransitions={onCloseTransitions}
-                      />
-                    ))
-                  })()}
+                  {overlayRows.map((rowIndex) => (
+                    <UnifiedRow
+                      key={`unified-row-${rowIndex}`}
+                      rowIndex={rowIndex}
+                      getContentPosition={getContentPosition}
+                      totalDuration={totalDuration}
+                      effectivePadding={effectivePadding}
+                      handleImageDragStart={handleImageDragStart}
+                      handleOverlayVideoDragStart={handleOverlayVideoDragStart}
+                      handleTrimStart={handleTrimStart}
+                      handleTextDragStart={handleTextDragStart}
+                      handleEffectDragStart={handleEffectDragStart}
+                      handleAudioBodyDragStart={handleAudioBodyDragStart}
+                      handleAudioTrimStart={handleAudioTrimStart}
+                      handleVideoDoubleClick={handleVideoDoubleClick}
+                      onOpenEffects={onOpenEffects}
+                      onCloseTransitions={onCloseTransitions}
+                    />
+                  ))}
                   <MainTrack
                     getContentPosition={getContentPosition}
                     totalDuration={totalDuration}
@@ -451,6 +415,49 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
                     onOpenTransitions={onOpenTransitions}
                     onCloseTransitions={onCloseTransitions}
                   />
+
+                  {activeDrag && dragPreview && (
+                    <div
+                      className={styles.dragPreview}
+                      style={{
+                        left: `${getContentPosition(dragPreview.targetTime)}%`,
+                        width: `${(activeDrag.duration / (totalDuration + effectivePadding * 2)) * 100}%`,
+                        top: (() => {
+                          const container = timelineRowRef.current
+                          if (!container) return 0
+                          const rows = Array.from(container.children).filter(child => child.getAttribute('data-row-index') === String(dragPreview.targetRow))
+                          if (rows.length > 0) {
+                            return (rows[0] as HTMLElement).offsetTop
+                          }
+                          return 0
+                        })(),
+                        height: '40px',
+                        opacity: dragPreview.isValid ? 0.5 : 0.2,
+                        backgroundColor: dragPreview.isValid ? '#ffffff' : '#ff4a4a',
+                      }}
+                    >
+                      {activeDrag.itemType}
+                    </div>
+                  )}
+
+                  {activeDrag && dragPreview && dragPreview.isInsertion && (
+                    <div
+                      className={styles.insertionIndicator}
+                      style={{
+                        left: `${getContentPosition(0)}%`,
+                        width: `${(totalDuration / (totalDuration + effectivePadding * 2)) * 100}%`,
+                        top: (() => {
+                          const container = timelineRowRef.current
+                          if (!container) return 0
+                          const rows = Array.from(container.children).filter(child => child.getAttribute('data-row-index') === String(dragPreview.targetRow))
+                          if (rows.length > 0) {
+                            return (rows[0] as HTMLElement).offsetTop - 4
+                          }
+                          return 0
+                        })(),
+                      }}
+                    />
+                  )}
                 </div>
               </div>
             </div>

@@ -260,6 +260,88 @@
   color: black;
 }
 
+.segmentedControl {
+  display: flex;
+  background-color: #000000;
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.segmentButton {
+  flex: 1;
+  background: none;
+  border: none;
+  color: #666666;
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 0.5rem 0.25rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.segmentButton:hover {
+  color: #999999;
+  background-color: #111111;
+}
+
+.segmentActive {
+  background-color: #222222;
+  color: #ffffff;
+}
+
+.colorPresets {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.colorChip {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 4px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+  padding: 0;
+}
+
+.colorChip:hover {
+  transform: scale(1.1);
+}
+
+.chipActive {
+  border-color: #ffffff;
+  transform: scale(1.1);
+}
+
+.colorPicker {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.colorPicker::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.colorPicker::-webkit-color-swatch {
+  border: 2px solid #333333;
+  border-radius: 4px;
+}
+
+.colorPicker:hover::-webkit-color-swatch {
+  border-color: #555555;
+}
+
 @keyframes pulse-preview {
   0% { transform: scale(1); }
   50% { transform: scale(1.2); }
