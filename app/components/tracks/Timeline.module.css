@@ -445,6 +445,7 @@
   gap: 0.25rem;
   padding-bottom: 0.5rem;
   position: relative;
+  user-select: none;
 }
 
 .addOverlayButton {
@@ -520,6 +521,7 @@
   border: 1px solid #444444;
   background-color: #2a2a2a;
   transition: border-color 0.15s ease;
+  user-select: none;
 }
 
 .overlayItem:hover {
@@ -540,6 +542,7 @@
   border: 1px solid #6b4a9e;
   background-color: #3b2a5a;
   transition: border-color 0.15s ease;
+  user-select: none;
 }
 
 .effectItem:hover {
@@ -607,6 +610,8 @@
   width: auto;
   object-fit: cover;
   border-radius: 2px;
+  -webkit-user-drag: none;
+  user-select: none;
 }
 
 .overlayName {
@@ -716,6 +721,7 @@
   top: 0;
   bottom: 0;
   z-index: 5;
+  user-select: none;
 }
 
 .timelineItem:hover {
@@ -801,6 +807,8 @@
   object-fit: cover;
   flex-shrink: 0;
   flex-grow: 0;
+  -webkit-user-drag: none;
+  user-select: none;
 }
 
 .videoOverlayText {
@@ -864,7 +872,8 @@
 
 .audioRow {
   position: relative;
-  height: 60px;
+  height: 40px;
+  min-height: 40px;
   background: transparent;
   overflow: hidden;
   flex-shrink: 0;
@@ -1217,6 +1226,7 @@
   font-size: 0.6rem;
   color: white;
   text-transform: capitalize;
+  user-select: none;
 }
 
 .insertionIndicator {

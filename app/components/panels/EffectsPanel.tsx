@@ -5,6 +5,7 @@ import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { EffectClass, type EffectType } from '@/app/models/EffectClass'
 import { generateId } from '@/app/lib/idUtils'
+import { findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
 import styles from './TransitionsPanel.module.css'
 
 interface Props {
@@ -79,7 +80,10 @@ export default function EffectsPanel({ onClose }: Props) {
     const end = start + duration
     
     const effectItems = effects.map((e) => ({ startTime: e.startTime, endTime: e.endTime, row: e.row }))
-    const row = findFreeRow(effectItems, start, end)
+    let row = findFreeRow(effectItems, start, end)
+    if (row > 0) {
+      row = findFreeVisualOverlayRow(start, end)
+    }
     
     addEffect(new EffectClass(
       generateId('effect'),

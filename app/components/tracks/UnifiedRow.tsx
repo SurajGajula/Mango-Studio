@@ -3,10 +3,13 @@
 import { memo, useMemo } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
+import { AudioClass } from '@/app/models/AudioClass'
 import styles from './Timeline.module.css'
+import { audioMarkTimelinePositions } from '@/app/lib/audioMarkTimeline'
 
 interface UnifiedRowProps {
   rowIndex: number
+  showEmptyForDrag?: boolean
   getContentPosition: (time: number) => number
   totalDuration: number
   effectivePadding: number
@@ -24,6 +27,7 @@ interface UnifiedRowProps {
 
 const UnifiedRow = ({
   rowIndex,
+  showEmptyForDrag = false,
   getContentPosition,
   totalDuration,
   effectivePadding,
@@ -68,7 +72,7 @@ const UnifiedRow = ({
     return [...rowImages, ...rowVideos, ...rowTexts, ...rowEffects, ...rowAudios].sort((a, b) => a.startTime - b.startTime)
   }, [images, videos, texts, effects, audios, rowIndex])
 
-  if (items.length === 0) return null
+  if (items.length === 0 && !showEmptyForDrag) return null
 
   return (
     <div className={styles.overlayRow} data-row-index={rowIndex}>
@@ -79,7 +83,7 @@ const UnifiedRow = ({
           width: `${(totalDuration / (totalDuration + effectivePadding * 2)) * 100}%`,
         }}
       />
-      {items.map((entry) => {
+      {items.length === 0 ? null : items.map((entry) => {
         const { type, item, id, startTime, duration } = entry
         const leftPercent = getContentPosition(startTime)
         const widthPercent = totalDuration > 0 ? (duration / (totalDuration + effectivePadding * 2)) * 100 : 0
@@ -101,7 +105,7 @@ const UnifiedRow = ({
               <div className={styles.overlayHandleStart} onMouseDown={(e) => { e.stopPropagation(); handleImageDragStart(id, 'start', e) }} />
               <div className={styles.overlayHandleEnd} onMouseDown={(e) => { e.stopPropagation(); handleImageDragStart(id, 'end', e) }} />
               <div className={styles.overlayBox}>
-                <img src={(item as any).url} className={styles.overlayThumbnail} alt="" />
+                <img src={(item as any).url} className={styles.overlayThumbnail} alt="" draggable={false} />
                 <span className={styles.overlayName}>Image</span>
               </div>
             </div>
@@ -179,11 +183,14 @@ const UnifiedRow = ({
         }
         if (type === 'audio') {
           const isSelected = selectedAudioId === id
+          const audioItem = item as AudioClass
+          const markPositions = audioMarkTimelinePositions(audioItem, totalDuration)
+          const segW = Math.max(1e-6, widthPercent)
           return (
             <div
               key={id}
               className={`${styles.overlayItem} ${isSelected ? styles.selected : ''}`}
-              style={{ left: `${leftPercent}%`, width: `${widthPercent}%`, position: 'absolute', backgroundColor: '#1a3a3a' }}
+              style={{ left: `${leftPercent}%`, width: `${widthPercent}%`, position: 'absolute' }}
               onClick={(e) => { e.stopPropagation(); selectAudio(isSelected ? null : id) }}
               onMouseDown={(e) => handleAudioBodyDragStart(id, e)}
               onContextMenu={(e) => {
@@ -191,12 +198,26 @@ const UnifiedRow = ({
                 setContextMenu({ isOpen: true, x: e.clientX, y: e.clientY, itemId: id, itemType: 'audio' })
               }}
             >
-              <div className={styles.overlayHandleStart} onMouseDown={(e) => { e.stopPropagation(); handleAudioTrimStart(id, 'start', e) }} />
-              <div className={styles.overlayHandleEnd} onMouseDown={(e) => { e.stopPropagation(); handleAudioTrimStart(id, 'end', e) }} />
+              {isSelected && (
+                <>
+                  <div className={styles.overlayHandleStart} onMouseDown={(e) => { e.stopPropagation(); handleAudioTrimStart(id, 'start', e) }} />
+                  <div className={styles.overlayHandleEnd} onMouseDown={(e) => { e.stopPropagation(); handleAudioTrimStart(id, 'end', e) }} />
+                </>
+              )}
               <div className={styles.overlayBox}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
                 <span className={styles.overlayName}>Audio</span>
               </div>
+              {markPositions.map((timelinePos, i) => (
+                <div
+                  key={`${id}-um-${i}`}
+                  className={styles.userMarkMarker}
+                  style={{
+                    left: `${((getContentPosition(timelinePos) - leftPercent) / segW) * 100}%`,
+                  }}
+                  title={`Mark at ${timelinePos.toFixed(2)}s`}
+                />
+              ))}
             </div>
           )
         }

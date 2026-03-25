@@ -63,6 +63,21 @@ export const createGeneralSlice = (set: any, get: any) => ({
 
     if (!item) return
 
+    if (targetRow >= 1) {
+      const otherAudios = state.audios.filter((a: any) => a.id !== id && a.row === targetRow)
+      const otherVisual =
+        state.videos.some((v: any) => v.id !== id && v.row === targetRow && v.isOverlay) ||
+        state.images.some((img: any) => img.id !== id && img.row === targetRow && !img.isMainTrack) ||
+        state.texts.some((t: any) => t.id !== id && t.row === targetRow) ||
+        state.effects.some((e: any) => e.id !== id && e.row === targetRow)
+      if (type === 'audio' && otherVisual) return
+      if (
+        (type === 'image' || type === 'video' || type === 'text' || type === 'effect') &&
+        otherAudios.length > 0
+      )
+        return
+    }
+
     const oldRow = item.row
     if (oldRow === targetRow && newTime === undefined) return
 
@@ -100,7 +115,7 @@ export const createGeneralSlice = (set: any, get: any) => ({
       
       if (type === 'video') updates.isOverlay = targetRow !== 0
       if (type === 'image') updates.isMainTrack = targetRow === 0
-      if (type === 'audio') updates.isOverlay = targetRow !== -1
+      if (type === 'audio') updates.isOverlay = targetRow >= 1
 
       if (type === 'video') nextVideos = nextVideos.map(v => v.id === id ? v.copy(updates) : v)
       else if (type === 'image') nextImages = nextImages.map(img => img.id === id ? img.copy(updates) : img)

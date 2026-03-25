@@ -401,24 +401,44 @@ export async function exportVideo(
         }
       }
 
-      (images || []).filter(img => !img.isMainTrack && t >= img.startTime && t < img.endTime).forEach(img => {
-        const iEl = imageElements.get(img.id); if (!iEl) return
-        ctx.save(); ctx.globalAlpha = img.opacity
-        const prog = calculateAnimationProgress(img, t, img.startTime)
-        applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, img.x * xScale, img.y * yScale, img.width * xScale, img.height * yScale, img.cropSx, img.cropSy, img.cropSw, img.cropSh, img.zoomIntensity, img.duration, img.animationDuration, t - img.startTime)
-        ctx.restore()
-      })
-
-      for (const v of ovs) {
-        const vEl = videoElements.get(v.id); if (!vEl || vEl.readyState < 2) continue
-        const prog = calculateAnimationProgress(v, t, v.timestamp)
-        ctx.save(); ctx.globalAlpha = v.opacity
-        applyZoomTransform(ctx, v.animation, v.transition, prog, vEl, v.x * xScale, v.y * yScale, v.width * xScale, v.height * yScale, v.cropSx, v.cropSy, v.cropSw, v.cropSh, v.zoomIntensity, v.duration, v.animationDuration, t - v.timestamp)
-        ctx.restore()
+      type OverlayExportEntry =
+        | { kind: 'image'; row: number; t0: number; img: ImageClass }
+        | { kind: 'video'; row: number; t0: number; video: VideoClass }
+        | { kind: 'text'; row: number; t0: number; text: TextClass }
+      const overlayEntries: OverlayExportEntry[] = []
+      for (const img of images || []) {
+        if (img.isMainTrack || t < img.startTime || t >= img.endTime) continue
+        overlayEntries.push({ kind: 'image', row: img.row, t0: img.startTime, img })
       }
+      for (const v of ovs) {
+        overlayEntries.push({ kind: 'video', row: v.row, t0: v.timestamp, video: v })
+      }
+      if (texts) {
+        for (const txt of texts) {
+          if (t < txt.startTime || t >= txt.endTime) continue
+          overlayEntries.push({ kind: 'text', row: txt.row, t0: txt.startTime, text: txt })
+        }
+      }
+      overlayEntries.sort((a, b) => a.row - b.row || a.t0 - b.t0)
 
-      if (texts && texts.length > 0) {
-        texts.filter(txt => t >= txt.startTime && t < txt.endTime).forEach(text => {
+      for (let oi = 0; oi < overlayEntries.length; oi++) {
+        const entry = overlayEntries[oi]
+        if (entry.kind === 'image') {
+          const img = entry.img
+          const iEl = imageElements.get(img.id); if (!iEl) continue
+          ctx.save(); ctx.globalAlpha = img.opacity
+          const prog = calculateAnimationProgress(img, t, img.startTime)
+          applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, img.x * xScale, img.y * yScale, img.width * xScale, img.height * yScale, img.cropSx, img.cropSy, img.cropSw, img.cropSh, img.zoomIntensity, img.duration, img.animationDuration, t - img.startTime)
+          ctx.restore()
+        } else if (entry.kind === 'video') {
+          const v = entry.video
+          const vEl = videoElements.get(v.id); if (!vEl || vEl.readyState < 2) continue
+          const prog = calculateAnimationProgress(v, t, v.timestamp)
+          ctx.save(); ctx.globalAlpha = v.opacity
+          applyZoomTransform(ctx, v.animation, v.transition, prog, vEl, v.x * xScale, v.y * yScale, v.width * xScale, v.height * yScale, v.cropSx, v.cropSy, v.cropSw, v.cropSh, v.zoomIntensity, v.duration, v.animationDuration, t - v.timestamp)
+          ctx.restore()
+        } else {
+          const text = entry.text
           const fontPx = text.fontSize * xScale; const lineHeight = fontPx * 1.2; ctx.save()
           ctx.font = `${text.fontWeight} ${fontPx}px ${resolveCanvasFont(text.fontFamily)}`
           let content = text.content
@@ -431,8 +451,7 @@ export async function exportVideo(
           ctx.textAlign = text.textAlign as CanvasTextAlign; ctx.textBaseline = 'top'; ctx.globalAlpha = text.opacity
           if (text.style === 'negative') {
             ctx.globalCompositeOperation = 'difference'
-            ctx.fillStyle = '#ffffff' // White in difference mode inverts the background
-            // No shadow for negative style as it would also be inverted and look messy
+            ctx.fillStyle = '#ffffff'
           } else if (text.style === 'highlight') {
             ctx.globalCompositeOperation = 'source-over'
             ctx.fillStyle = '#000000'
@@ -442,18 +461,21 @@ export async function exportVideo(
             ctx.shadowColor = '#000000'; ctx.shadowBlur = fontPx * 0.12; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0
             ctx.fillStyle = text.color
           }
-          // Draw twice to increase shadow density/darkness to match the multi-layered CSS shadow in the editor
           lines.forEach((line, i) => ctx.fillText(line, textX, text.y * yScale + i * lineHeight))
           if (text.style !== 'negative' && text.style !== 'highlight') {
             lines.forEach((line, i) => ctx.fillText(line, textX, text.y * yScale + i * lineHeight))
           }
           ctx.restore()
-        })
+        }
       }
 
-      if (effects) {
-        const eff = effects.find(e => t >= e.startTime && t < e.endTime)
-        if (eff) applyEffect(ctx, eff.type, 0, 0, width, height, t)
+      if (effects && effects.length > 0) {
+        const activeEffects = effects
+          .filter((e) => t >= e.startTime && t < e.endTime)
+          .sort((a, b) => a.row - b.row || a.startTime - b.startTime)
+        for (let ei = 0; ei < activeEffects.length; ei++) {
+          applyEffect(ctx, activeEffects[ei].type, 0, 0, width, height, t, activeEffects[ei].intensity)
+        }
       }
     }
 

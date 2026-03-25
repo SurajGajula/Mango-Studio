@@ -349,11 +349,12 @@ export class VideoRenderingEngine {
           
           // Optimization: Only filter/sort effects if they exist
           if (effects && effects.length > 0) {
-            for (let i = 0; i < effects.length; i++) {
-              const eff = effects[i]
-              if (newTime >= eff.startTime && newTime < eff.endTime) {
-                applyEffect(bufferCtx, eff.type, cr.x, cr.y, cr.width, cr.height, newTime, eff.intensity)
-              }
+            const activeEffects = effects
+              .filter((eff) => newTime >= eff.startTime && newTime < eff.endTime)
+              .sort((a, b) => a.row - b.row || a.startTime - b.startTime)
+            for (let i = 0; i < activeEffects.length; i++) {
+              const eff = activeEffects[i]
+              applyEffect(bufferCtx, eff.type, cr.x, cr.y, cr.width, cr.height, newTime, eff.intensity)
             }
           }
 
@@ -540,31 +541,43 @@ export class VideoRenderingEngine {
     const logicalW = aspectRatio === '16:9' ? 1920 : 1080
     const logicalH = aspectRatio === '16:9' ? 1080 : 1920
     const xScale = cr.width / logicalW; const yScale = cr.height / logicalH
-    images.filter(img => (img as any).row > 0 && currentTime >= img.startTime && currentTime < img.endTime).forEach(image => {
-      const bitmap = imageBitmaps.get(image.id); if (!bitmap) return
-      const progress = calculateAnimationProgress(image, currentTime, image.startTime)
-      ctx.save(); ctx.globalAlpha = image.opacity
-      applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, image.duration, image.animationDuration, currentTime - image.startTime, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, image.transitionColor, image.transitionDirection, image.transitionAxis)
-      ctx.restore()
-    })
-    videos.filter(v => v.isOverlay).forEach(video => {
+    type OverlayEntry =
+      | { kind: 'image'; row: number; t0: number; image: ImageClass }
+      | { kind: 'video'; row: number; t0: number; video: VideoClass }
+    const entries: OverlayEntry[] = []
+    for (let i = 0; i < images.length; i++) {
+      const image = images[i]
+      if (image.row <= 0 || currentTime < image.startTime || currentTime >= image.endTime) continue
+      entries.push({ kind: 'image', row: image.row, t0: image.startTime, image })
+    }
+    for (let i = 0; i < videos.length; i++) {
+      const video = videos[i]
+      if (!video.isOverlay) continue
       const elapsed = Math.max(0, currentTime - video.timestamp)
-      const sourceElapsed = calculateSourceTime(
-        elapsed,
-        video.duration || 1,
-        video.speedStart ?? video.playbackSpeed ?? 1,
-        video.speedEnd ?? video.playbackSpeed ?? 1,
-        video.playbackSpeed ?? 1,
-        video.speedEasing
-      )
-      const localTime = (video.trimStart ?? 0) + sourceElapsed
-      const vEl = videoElements.get(video.id)
-      if (elapsed < 0 || elapsed >= (video.duration ?? 0)) return
-      if (!vEl || vEl.readyState < 2 || vEl.seeking) return
-      const progress = calculateAnimationProgress(video, currentTime, video.timestamp)
-      ctx.save(); ctx.globalAlpha = video.opacity
-      applyZoomTransform(ctx, video.animation, video.transition, progress, vEl, cr.x + video.x * xScale, cr.y + video.y * yScale, video.width * xScale, video.height * yScale, video.cropSx ?? 0, video.cropSy ?? 0, video.cropSw ?? 1, video.cropSh ?? 1, video.zoomIntensity, video.duration, video.animationDuration, currentTime - video.timestamp, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, video.transitionColor, video.transitionDirection, video.transitionAxis)
-      ctx.restore()
-    })
+      if (elapsed < 0 || elapsed >= (video.duration ?? 0)) continue
+      entries.push({ kind: 'video', row: video.row, t0: video.timestamp, video })
+    }
+    entries.sort((a, b) => a.row - b.row || a.t0 - b.t0)
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i]
+      if (e.kind === 'image') {
+        const image = e.image
+        const bitmap = imageBitmaps.get(image.id)
+        if (!bitmap) continue
+        const progress = calculateAnimationProgress(image, currentTime, image.startTime)
+        ctx.save(); ctx.globalAlpha = image.opacity
+        applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, image.duration, image.animationDuration, currentTime - image.startTime, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, image.transitionColor, image.transitionDirection, image.transitionAxis)
+        ctx.restore()
+      } else {
+        const video = e.video
+        const elapsed = Math.max(0, currentTime - video.timestamp)
+        const vEl = videoElements.get(video.id)
+        if (!vEl || vEl.readyState < 2 || vEl.seeking) continue
+        const progress = calculateAnimationProgress(video, currentTime, video.timestamp)
+        ctx.save(); ctx.globalAlpha = video.opacity
+        applyZoomTransform(ctx, video.animation, video.transition, progress, vEl, cr.x + video.x * xScale, cr.y + video.y * yScale, video.width * xScale, video.height * yScale, video.cropSx ?? 0, video.cropSy ?? 0, video.cropSw ?? 1, video.cropSh ?? 1, video.zoomIntensity, video.duration, video.animationDuration, currentTime - video.timestamp, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, video.transitionColor, video.transitionDirection, video.transitionAxis)
+        ctx.restore()
+      }
+    }
   }
 }

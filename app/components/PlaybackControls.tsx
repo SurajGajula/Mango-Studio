@@ -2,7 +2,6 @@
 
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
-import { useAudioStore } from '@/app/stores/audioStore'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { ASPECT_RATIOS, computeMediaCropForAspect } from '@/app/lib/mediaUtils'
@@ -57,6 +56,7 @@ export default function PlaybackControls({
   const removeImage = useManifestStore((state) => state.removeImage)
   const removeText = useManifestStore((state) => state.removeText)
   const removeAudioFromManifest = useManifestStore((state) => state.removeAudio)
+  const updateAudio = useManifestStore((state) => state.updateAudio)
   const removeEffect = useManifestStore((state) => state.removeEffect)
   const updateVideo = useManifestStore((state) => state.updateVideo)
   const updateImage = useManifestStore((state) => state.updateImage)
@@ -74,12 +74,9 @@ export default function PlaybackControls({
   const selectedEffectId = useSelectionStore((state) => state.selectedEffectId)
   const clearSelection = useSelectionStore((state) => state.clearSelection)
 
-  const audio = useAudioStore((state) => state.audio)
-  const removeAudio = useAudioStore((state) => state.removeAudio)
-  const audioAnalysis = useAudioStore((state) => state.analysis)
-  const userMarks = useAudioStore((state) => state.userMarks)
-  const clearUserMarks = useAudioStore((state) => state.clearUserMarks)
-  const isAnalyzing = useAudioStore((state) => state.isAnalyzing)
+  const selectedAudioMarks = selectedAudioId
+    ? audios.find((a) => a.id === selectedAudioId)?.marks.length ?? 0
+    : 0
 
   return (
     <>
@@ -154,17 +151,14 @@ export default function PlaybackControls({
         >
           Fx
         </button>
-        {audioAnalysis && userMarks.length > 0 && (
+        {selectedAudioId && selectedAudioMarks > 0 && (
           <button
             className={styles.clearMarksButton}
-            onClick={clearUserMarks}
-            title="Clear all manual marks"
+            onClick={() => updateAudio(selectedAudioId, { marks: [] })}
+            title="Clear marks on selected audio"
           >
-            ✕ {userMarks.length}
+            ✕ {selectedAudioMarks}
           </button>
-        )}
-        {isAnalyzing && (
-          <span className={styles.analyzingBadge}>Analyzing…</span>
         )}
         <button
           className={styles.exportButton}

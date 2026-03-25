@@ -34,7 +34,6 @@ export function useTimelineShortcuts({
   const removeAudioFromManifest = useManifestStore((state) => state.removeAudio)
   const removeEffect = useManifestStore((state) => state.removeEffect)
   const duplicateItem = useManifestStore((state) => state.duplicateItem)
-  const audio = useAudioStore((state) => state.audio)
   const removeAudio = useAudioStore((state) => state.removeAudio)
 
   const clearSelection = useSelectionStore((state) => state.clearSelection)
@@ -48,9 +47,20 @@ export function useTimelineShortcuts({
       
       if (e.key === 'm' && !isEditing && !e.metaKey && !e.ctrlKey) {
         e.preventDefault()
-        if (useAudioStore.getState().analysis) {
-          useAudioStore.getState().addUserMark(useManifestStore.getState().playbackTime)
-        }
+        const sid = useSelectionStore.getState().selectedAudioId
+        if (!sid) return
+        const audios = useManifestStore.getState().audios
+        const audio = audios.find((a) => a.id === sid)
+        if (!audio) return
+        const playbackTime = useManifestStore.getState().playbackTime
+        const sourceMark = playbackTime - audio.startTime + audio.trimStart
+        const minM = audio.trimStart
+        const maxM = audio.originalDuration - audio.trimEnd
+        if (sourceMark < minM || sourceMark > maxM) return
+        const existing = audio.marks
+        if (existing.some((m) => Math.abs(m - sourceMark) < 0.05)) return
+        const newMarks = [...existing, sourceMark].sort((a, b) => a - b)
+        useManifestStore.getState().updateAudio(sid, { marks: newMarks })
       }
       
       if (!(e.metaKey || e.ctrlKey)) return
@@ -92,7 +102,10 @@ export function useTimelineShortcuts({
         else if (selectedEffectId) removeEffect(selectedEffectId)
         else if (selectedAudioId) {
           removeAudioFromManifest(selectedAudioId)
-          removeAudio()
+          const primary = useAudioStore.getState().audio
+          if (primary?.id === selectedAudioId) {
+            useAudioStore.getState().removeAudio()
+          }
           clearSelection()
         }
       }
@@ -110,6 +123,6 @@ export function useTimelineShortcuts({
     removeAudioFromManifest, removeAudio, removeEffect, duplicateItem,
     replaceVideoData, applyZoom, visibleDurationRef, 
     MIN_VISIBLE, MAX_VISIBLE, selectedAudioId, 
-    setSelectedAudioId, uploadInputRef, audio
+    setSelectedAudioId, uploadInputRef
   ])
 }

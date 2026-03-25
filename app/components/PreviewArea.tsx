@@ -7,6 +7,7 @@ import { useVideoPlayback } from '@/app/lib/useVideoPlayback'
 import { usePreviewInteractions } from '@/app/hooks/preview/usePreviewInteractions'
 import { ImageClass } from '@/app/models/ImageClass'
 import { VideoClass } from '@/app/models/VideoClass'
+import { TextClass } from '@/app/models/TextClass'
 import styles from './PreviewArea.module.css'
 import TextOverlay from './TextOverlay'
 import CropEditor from './CropEditor'
@@ -127,17 +128,29 @@ export default function PreviewArea() {
     canvasRef, textRefs, getMeasureCtx
   )
 
-  const activeImages = useMemo(() => images.filter(
-    (image) => !image.isMainTrack && playbackTime >= image.startTime && playbackTime < image.endTime
-  ), [images, playbackTime])
-
-  const activeOverlayVideos = useMemo(() => videos.filter(
-    (v) => v.isOverlay && playbackTime >= v.timestamp && playbackTime < v.timestamp + (v.duration ?? 0)
-  ), [videos, playbackTime])
-
-  const activeTexts = useMemo(() => texts.filter(
-    (t) => playbackTime >= t.startTime && playbackTime < t.endTime
-  ), [texts, playbackTime])
+  const sortedPreviewLayers = useMemo(() => {
+    type Layer =
+      | { kind: 'image'; row: number; t0: number; image: ImageClass }
+      | { kind: 'video'; row: number; t0: number; video: VideoClass }
+      | { kind: 'text'; row: number; t0: number; text: TextClass }
+    const layers: Layer[] = []
+    for (const image of images) {
+      if (image.isMainTrack) continue
+      if (playbackTime < image.startTime || playbackTime >= image.endTime) continue
+      layers.push({ kind: 'image', row: image.row, t0: image.startTime, image })
+    }
+    for (const video of videos) {
+      if (!video.isOverlay) continue
+      if (playbackTime < video.timestamp || playbackTime >= video.timestamp + (video.duration ?? 0)) continue
+      layers.push({ kind: 'video', row: video.row, t0: video.timestamp, video })
+    }
+    for (const text of texts) {
+      if (playbackTime < text.startTime || playbackTime >= text.endTime) continue
+      layers.push({ kind: 'text', row: text.row, t0: text.startTime, text })
+    }
+    layers.sort((a, b) => a.row - b.row || a.t0 - b.t0)
+    return layers
+  }, [images, videos, texts, playbackTime])
 
   const handleCropPanStart = useCallback((e: React.PointerEvent) => {
     if (!cropEditId) return
@@ -173,25 +186,37 @@ export default function PreviewArea() {
     const px = e.clientX - rect.left
     const py = e.clientY - rect.top
 
-    // Check overlay videos first
-    const visibleOverlayVideos = videos.filter(
-      (v) => v.isOverlay && playbackTime >= v.timestamp && playbackTime < v.timestamp + (v.duration ?? 0)
-    )
-    for (const vid of visibleOverlayVideos) {
-      const vx = vid.x * xScale + offsetX
-      const vy = vid.y * yScale + offsetY
-      const vw = vid.width * xScale
-      const vh = vid.height * yScale
-      if (px >= vx && px <= vx + vw && py >= vy && py <= vy + vh) {
-        enterCropEdit(vid.id, 'video')
-        return
+    const topFirst = [...sortedPreviewLayers].reverse()
+    for (let i = 0; i < topFirst.length; i++) {
+      const layer = topFirst[i]
+      if (layer.kind === 'video') {
+        const vid = layer.video
+        const vx = vid.x * xScale + offsetX
+        const vy = vid.y * yScale + offsetY
+        const vw = vid.width * xScale
+        const vh = vid.height * yScale
+        if (px >= vx && px <= vx + vw && py >= vy && py <= vy + vh) {
+          enterCropEdit(vid.id, 'video')
+          return
+        }
+      } else if (layer.kind === 'image') {
+        const img = layer.image
+        const ix = img.x * xScale + offsetX
+        const iy = img.y * yScale + offsetY
+        const iw = img.width * xScale
+        const ih = img.height * yScale
+        if (px >= ix && px <= ix + iw && py >= iy && py <= iy + ih) {
+          enterCropEdit(img.id, 'image')
+          return
+        }
       }
     }
 
-    const visibleImages = images.filter(
-      (img) => playbackTime >= img.startTime && playbackTime < img.endTime
+    const visibleMainImages = images.filter(
+      (img) => img.isMainTrack && playbackTime >= img.startTime && playbackTime < img.endTime
     )
-    for (const img of visibleImages) {
+    for (let i = visibleMainImages.length - 1; i >= 0; i--) {
+      const img = visibleMainImages[i]
       const ix = img.x * xScale + offsetX
       const iy = img.y * yScale + offsetY
       const iw = img.width * xScale
@@ -210,7 +235,7 @@ export default function PreviewArea() {
         return
       }
     }
-  }, [images, videos, playbackTime, xScale, yScale, offsetX, offsetY, contentRect, enterCropEdit])
+  }, [images, videos, sortedPreviewLayers, playbackTime, xScale, yScale, offsetX, offsetY, contentRect, enterCropEdit])
 
   useEffect(() => {
     if (!cropEditId) return
@@ -237,68 +262,77 @@ export default function PreviewArea() {
                 onDoubleClick={handleCanvasDoubleClick}
               />
               <div className={styles.overlayLayer}>
-                {activeImages.map((image) => (
-                  <OverlayItem
-                    key={image.id}
-                    itemId={image.id}
-                    itemType="image"
-                    x={image.x}
-                    y={image.y}
-                    w={image.width}
-                    h={image.height}
-                    isSelected={selectedImageId === image.id}
-                    offsetX={offsetX}
-                    offsetY={offsetY}
-                    xScale={xScale}
-                    yScale={yScale}
-                    handleOverlayMouseDown={handleOverlayMouseDown}
-                    hasCrop={!!image.cropAspect}
-                    cropEditId={cropEditId}
-                    enterCropEdit={enterCropEdit}
-                    exitCropEdit={exitCropEdit}
-                  />
-                ))}
-                {activeOverlayVideos.map((video) => (
-                  <OverlayItem
-                    key={video.id}
-                    itemId={video.id}
-                    itemType="video"
-                    x={video.x}
-                    y={video.y}
-                    w={video.width}
-                    h={video.height}
-                    isSelected={selectedVideoId === video.id}
-                    offsetX={offsetX}
-                    offsetY={offsetY}
-                    xScale={xScale}
-                    yScale={yScale}
-                    handleOverlayMouseDown={handleOverlayMouseDown}
-                    hasCrop={!!video.cropAspect}
-                    cropEditId={cropEditId}
-                    enterCropEdit={enterCropEdit}
-                    exitCropEdit={exitCropEdit}
-                  />
-                ))}
-                {activeTexts.map((text) => (
-                  <TextOverlay
-                    key={text.id}
-                    text={text}
-                    xScale={xScale}
-                    yScale={yScale}
-                    offsetX={offsetX}
-                    offsetY={offsetY}
-                    editingTextId={editingTextId}
-                    setEditingTextId={setEditingTextId}
-                    editingContent={editingContent}
-                    setEditingContent={setEditingContent}
-                    editingContentRef={editingContentRef}
-                    handleTextMouseDown={handleTextMouseDown}
-                    handleTextResizeStart={handleTextResizeStart}
-                    getMeasureCtx={getMeasureCtx}
-                    playbackTime={playbackTime}
-                    textRefs={textRefs}
-                  />
-                ))}
+                {sortedPreviewLayers.map((layer) => {
+                  if (layer.kind === 'image') {
+                    const image = layer.image
+                    return (
+                      <OverlayItem
+                        key={image.id}
+                        itemId={image.id}
+                        itemType="image"
+                        x={image.x}
+                        y={image.y}
+                        w={image.width}
+                        h={image.height}
+                        isSelected={selectedImageId === image.id}
+                        offsetX={offsetX}
+                        offsetY={offsetY}
+                        xScale={xScale}
+                        yScale={yScale}
+                        handleOverlayMouseDown={handleOverlayMouseDown}
+                        hasCrop={!!image.cropAspect}
+                        cropEditId={cropEditId}
+                        enterCropEdit={enterCropEdit}
+                        exitCropEdit={exitCropEdit}
+                      />
+                    )
+                  }
+                  if (layer.kind === 'video') {
+                    const video = layer.video
+                    return (
+                      <OverlayItem
+                        key={video.id}
+                        itemId={video.id}
+                        itemType="video"
+                        x={video.x}
+                        y={video.y}
+                        w={video.width}
+                        h={video.height}
+                        isSelected={selectedVideoId === video.id}
+                        offsetX={offsetX}
+                        offsetY={offsetY}
+                        xScale={xScale}
+                        yScale={yScale}
+                        handleOverlayMouseDown={handleOverlayMouseDown}
+                        hasCrop={!!video.cropAspect}
+                        cropEditId={cropEditId}
+                        enterCropEdit={enterCropEdit}
+                        exitCropEdit={exitCropEdit}
+                      />
+                    )
+                  }
+                  const text = layer.text
+                  return (
+                    <TextOverlay
+                      key={text.id}
+                      text={text}
+                      xScale={xScale}
+                      yScale={yScale}
+                      offsetX={offsetX}
+                      offsetY={offsetY}
+                      editingTextId={editingTextId}
+                      setEditingTextId={setEditingTextId}
+                      editingContent={editingContent}
+                      setEditingContent={setEditingContent}
+                      editingContentRef={editingContentRef}
+                      handleTextMouseDown={handleTextMouseDown}
+                      handleTextResizeStart={handleTextResizeStart}
+                      getMeasureCtx={getMeasureCtx}
+                      playbackTime={playbackTime}
+                      textRefs={textRefs}
+                    />
+                  )
+                })}
                 {snapLines.vertical.map((x, i) => (
                   <div key={`v-${i}`} className={styles.snapLineVertical} style={{ left: offsetX + x * xScale }} />
                 ))}

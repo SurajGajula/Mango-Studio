@@ -242,7 +242,7 @@ const MainTrackComponent = ({
                     onClick={(e) => e.stopPropagation()}
                   />
                   <div className={styles.overlayBox}>
-                    <img src={img.url} alt={img.name} className={styles.overlayThumbnail} />
+                    <img src={img.url} alt={img.name} className={styles.overlayThumbnail} draggable={false} />
                     <span className={styles.overlayName}>Image #{idx + 1}</span>
                   </div>
                 </div>
