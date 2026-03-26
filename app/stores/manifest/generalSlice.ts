@@ -4,6 +4,7 @@ import { TextClass } from '@/app/models/TextClass'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { ManifestStore, AspectRatio } from './types'
 import { calculateTotalDuration } from '@/app/lib/timeUtils'
+import { findFreeVisualOverlayRowFromState } from '@/app/lib/visualOverlayRowScan'
 
 export const createGeneralSlice = (set: any, get: any) => ({
   playbackTime: 0,
@@ -63,13 +64,24 @@ export const createGeneralSlice = (set: any, get: any) => ({
 
     if (!item) return
 
-    if (targetRow >= 1) {
-      const otherAudios = state.audios.filter((a: any) => a.id !== id && a.row === targetRow)
+    const startTime = type === 'video' ? item.timestamp : item.startTime
+    const duration = type === 'audio' ? (item.originalDuration - item.trimStart - item.trimEnd) / (item.playbackSpeed ?? 1) : (item.duration ?? (item.endTime - item.startTime))
+    const finalTime = newTime !== undefined ? newTime : startTime
+
+    let resolvedTargetRow = targetRow
+    if ((type === 'text' || type === 'effect') && resolvedTargetRow === 0) {
+      const segStart = finalTime
+      const segEnd = segStart + (item.endTime - item.startTime)
+      resolvedTargetRow = findFreeVisualOverlayRowFromState(state, segStart, segEnd)
+    }
+
+    if (resolvedTargetRow >= 1) {
+      const otherAudios = state.audios.filter((a: any) => a.id !== id && a.row === resolvedTargetRow)
       const otherVisual =
-        state.videos.some((v: any) => v.id !== id && v.row === targetRow && v.isOverlay) ||
-        state.images.some((img: any) => img.id !== id && img.row === targetRow && !img.isMainTrack) ||
-        state.texts.some((t: any) => t.id !== id && t.row === targetRow) ||
-        state.effects.some((e: any) => e.id !== id && e.row === targetRow)
+        state.videos.some((v: any) => v.id !== id && v.row === resolvedTargetRow && v.isOverlay) ||
+        state.images.some((img: any) => img.id !== id && img.row === resolvedTargetRow && !img.isMainTrack) ||
+        state.texts.some((t: any) => t.id !== id && t.row === resolvedTargetRow) ||
+        state.effects.some((e: any) => e.id !== id && e.row === resolvedTargetRow)
       if (type === 'audio' && otherVisual) return
       if (
         (type === 'image' || type === 'video' || type === 'text' || type === 'effect') &&
@@ -79,11 +91,7 @@ export const createGeneralSlice = (set: any, get: any) => ({
     }
 
     const oldRow = item.row
-    if (oldRow === targetRow && newTime === undefined) return
-
-    const startTime = type === 'video' ? item.timestamp : item.startTime
-    const duration = type === 'audio' ? (item.originalDuration - item.trimStart - item.trimEnd) / (item.playbackSpeed ?? 1) : (item.duration ?? (item.endTime - item.startTime))
-    const finalTime = newTime !== undefined ? newTime : startTime
+    if (oldRow === resolvedTargetRow && newTime === undefined) return
 
     set((s: ManifestStore) => {
       let nextVideos = [...s.videos]
@@ -98,13 +106,13 @@ export const createGeneralSlice = (set: any, get: any) => ({
         nextImages = nextImages.map(img => (img.row === 0 && img.startTime > startTime) ? img.copy({ startTime: img.startTime + delta, endTime: img.endTime + delta }) : img)
       }
 
-      if (targetRow === 0 && (type === 'video' || type === 'image')) {
+      if (resolvedTargetRow === 0 && (type === 'video' || type === 'image')) {
         const delta = duration
         nextVideos = nextVideos.map(v => (v.row === 0 && v.timestamp >= finalTime) ? v.copy({ timestamp: v.timestamp + delta }) : v)
         nextImages = nextImages.map(img => (img.row === 0 && img.startTime >= finalTime) ? img.copy({ startTime: img.startTime + delta, endTime: img.endTime + delta }) : img)
       }
 
-      const updates: any = { row: targetRow }
+      const updates: any = { row: resolvedTargetRow }
       if (newTime !== undefined) {
         if (type === 'video') updates.timestamp = newTime
         else {
@@ -113,9 +121,9 @@ export const createGeneralSlice = (set: any, get: any) => ({
         }
       }
       
-      if (type === 'video') updates.isOverlay = targetRow !== 0
-      if (type === 'image') updates.isMainTrack = targetRow === 0
-      if (type === 'audio') updates.isOverlay = targetRow >= 1
+      if (type === 'video') updates.isOverlay = resolvedTargetRow !== 0
+      if (type === 'image') updates.isMainTrack = resolvedTargetRow === 0
+      if (type === 'audio') updates.isOverlay = resolvedTargetRow >= 1
 
       if (type === 'video') nextVideos = nextVideos.map(v => v.id === id ? v.copy(updates) : v)
       else if (type === 'image') nextImages = nextImages.map(img => img.id === id ? img.copy(updates) : img)

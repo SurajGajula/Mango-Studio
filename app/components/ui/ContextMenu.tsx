@@ -5,6 +5,7 @@ import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useAudioStore } from '@/app/stores/audioStore'
 import { ASPECT_RATIOS, computeMediaCropForAspect } from '@/app/lib/mediaUtils'
+import { useSliderHistorySession } from '@/app/hooks/useSliderHistorySession'
 import styles from '../tracks/Timeline.module.css'
 
 interface ContextMenuProps {
@@ -53,6 +54,8 @@ export default function ContextMenu({
   const splitAudio = useManifestStore((s) => s.splitAudio)
   const setItemPlaybackSpeed = useManifestStore((s) => s.setItemPlaybackSpeed)
   const pushHistory = useManifestStore((s) => s.pushHistory)
+
+  const volumeSliderHistory = useSliderHistorySession()
 
   const removeAudioFromStore = useAudioStore((s) => s.removeAudio)
   const audioInStore = useAudioStore((s) => s.audio)
@@ -218,6 +221,7 @@ export default function ContextMenu({
               max="2"
               step="0.05"
               value={currentAudio.volume ?? 1}
+              onPointerDown={volumeSliderHistory}
               onChange={(e) => updateAudio(itemId, { volume: parseFloat(e.target.value) })}
               onClick={(e) => e.stopPropagation()}
               className={styles.contextMenuSlider}

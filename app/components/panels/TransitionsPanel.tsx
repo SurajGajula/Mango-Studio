@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import { useSliderHistorySession } from '@/app/hooks/useSliderHistorySession'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { AnimationMode, TransitionMode, ImageClass } from '@/app/models/ImageClass'
@@ -200,6 +201,9 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
   const setPlaybackTime = useManifestStore((s) => s.setPlaybackTime)
   const setIsPlaying = useManifestStore((s) => s.setIsPlaying)
 
+  const durationSliderHistory = useSliderHistorySession()
+  const intensitySliderHistory = useSliderHistorySession()
+
   const handleSelect = (val: string) => {
     if (!selectedItem) return
     const updates: any = {}
@@ -242,33 +246,27 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
 
   const showIntensitySlider = mode === 'animation' && ['shake', 'jitter'].includes(currentAnimation)
 
-  const handleUpdates = (updates: any) => {
+  const applyItemUpdate = (updates: any) => {
     if (!selectedItem) return
-    const isImage = images.some(img => img.id === selectedItem.id)
-    const state = useManifestStore.getState()
-    state.pauseHistory()
+    const isImage = images.some((img) => img.id === selectedItem.id)
     if (isImage) updateImage(selectedItem.id, updates)
     else updateVideo(selectedItem.id, updates)
-    state.resumeHistory()
+  }
+
+  const commitDiscreteChange = (updates: any) => {
+    if (!selectedItem) return
+    const st = useManifestStore.getState()
+    st.pauseHistory()
+    applyItemUpdate(updates)
+    st.resumeHistory()
+    st.pushHistory()
   }
 
   const handleSliderUpdate = (updates: any, localSetter: (val: any) => void) => {
     if (!selectedItem) return
     const val = Object.values(updates)[0]
     localSetter(val)
-    handleUpdates(updates)
-  }
-
-  const handleSliderCommit = () => {
-    useManifestStore.getState().pushHistory()
-  }
-
-  const handleDurationChange = (newDur: number) => {
-    handleSliderUpdate({ animationDuration: newDur }, setLocalDuration)
-  }
-
-  const handleIntensityChange = (newIntensity: number) => {
-    handleSliderUpdate({ zoomIntensity: newIntensity }, setLocalIntensity)
+    applyItemUpdate(updates)
   }
 
   return (
@@ -312,12 +310,12 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
                   step="0.1"
                   value={displayDuration}
                   className={styles.durationSlider}
+                  onPointerDown={durationSliderHistory}
                   onInput={(e) => {
                     const val = parseFloat((e.target as HTMLInputElement).value)
                     const updates = mode === 'animation' ? { animationDuration: val } : { transitionDuration: val }
                     handleSliderUpdate(updates, setLocalDuration)
                   }}
-                  onChange={handleSliderCommit}
                 />
               </div>
             )}
@@ -328,13 +326,13 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
                 <div className={styles.segmentedControl}>
                   <button 
                     className={`${styles.segmentButton} ${selectedItem.transitionAxis === 'horizontal' ? styles.segmentActive : ''}`}
-                    onClick={() => handleUpdates({ transitionAxis: 'horizontal' })}
+                    onClick={() => commitDiscreteChange({ transitionAxis: 'horizontal' })}
                   >
                     Horizontal
                   </button>
                   <button 
                     className={`${styles.segmentButton} ${selectedItem.transitionAxis === 'vertical' ? styles.segmentActive : ''}`}
-                    onClick={() => handleUpdates({ transitionAxis: 'vertical' })}
+                    onClick={() => commitDiscreteChange({ transitionAxis: 'vertical' })}
                   >
                     Vertical
                   </button>
@@ -350,7 +348,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
                     <button 
                       key={dir}
                       className={`${styles.segmentButton} ${selectedItem.transitionDirection === dir ? styles.segmentActive : ''}`}
-                      onClick={() => handleUpdates({ transitionDirection: dir })}
+                      onClick={() => commitDiscreteChange({ transitionDirection: dir })}
                     >
                       {dir.charAt(0).toUpperCase() + dir.slice(1)}
                     </button>
@@ -373,14 +371,14 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
                       key={preset.color}
                       className={`${styles.colorChip} ${selectedItem.transitionColor === preset.color ? styles.chipActive : ''}`}
                       style={{ backgroundColor: preset.color }}
-                      onClick={() => handleUpdates({ transitionColor: preset.color })}
+                      onClick={() => commitDiscreteChange({ transitionColor: preset.color })}
                       title={preset.name}
                     />
                   ))}
                   <input 
                     type="color" 
                     value={selectedItem.transitionColor || '#FFFFFF'} 
-                    onChange={(e) => handleUpdates({ transitionColor: e.target.value })}
+                    onChange={(e) => commitDiscreteChange({ transitionColor: e.target.value })}
                     className={styles.colorPicker}
                   />
                 </div>
@@ -400,11 +398,11 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
                   step="0.01"
                   value={displayIntensity}
                   className={styles.durationSlider}
+                  onPointerDown={intensitySliderHistory}
                   onInput={(e) => {
                     const val = parseFloat((e.target as HTMLInputElement).value)
                     handleSliderUpdate({ zoomIntensity: val }, setLocalIntensity)
                   }}
-                  onChange={handleSliderCommit}
                 />
               </div>
             )}

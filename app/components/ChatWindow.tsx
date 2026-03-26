@@ -17,6 +17,7 @@ import { TextClass } from '@/app/models/TextClass'
 import { EffectClass } from '@/app/models/EffectClass'
 import { ImageClass, AnimationMode, TransitionMode } from '@/app/models/ImageClass'
 import { computeCropForAspect, computeImageDimensions, ASPECT_RATIOS, computeVideoDimensions, computeVideoCropForAspect, computeMediaCropForAspect } from '@/app/lib/mediaUtils'
+import { findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
 import styles from './ChatWindow.module.css'
 
 interface Message {
@@ -138,12 +139,9 @@ export default function ChatWindow() {
 
   const applyNewTexts = (newTexts: AddTextInstruction[]) => {
     for (const t of newTexts) {
-      addText(new TextClass(
-        `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        t.content,
-        t.startTime,
-        t.endTime,
-      ))
+      const id = `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      const row = findFreeVisualOverlayRow(t.startTime, t.endTime)
+      addText(new TextClass(id, t.content, t.startTime, t.endTime).copy({ row }))
     }
   }
 

@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useSliderHistorySession } from '@/app/hooks/useSliderHistorySession'
 import { useManifestStore } from '@/app/stores/manifestStore'
-import { useSelectionStore } from '@/app/stores/selectionStore'
 import styles from './SpeedPanel.module.css'
 
 interface Props {
@@ -30,11 +30,10 @@ const PRESETS: SpeedPreset[] = [
 export default function SpeedPanel({ onClose, itemId }: Props) {
   const videos = useManifestStore((s) => s.videos)
   const audios = useManifestStore((s) => s.audios)
-  const updateVideo = useManifestStore((s) => s.updateVideo)
-  const updateAudio = useManifestStore((s) => s.updateAudio)
-  const pushHistory = useManifestStore((s) => s.pushHistory)
-
   const setItemPlaybackSpeed = useManifestStore((s) => s.setItemPlaybackSpeed)
+
+  const speedStartSliderHistory = useSliderHistorySession()
+  const speedEndSliderHistory = useSliderHistorySession()
 
   const video = videos.find((v) => v.id === itemId)
   const audio = audios.find((a) => a.id === itemId)
@@ -144,6 +143,7 @@ export default function SpeedPanel({ onClose, itemId }: Props) {
               step="0.05"
               value={speedStart}
               className={styles.slider}
+              onPointerDown={speedStartSliderHistory}
               onChange={(e) => handleManualChange('start', parseFloat(e.target.value))}
             />
           </div>
@@ -160,6 +160,7 @@ export default function SpeedPanel({ onClose, itemId }: Props) {
               step="0.05"
               value={speedEnd}
               className={styles.slider}
+              onPointerDown={speedEndSliderHistory}
               onChange={(e) => handleManualChange('end', parseFloat(e.target.value))}
             />
           </div>

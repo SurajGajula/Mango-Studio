@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
+import { useSliderHistorySession } from '@/app/hooks/useSliderHistorySession'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { EffectClass, type EffectType } from '@/app/models/EffectClass'
@@ -59,6 +60,8 @@ export default function EffectsPanel({ onClose }: Props) {
   }, [effects, selectedEffectId, playbackTime])
 
   const activeType: EffectType | null = activeEffect?.type ?? null
+
+  const intensitySliderHistory = useSliderHistorySession()
 
   const findFreeRow = (
     items: Array<{ startTime: number; endTime: number; row: number }>,
@@ -137,6 +140,7 @@ export default function EffectsPanel({ onClose }: Props) {
               max="1"
               step="0.01"
               value={activeEffect.intensity ?? 0.5}
+              onPointerDown={intensitySliderHistory}
               onChange={handleIntensityChange}
               className={styles.durationSlider}
             />

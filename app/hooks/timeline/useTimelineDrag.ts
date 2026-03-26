@@ -3,6 +3,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 const MOVE_HOLD_MS = 280
 const HOLD_PREVIEW_MOVE_SLOP_PX = 8
 import { snapToMarkers } from '@/app/lib/snapToMarkers'
+import { findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
@@ -91,6 +92,7 @@ export function useTimelineDrag({
   const audioTrimRef = useRef<any>(null)
   const audioBodyDragRef = useRef<any>(null)
   const imageDragRef = useRef<any>(null)
+  const timelineHandleHistoryPausedRef = useRef(false)
   const overlayVideoDragRef = useRef<any>(null)
   const textDragRef = useRef<any>(null)
   const effectDragRef = useRef<any>(null)
@@ -102,6 +104,17 @@ export function useTimelineDrag({
     () => () => {
       holdMoveCleanupRef.current?.()
       holdMoveCleanupRef.current = null
+    },
+    []
+  )
+
+  useEffect(
+    () => () => {
+      if (!timelineHandleHistoryPausedRef.current) return
+      const st = useManifestStore.getState()
+      st.resumeHistory()
+      timelineHandleHistoryPausedRef.current = false
+      st.pushHistory()
     },
     []
   )
@@ -312,6 +325,15 @@ export function useTimelineDrag({
         }
       }
 
+      if (
+        !lockTargetRowToInitial &&
+        (itemType === 'text' || itemType === 'effect') &&
+        targetRow === 0
+      ) {
+        targetRow = findFreeVisualOverlayRow(targetTime, targetTime + duration)
+        isInsertion = false
+      }
+
       const myStart = targetTime
       const myEnd = targetTime + duration
       const threshold = 0.01
@@ -475,6 +497,8 @@ export function useTimelineDrag({
     const video = videos.find((v) => v.id === videoId)
     if (!video || !timelineRowRef.current) return
     const rect = timelineRowRef.current.getBoundingClientRect()
+    useManifestStore.getState().pauseHistory()
+    timelineHandleHistoryPausedRef.current = true
     setTrimDragging({ videoId, handle })
     trimStartRef.current = {
       trimStart: video.trimStart,
@@ -534,6 +558,10 @@ export function useTimelineDrag({
   const handleTrimEnd = useCallback(() => {
     setTrimDragging(null)
     trimStartRef.current = null
+    if (timelineHandleHistoryPausedRef.current) {
+      useManifestStore.getState().resumeHistory()
+      timelineHandleHistoryPausedRef.current = false
+    }
     pushHistory()
   }, [pushHistory])
 
@@ -543,6 +571,8 @@ export function useTimelineDrag({
     const audioItem = audios.find((a) => a.id === audioId)
     if (!audioItem || !timelineRowRef.current) return
     const rect = timelineRowRef.current.getBoundingClientRect()
+    useManifestStore.getState().pauseHistory()
+    timelineHandleHistoryPausedRef.current = true
     setAudioTrimDragging({ audioId, handle })
     const playbackSpeed = audioItem.playbackSpeed ?? 1
     audioTrimRef.current = {
@@ -598,6 +628,10 @@ export function useTimelineDrag({
   const handleAudioTrimEnd = useCallback(() => {
     setAudioTrimDragging(null)
     audioTrimRef.current = null
+    if (timelineHandleHistoryPausedRef.current) {
+      useManifestStore.getState().resumeHistory()
+      timelineHandleHistoryPausedRef.current = false
+    }
     pushHistory()
   }, [pushHistory])
 
@@ -655,6 +689,10 @@ export function useTimelineDrag({
   const handleAudioBodyDragEnd = useCallback(() => {
     setAudioBodyDragging(null)
     audioBodyDragRef.current = null
+    if (timelineHandleHistoryPausedRef.current) {
+      useManifestStore.getState().resumeHistory()
+      timelineHandleHistoryPausedRef.current = false
+    }
     pushHistory()
   }, [pushHistory])
 
@@ -681,6 +719,8 @@ export function useTimelineDrag({
       e.preventDefault()
       const image = images.find((o) => o.id === imageId)
       if (!image || !timelineRowRef.current) return
+      useManifestStore.getState().pauseHistory()
+      timelineHandleHistoryPausedRef.current = true
       setImageDragging({ imageId, handle })
       imageDragRef.current = {
         initialMouseX: e.clientX,
@@ -740,6 +780,10 @@ export function useTimelineDrag({
   const handleImageDragEnd = useCallback(() => {
     setImageDragging(null)
     imageDragRef.current = null
+    if (timelineHandleHistoryPausedRef.current) {
+      useManifestStore.getState().resumeHistory()
+      timelineHandleHistoryPausedRef.current = false
+    }
     pushHistory()
   }, [pushHistory])
 
@@ -817,6 +861,8 @@ export function useTimelineDrag({
       e.preventDefault()
       const text = texts.find((t) => t.id === textId)
       if (!text || !timelineRowRef.current) return
+      useManifestStore.getState().pauseHistory()
+      timelineHandleHistoryPausedRef.current = true
       setTextDragging({ textId, handle })
       textDragRef.current = {
         initialMouseX: e.clientX,
@@ -879,6 +925,10 @@ export function useTimelineDrag({
   const handleTextDragEnd = useCallback(() => {
     setTextDragging(null)
     textDragRef.current = null
+    if (timelineHandleHistoryPausedRef.current) {
+      useManifestStore.getState().resumeHistory()
+      timelineHandleHistoryPausedRef.current = false
+    }
     pushHistory()
   }, [pushHistory])
 
@@ -905,6 +955,8 @@ export function useTimelineDrag({
       e.preventDefault()
       const effect = useManifestStore.getState().effects.find((f) => f.id === effectId)
       if (!effect || !timelineRowRef.current) return
+      useManifestStore.getState().pauseHistory()
+      timelineHandleHistoryPausedRef.current = true
       setEffectDragging({ effectId, handle })
       effectDragRef.current = {
         initialMouseX: e.clientX,
@@ -962,6 +1014,10 @@ export function useTimelineDrag({
   const handleEffectDragEnd = useCallback(() => {
     setEffectDragging(null)
     effectDragRef.current = null
+    if (timelineHandleHistoryPausedRef.current) {
+      useManifestStore.getState().resumeHistory()
+      timelineHandleHistoryPausedRef.current = false
+    }
     pushHistory()
   }, [pushHistory])
 

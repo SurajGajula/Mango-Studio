@@ -149,7 +149,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     setIsPlaying,
   })
 
-  const { handleFileSelect, findFreeRow } = useTimelineMedia({
+  const { handleFileSelect } = useTimelineMedia({
     videos,
     images,
     playbackTime,
@@ -190,14 +190,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     const id = `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
     const start = playbackTime
     const end = start + 5
-    let row = findFreeRow(
-      texts.map((t) => ({ startTime: t.startTime, endTime: t.endTime, row: t.row })),
-      start,
-      end
-    )
-    if (row > 0) {
-      row = findFreeVisualOverlayRow(start, end)
-    }
+    const row = findFreeVisualOverlayRow(start, end)
     const logicalW = aspectRatio === '16:9' ? 1920 : 1080
     const logicalH = aspectRatio === '16:9' ? 1080 : 1920
     const baseFontSize = 96
