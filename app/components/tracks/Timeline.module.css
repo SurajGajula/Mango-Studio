@@ -1,0 +1,1252 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: #0f0f0f;
+  border-top: 1px solid #333333;
+}
+
+.content {
+  flex: 1;
+  overflow: hidden;
+  padding: 0.4rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.emptyState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  width: 100%;
+  height: 100%;
+  color: #888888;
+  flex-wrap: wrap;
+}
+
+.emptyState p {
+  margin: 0;
+}
+
+.uploadVideoButton {
+  background: none;
+  border: none;
+  color: #aaaaaa;
+  font-size: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.uploadVideoButton:hover {
+  color: #ffffff;
+}
+
+.timelineWrapper {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  gap: 0.4rem;
+}
+
+.playbackControls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.playButton {
+  padding: 0.25rem;
+  background-color: #ffffff;
+  color: #0f0f0f;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  cursor: pointer;
+  font-weight: 500;
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.playButton:hover {
+  background-color: #e0e0e0;
+}
+
+.speedButton {
+  padding: 0 0.4rem;
+  height: 2rem;
+  min-width: 2.5rem;
+  background-color: #333333;
+  color: #cccccc;
+  border: 1px solid #444444;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-family: monospace;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.speedButton:hover {
+  background-color: #444444;
+  color: #ffffff;
+  border-color: #666666;
+}
+
+.timeDisplay {
+  font-size: 0.875rem;
+  color: #ffffff;
+  font-family: monospace;
+  flex: 1;
+}
+
+.historyButton {
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 4px;
+  background-color: #333333;
+  color: #888888;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.historyButton:hover:not(:disabled) {
+  background-color: #444444;
+  color: #ffffff;
+}
+
+.historyButton:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.transitionsButton {
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 4px;
+  background-color: #333333;
+  color: #888888;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.transitionsButton:hover:not(:disabled) {
+  background-color: #444444;
+  color: #ffffff;
+}
+
+.transitionsButton:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.cropMenuWrapper {
+  position: relative;
+}
+
+.cropButton {
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 4px;
+  background-color: #333333;
+  color: #888888;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.cropButton:hover:not(:disabled) {
+  background-color: #444444;
+  color: #ffffff;
+}
+
+.cropButton:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.cropMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 100;
+  background-color: #1e1e1e;
+  border: 1px solid #333333;
+  border-radius: 6px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 5rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
+.cropMenuItem {
+  padding: 0.35rem 0.65rem;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: #cccccc;
+  font-size: 0.75rem;
+  font-weight: 500;
+  font-family: monospace;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.12s ease, color 0.12s ease;
+  white-space: nowrap;
+}
+
+.cropMenuItem:hover {
+  background-color: #2e2e2e;
+  color: #ffffff;
+}
+
+.cropMenuItemActive {
+  background-color: #0d1f35;
+  color: #4a9eff;
+}
+
+.cropMenuItemActive:hover {
+  background-color: #0d2a4a;
+  color: #6ab4ff;
+}
+
+.deleteButton {
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 4px;
+  background-color: #333333;
+  color: #888888;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.deleteButton:hover:not(:disabled) {
+  background-color: #4a1a1a;
+  color: #ff6b6b;
+}
+
+.deleteButton:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.splitButton {
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 4px;
+  background-color: #333333;
+  color: #888888;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.splitButton:hover:not(:disabled) {
+  background-color: #444444;
+  color: #ffffff;
+}
+
+.splitButton:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.addTextButton {
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 4px;
+  background-color: #333333;
+  color: #888888;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 0.85rem;
+  transition: all 0.15s ease;
+}
+
+.addTextButton:hover:not(:disabled) {
+  background-color: #444444;
+  color: #ffffff;
+}
+
+.addTextButton:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.exportButton {
+  padding: 0.5rem 1rem;
+  background-color: #2a2a2a;
+  color: #ffffff;
+  border: 1px solid #444444;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.exportButton:hover:not(:disabled) {
+  background-color: #3a3a3a;
+  border-color: #555555;
+}
+
+.exportButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.exportProgressWrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.exportProgress {
+  position: relative;
+  flex: 1;
+  height: 24px;
+  background-color: #1a1a1a;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.exportCancelBtn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #aaa;
+  font-size: 0.65rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+}
+
+.exportCancelBtn:hover {
+  background: #3a1a1a;
+  border-color: #c44;
+  color: #f66;
+}
+
+.exportProgressBar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  background-color: #4a9eff;
+  transition: width 0.2s ease;
+}
+
+.exportProgressText {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  color: #ffffff;
+  z-index: 1;
+}
+
+.timelineRowContainer {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.playheadLine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  background-color: #ffffff;
+  z-index: 30;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.playheadLine::before {
+  content: '';
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 10px solid #ffffff;
+}
+
+.scrollContainer {
+  flex: 1;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: auto;
+  position: relative;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scrollContainer::-webkit-scrollbar {
+  display: none;
+}
+
+.timelineContent {
+  min-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding-bottom: 0.5rem;
+  position: relative;
+  user-select: none;
+}
+
+.addOverlayButton {
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 4px;
+  background-color: #333333;
+  color: #888888;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.addOverlayButton:hover {
+  background-color: #444444;
+  color: #ffffff;
+}
+
+.overlayRow {
+  position: relative;
+  height: 40px;
+  min-height: 40px;
+  background-color: transparent;
+}
+
+.overlayRowBackground {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background-color: #1a1a1a;
+  border-radius: 4px;
+}
+
+.effectRow {
+  position: relative;
+  height: 40px;
+  min-height: 40px;
+  background-color: transparent;
+}
+
+.effectRowBackground {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background-color: #1a1a1a;
+  border-radius: 4px;
+}
+
+.textRow {
+  position: relative;
+  height: 40px;
+  min-height: 40px;
+  background-color: transparent;
+}
+
+.textRowBackground {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background-color: #1a1a1a;
+  border-radius: 4px;
+}
+
+.overlayItem {
+  position: absolute;
+  height: 100%;
+  cursor: move;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid #444444;
+  background-color: #2a2a2a;
+  transition: border-color 0.15s ease;
+  user-select: none;
+}
+
+.overlayItem:hover {
+  border-color: #666666;
+}
+
+.overlayItem.selected {
+  border-color: #ffffff;
+  z-index: 10;
+}
+
+.effectItem {
+  position: absolute;
+  height: 100%;
+  cursor: move;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid #6b4a9e;
+  background-color: #3b2a5a;
+  transition: border-color 0.15s ease;
+  user-select: none;
+}
+
+.effectItem:hover {
+  border-color: #8b6ac4;
+}
+
+.effectItem.selected {
+  border-color: #ffffff;
+  z-index: 10;
+}
+
+.effectItem:hover .overlayHandleStart,
+.effectItem:hover .overlayHandleEnd,
+.effectItem.selected .overlayHandleStart,
+.effectItem.selected .overlayHandleEnd {
+  opacity: 1;
+}
+
+.effectItem .overlayHandleStart,
+.effectItem .overlayHandleEnd {
+  background-color: #ffffff;
+}
+
+.effectItem .overlayHandleStart::after,
+.effectItem .overlayHandleEnd::after {
+  background-color: #3b2a5a;
+}
+
+.effectBox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem;
+  height: 100%;
+  overflow: hidden;
+}
+
+.effectIcon {
+  height: 16px;
+  width: 16px;
+  color: #c4b5fd;
+  flex-shrink: 0;
+}
+
+.effectName {
+  font-size: 0.65rem;
+  color: #ddd6fe;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+}
+
+.overlayBox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem;
+  height: 100%;
+  overflow: hidden;
+}
+
+.overlayThumbnail {
+  height: 100%;
+  width: auto;
+  object-fit: cover;
+  border-radius: 2px;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+.overlayName {
+  font-size: 0.65rem;
+  color: #cccccc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+}
+
+.overlayHandleStart,
+.overlayHandleEnd {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  background-color: #ffffff;
+  cursor: ew-resize;
+  z-index: 15;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.overlayItem:hover .overlayHandleStart,
+.overlayItem:hover .overlayHandleEnd,
+.overlayItem.selected .overlayHandleStart,
+.overlayItem.selected .overlayHandleEnd {
+  opacity: 1;
+}
+
+.overlayHandleStart {
+  left: 0;
+  border-radius: 0;
+}
+
+.overlayHandleEnd {
+  right: 0;
+  border-radius: 0;
+}
+
+.overlayHandleStart:hover,
+.overlayHandleEnd:hover {
+  background-color: #ffffff;
+}
+
+.overlayHandleStart::after,
+.overlayHandleEnd::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 20px;
+  background-color: #000000;
+  border-radius: 1px;
+}
+
+.transitionButton {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background-color: #2a2a2a;
+  border: 1px solid #444444;
+  color: #888888;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 20;
+  transition: all 0.15s ease;
+}
+
+.transitionButton:hover {
+  background-color: #3a3a3a;
+  color: #ffffff;
+  border-color: #666666;
+  transform: translate(-50%, -50%) scale(1.1);
+}
+
+.transitionButton svg {
+  pointer-events: none;
+}
+
+.timelineRow {
+  position: relative;
+  height: 40px;
+  min-height: 40px;
+  width: 100%;
+}
+
+
+.timelineItem {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: #000000;
+  border: 1px solid #333333;
+  cursor: pointer;
+  transition: border-color 0.2s;
+  overflow: visible;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 5;
+  user-select: none;
+}
+
+.timelineItem:hover {
+  border-color: #ffffff;
+}
+
+.timelineItem.selected {
+  border: 2px solid #ffffff;
+  z-index: 10;
+}
+
+.timelineItem.trimmed {
+  background-color: #1a1a2e;
+}
+
+.trimHandleStart,
+.trimHandleEnd {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  background-color: #ffffff;
+  cursor: ew-resize;
+  z-index: 25;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.timelineItem.selected .trimHandleStart,
+.timelineItem.selected .trimHandleEnd {
+  opacity: 1;
+}
+
+.trimHandleStart {
+  left: -2px;
+  border-radius: 4px 0 0 4px;
+}
+
+.trimHandleEnd {
+  right: -2px;
+  border-radius: 0 4px 4px 0;
+}
+
+.trimHandleStart:hover,
+.trimHandleEnd:hover {
+  background-color: #ffffff;
+}
+
+.trimHandleStart::after,
+.trimHandleEnd::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 24px;
+  background-color: #000000;
+  border-radius: 1px;
+}
+
+.videoBox {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  background-color: #000000;
+}
+
+.thumbnailStrip {
+  display: flex;
+  flex-wrap: nowrap;
+  height: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+.thumbnail {
+  height: 100%;
+  width: auto;
+  object-fit: cover;
+  flex-shrink: 0;
+  flex-grow: 0;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+.videoOverlayText {
+  position: absolute;
+  bottom: 2px;
+  left: 12px;
+  right: 12px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.trimBadge {
+  display: inline-block;
+  font-size: 0.625rem;
+  color: #ffffff;
+  user-select: none;
+  background-color: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.title {
+  color: #ffffff;
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  user-select: none;
+}
+
+
+.replaceButton {
+  position: absolute;
+  top: 2px;
+  right: 14px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background-color: rgba(0, 0, 0, 0.6);
+  color: #888888;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 16;
+  transition: all 0.15s ease;
+}
+
+.replaceButton:hover {
+  background-color: rgba(0, 0, 0, 0.8);
+  color: #ffffff;
+}
+
+.replaceButton.active {
+  background-color: #ffffff;
+  color: #000000;
+}
+
+.audioRow {
+  position: relative;
+  height: 40px;
+  min-height: 40px;
+  background: transparent;
+  overflow: hidden;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.audioRowBackground {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: #111111;
+  border-bottom: 1px solid #222222;
+}
+
+.audioRowSelected {
+  border: 1px solid rgba(255, 64, 129, 0.6);
+  box-shadow: inset 0 0 0 1px rgba(255, 64, 129, 0.2);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.audioCanvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.beatMarker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background-color: rgba(255, 255, 255, 0.45);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.quarterBeatMarker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background-color: rgba(255, 255, 255, 0.15);
+  pointer-events: none;
+  z-index: 4;
+}
+
+.dropMarker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background-color: #ff4081;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.audioTrimHandleStart,
+.audioTrimHandleEnd {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  transform: translateX(-50%);
+  background-color: #ffffff;
+  cursor: ew-resize;
+  z-index: 15;
+  opacity: 0.85;
+  transition: opacity 0.15s ease;
+}
+
+.audioTrimHandleStart:hover,
+.audioTrimHandleEnd:hover {
+  opacity: 1;
+  background-color: #ffffff;
+}
+
+.audioTrimHandleStart::after,
+.audioTrimHandleEnd::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 24px;
+  background-color: #000000;
+  border-radius: 1px;
+}
+
+.userMarkMarker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background-color: #facc15;
+  pointer-events: none;
+  z-index: 11;
+  box-shadow: 0 0 4px rgba(250, 204, 21, 0.6);
+}
+
+.clearMarksButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.5rem;
+  height: 2rem;
+  background: rgba(250, 204, 21, 0.12);
+  border: 1px solid rgba(250, 204, 21, 0.4);
+  border-radius: 4px;
+  color: #facc15;
+  font-size: 0.75rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.clearMarksButton:hover {
+  background: rgba(250, 204, 21, 0.22);
+}
+
+.chorusRegion {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(100, 180, 255, 0.12);
+  border-left: 1px solid rgba(100, 180, 255, 0.5);
+  border-right: 1px solid rgba(100, 180, 255, 0.5);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.graphCycleButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 4px;
+  background-color: #1e1e1e;
+  color: #4a9eff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.graphCycleButton:hover {
+  background-color: #2a2a2a;
+}
+
+.analyzingBadge {
+  font-size: 0.7rem;
+  color: #888888;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.muteButton {
+  background: none;
+  border: none;
+  color: #aaaaaa;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease;
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.muteButton:hover {
+  color: #ffffff;
+}
+
+.muteButtonMain {
+  position: absolute;
+  top: 6px;
+  right: 12px;
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  color: #ffffff;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  z-index: 20;
+}
+
+.muteButtonMain:hover {
+  background: rgba(0, 0, 0, 0.8);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.contextMenu {
+  position: fixed;
+  z-index: 1000;
+  background-color: #1e1e1e;
+  border: 1px solid #333333;
+  border-radius: 6px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 160px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  animation: contextMenuFadeIn 0.1s ease-out;
+}
+
+.contextSubMenu {
+  position: absolute;
+  top: -5px;
+  left: 100%;
+  margin-left: 4px;
+  background-color: #1e1e1e;
+  border: 1px solid #333333;
+  border-radius: 6px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 100px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  z-index: 1001;
+}
+
+@keyframes contextMenuFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.contextMenuItem {
+  padding: 0.5rem 0.75rem;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: #cccccc;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  text-align: left;
+  transition: background-color 0.12s ease, color 0.12s ease;
+  white-space: nowrap;
+}
+
+.contextMenuItem:hover {
+  background-color: #2e2e2e;
+  color: #ffffff;
+}
+
+.contextMenuItem:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.contextMenuItemDanger {
+  color: #ff6b6b;
+}
+
+.contextMenuItemDanger:hover {
+  background-color: #4a1a1a;
+  color: #ff8e8e;
+}
+
+.contextMenuSeparator {
+  height: 1px;
+  background-color: #333333;
+  margin: 4px 0;
+}
+
+.contextMenuIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.contextMenuSliderItem {
+  padding: 0.5rem 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  transition: background-color 0.12s ease;
+}
+
+.contextMenuSliderItem:hover {
+  background-color: #2e2e2e;
+}
+
+.contextMenuSlider {
+  flex: 1;
+  height: 4px;
+  -webkit-appearance: none;
+  background: #444;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.contextMenuSlider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  background: #ffffff;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.contextMenuSlider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  background: #ffffff;
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+}
+
+.dragPreview {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0.5;
+  z-index: 100;
+  border: 1px dashed #ffffff;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  color: white;
+  text-transform: capitalize;
+  user-select: none;
+}
+
+.insertionIndicator {
+  position: absolute;
+  height: 2px;
+  background-color: #4a9eff;
+  z-index: 101;
+  pointer-events: none;
+  border-radius: 2px;
+  box-shadow: 0 0 8px rgba(74, 158, 255, 0.8);
+}
+
+.draggingActive .overlayItem,
+.draggingActive .timelineItem,
+.draggingActive .audioRowBackground,
+.draggingActive .audioRow,
+.draggingActive .overlayRow,
+.draggingActive .timelineRow,
+.draggingActive .transitionButton,
+.draggingActive .addOverlayButton,
+.draggingActive .addTextButton {
+  pointer-events: none !important;
+}

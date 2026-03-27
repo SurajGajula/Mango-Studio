@@ -8,7 +8,7 @@
 .content {
   flex: 1;
   overflow: hidden;
-  padding: 1rem;
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -18,14 +18,144 @@
 .videoContainer {
   width: 100%;
   height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative;
 }
 
 .video {
   display: block;
   background-color: #000000;
+}
+
+.canvasWrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.overlayLayer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.imageOverlay {
+  position: absolute;
+  pointer-events: auto;
+  box-sizing: border-box;
+  border: 2px solid transparent;
+}
+
+.imageOverlay.selected {
+  border-color: #ffffff;
+  cursor: move;
+}
+
+.imageOverlay:not(.selected) {
+  cursor: pointer;
+}
+
+.snapLineVertical {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background-color: #ff4081;
+  pointer-events: none;
+  z-index: 100;
+}
+
+.snapLineHorizontal {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background-color: #ff4081;
+  pointer-events: none;
+  z-index: 100;
+}
+
+.textOverlay {
+  position: absolute;
+  pointer-events: auto;
+  cursor: move;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: none;
+  z-index: 50;
+  line-height: 1.2;
+  padding: 0;
+  border-radius: 2px;
+  border: 1px solid transparent;
+  transition: border-color 0.15s ease;
+  text-shadow:
+    -0.04em -0.04em 0.08em rgba(0,0,0,0.8),
+     0.04em -0.04em 0.08em rgba(0,0,0,0.8),
+    -0.04em  0.04em 0.08em rgba(0,0,0,0.8),
+     0.04em  0.04em 0.08em rgba(0,0,0,0.8);
+}
+
+.textOverlay:hover {
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.textOverlaySelected {
+  border-color: #ffffff;
+  border-style: dashed;
+}
+
+.textResizeHandle {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 6px;
+  height: 28px;
+  background-color: #ffffff;
+  border: 2px solid #000000;
+  border-radius: 2px;
+  pointer-events: auto;
+  cursor: ew-resize;
+  z-index: 60;
+}
+
+.textResizeHandle:hover {
+  background-color: #e0e0e0;
+}
+
+.textResizeHandleLeft {
+  left: -4px;
+}
+
+.textResizeHandleRight {
+  right: -4px;
+}
+
+.textEditArea {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  field-sizing: content;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: inherit;
+  font-size: inherit;
+  font-family: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  text-align: inherit;
+  resize: none;
+  cursor: text;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  vertical-align: top;
+  text-shadow:
+    -0.04em -0.04em 0.08em rgba(0,0,0,0.8),
+     0.04em -0.04em 0.08em rgba(0,0,0,0.8),
+    -0.04em  0.04em 0.08em rgba(0,0,0,0.8),
+     0.04em  0.04em 0.08em rgba(0,0,0,0.8);
 }
 
 .previewContent {

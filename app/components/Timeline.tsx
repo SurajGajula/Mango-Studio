@@ -1,324 +1,476 @@
 'use client'
 
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
-import { exportVideo, downloadBlob, ExportProgress } from '@/app/lib/videoExporter'
-import styles from './Timeline.module.css'
+import { useSelectionStore } from '@/app/stores/selectionStore'
+import { useAudioStore } from '@/app/stores/audioStore'
+import { TextClass } from '@/app/models/TextClass'
+import { formatTime } from '@/app/lib/timeUtils'
+import { findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
+import VideoReplaceModal from './modals/VideoReplaceModal'
+import PlaybackControls from './PlaybackControls'
+import UnifiedRow from './tracks/UnifiedRow'
+import AudioTrack from './tracks/AudioTrack'
+import MainTrack from './tracks/MainTrack'
+import ContextMenu from './ui/ContextMenu'
+import { useTimelineShortcuts } from '@/app/hooks/useTimelineShortcuts'
+import { useTimelineScroll } from '@/app/hooks/timeline/useTimelineScroll'
+import { useVideoThumbnails } from '@/app/hooks/timeline/useVideoThumbnails'
+import { useTimelineExport } from '@/app/hooks/timeline/useTimelineExport'
+import { useTimelineMedia } from '@/app/hooks/timeline/useTimelineMedia'
+import { useTimelineReplace } from '@/app/hooks/timeline/useTimelineReplace'
+import { useTimelineDrag } from '@/app/hooks/timeline/useTimelineDrag'
+import styles from './tracks/Timeline.module.css'
 
-type TrimHandle = 'start' | 'end' | null
+interface TimelineProps {
+  onOpenTransitions?: (id: string) => void
+  onCloseTransitions?: () => void
+  onOpenAnimations?: (id?: string) => void
+  onOpenFont?: () => void
+  onOpenEffects?: () => void
+  onOpenSpeed?: (id: string) => void
+}
 
-export default function Timeline() {
+export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpenAnimations, onOpenFont, onOpenEffects, onOpenSpeed }: TimelineProps) {
   const videos = useManifestStore((state) => state.videos)
-  const selectedVideoId = useManifestStore((state) => state.selectedVideoId)
-  const setSelectedVideoId = useManifestStore((state) => state.setSelectedVideoId)
+  const images = useManifestStore((state) => state.images)
+  const texts = useManifestStore((state) => state.texts)
+  const audios = useManifestStore((state) => state.audios)
+  const effects = useManifestStore((state) => state.effects)
   const playbackTime = useManifestStore((state) => state.playbackTime)
   const isPlaying = useManifestStore((state) => state.isPlaying)
+  const aspectRatio = useManifestStore((state) => state.aspectRatio)
+  
+  const setSelectedVideoId = useSelectionStore((state) => state.setSelectedVideoId)
+  const setSelectedImageId = useSelectionStore((state) => state.setSelectedImageId)
+  const setSelectedTextId = useSelectionStore((state) => state.setSelectedTextId)
+  const setSelectedAudioId = useSelectionStore((state) => state.setSelectedAudioId)
+  const setSelectedEffectId = useSelectionStore((state) => state.setSelectedEffectId)
+  const selectedAudioId = useSelectionStore((state) => state.selectedAudioId)
+  const selectedEffectId = useSelectionStore((state) => state.selectedEffectId)
+
+  const addVideo = useManifestStore((state) => state.addVideo)
+  const updateVideo = useManifestStore((state) => state.updateVideo)
+  const addImage = useManifestStore((state) => state.addImage)
+  const updateImage = useManifestStore((state) => state.updateImage)
+  const addText = useManifestStore((state) => state.addText)
+  const updateText = useManifestStore((state) => state.updateText)
+  const updateEffect = useManifestStore((state) => state.updateEffect)
   const setPlaybackTime = useManifestStore((state) => state.setPlaybackTime)
   const setIsPlaying = useManifestStore((state) => state.setIsPlaying)
   const getTotalDuration = useManifestStore((state) => state.getTotalDuration)
   const trimVideo = useManifestStore((state) => state.trimVideo)
-  const aspectRatio = useManifestStore((state) => state.aspectRatio)
-  const timelineRef = useRef<HTMLDivElement>(null)
+  const replaceImageWithVideo = useManifestStore((state) => state.replaceImageWithVideo)
+  const replaceVideoWithImage = useManifestStore((state) => state.replaceVideoWithImage)
+  const pushHistory = useManifestStore((state) => state.pushHistory)
+  const trimAudio = useManifestStore((state) => state.trimAudio)
+  const addAudioToManifest = useManifestStore((state) => state.addAudio)
+  const updateAudio = useManifestStore((state) => state.updateAudio)
+
+  const setAudio = useAudioStore((state) => state.setAudio)
+  const audioUrl = useAudioStore((state) => state.audioUrl)
   const timelineRowRef = useRef<HTMLDivElement>(null)
-  const [isDragging, setIsDragging] = useState(false)
-  const [isExporting, setIsExporting] = useState(false)
-  const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null)
-  const [trimDragging, setTrimDragging] = useState<{ videoId: string; handle: TrimHandle } | null>(null)
-  const trimStartRef = useRef<{
-    trimStart: number
-    trimEnd: number
-    originalDuration: number
-    initialMouseX: number
-    timelineWidth: number
-  } | null>(null)
-
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const uploadInputRef = useRef<HTMLInputElement>(null)
+  const replaceInputRef = useRef<HTMLInputElement>(null)
+  
   const totalDuration = getTotalDuration()
+  const MIN_VISIBLE = 0.5
+  const MAX_VISIBLE = 120
+  const [visibleDuration, setVisibleDuration] = useState(8)
+  const effectivePadding = visibleDuration / 2
+  const visibleDurationRef = useRef(8)
+  const totalTimelineWidth = totalDuration > 0 ? ((totalDuration + effectivePadding * 2) / visibleDuration) * 100 : 100
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = Math.floor(seconds % 60)
-    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+  const { handleScroll, isScrollingProgrammatically } = useTimelineScroll({
+    scrollContainerRef,
+    totalDuration,
+    effectivePadding,
+    isPlaying,
+    playbackTime,
+    setPlaybackTime,
+  })
+
+  const { videoThumbnails } = useVideoThumbnails(videos)
+
+  const {
+    activeDrag,
+    dragPreview,
+    holdDragPreview,
+    handleTrimStart,
+    handleAudioTrimStart,
+    handleAudioBodyDragStart,
+    handleImageDragStart,
+    handleOverlayVideoDragStart,
+    handleTextDragStart,
+    handleEffectDragStart
+  } = useTimelineDrag({
+    videos,
+    images,
+    texts,
+    audios,
+    totalDuration,
+    effectivePadding,
+    timelineRowRef,
+    setIsPlaying,
+    trimVideo,
+    updateImage,
+    updateVideo,
+    updateText,
+    updateEffect,
+    trimAudio,
+    moveItemToRow: useManifestStore.getState().moveItemToRow,
+    insertRow: useManifestStore.getState().insertRow,
+    deleteRow: useManifestStore.getState().deleteRow,
+    pushHistory,
+  })
+
+  const overlayRows = useMemo(() => {
+    const rows = new Set<number>()
+    videos.forEach(v => { if (v.row > 0) rows.add(v.row) })
+    images.forEach(img => { if (img.row > 0) rows.add(img.row) })
+    texts.forEach(t => { if (t.row > 0) rows.add(t.row) })
+    audios.forEach(a => { if (a.row > 0) rows.add(a.row) })
+    effects.forEach(e => { if (e.row > 0) rows.add(e.row) })
+    if (activeDrag && dragPreview && dragPreview.targetRow > 0 && !rows.has(dragPreview.targetRow)) {
+      rows.add(dragPreview.targetRow)
+    }
+    return Array.from(rows).sort((a, b) => b - a)
+  }, [videos, images, texts, audios, effects, activeDrag, dragPreview])
+
+  const { isExporting, exportProgress, handleExport, handleCancelExport, setExportProgress } = useTimelineExport({
+    videos,
+    aspectRatio,
+    images,
+    audioUrl,
+    texts,
+    audios,
+    effects,
+    setIsPlaying,
+  })
+
+  const { handleFileSelect } = useTimelineMedia({
+    videos,
+    images,
+    playbackTime,
+    aspectRatio,
+    addVideo,
+    addImage,
+    addAudioToManifest,
+    setAudio,
+    updateAudio,
+    audios,
+  })
+
+  const { replaceTargetId, setReplaceTargetId, replaceVideoData, setReplaceVideoData, isReplacingClip, handleReplaceSelect, handleConfirmReplaceVideo, handleVideoDoubleClick } = useTimelineReplace({
+    videos,
+    images,
+    replaceImageWithVideo,
+    replaceVideoWithImage,
+    updateVideo,
+    setExportProgress,
+  })
+
+  const getContentPosition = useCallback((time: number) => {
+    const timeWithPadding = time + effectivePadding
+    const totalWithPadding = totalDuration + effectivePadding * 2
+    if (totalWithPadding === 0) return 0
+    return (timeWithPadding / totalWithPadding) * 100
+  }, [effectivePadding, totalDuration])
+
+  const handleTimelineDeselect = useCallback(() => {
+    setSelectedVideoId(null)
+    setSelectedImageId(null)
+    setSelectedTextId(null)
+    setSelectedAudioId(null)
+    setSelectedEffectId(null)
+  }, [setSelectedVideoId, setSelectedImageId, setSelectedTextId, setSelectedAudioId, setSelectedEffectId])
+
+  const handleAddText = () => {
+    const id = `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    const start = playbackTime
+    const end = start + 5
+    const row = findFreeVisualOverlayRow(start, end)
+    const logicalW = aspectRatio === '16:9' ? 1920 : 1080
+    const logicalH = aspectRatio === '16:9' ? 1080 : 1920
+    const baseFontSize = 96
+    const textWidth = Math.round(logicalW * 0.4)
+    const fontSize = baseFontSize
+    const textLogicalHeight = fontSize * 1.2
+    const defaultX = Math.round((logicalW - textWidth) / 2)
+    const defaultY = Math.round((logicalH - textLogicalHeight) / 2)
+    addText(new TextClass(
+      id,
+      'Text',
+      start,
+      end,
+      defaultX,
+      defaultY,
+      textWidth,
+      undefined,
+      undefined,
+      fontSize,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined, // style
+      undefined, // createdAt
+      row
+    ))
   }
 
-  const getPlayheadPosition = () => {
-    if (totalDuration === 0) return 0
-    return (playbackTime / totalDuration) * 100
-  }
-
-  const seekToPosition = (clientX: number) => {
-    if (!timelineRef.current || totalDuration === 0) return
-    
-    const rect = timelineRef.current.getBoundingClientRect()
-    const x = clientX - rect.left
-    const percentage = Math.max(0, Math.min(1, x / rect.width))
-    const newTime = percentage * totalDuration
-    
-    setPlaybackTime(newTime)
-    
-    const videoAtTime = videos.find((video) => {
-      if (!video.duration) return false
-      return newTime >= video.timestamp && newTime <= video.timestamp + video.duration
+  const applyZoom = useCallback((newVisible: number) => {
+    visibleDurationRef.current = newVisible
+    isScrollingProgrammatically.current = true
+    setVisibleDuration(newVisible)
+    requestAnimationFrame(() => {
+      const container = scrollContainerRef.current
+      if (!container) return
+      const newPadding = newVisible / 2
+      const playTime = useManifestStore.getState().playbackTime
+      const dur = getTotalDuration()
+      const totalWithPadding = dur + newPadding * 2
+      const pct = totalWithPadding > 0 ? (playTime + newPadding) / totalWithPadding : 0
+      container.scrollLeft = Math.max(0, pct * container.scrollWidth - container.clientWidth / 2)
+      setTimeout(() => { isScrollingProgrammatically.current = false }, 50)
     })
-    
-    if (videoAtTime && videoAtTime.id !== selectedVideoId) {
-      setSelectedVideoId(videoAtTime.id)
-    }
-  }
+  }, [getTotalDuration, isScrollingProgrammatically])
 
-  const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    seekToPosition(e.clientX)
-  }
-
-  const handleMouseDown = () => {
-    setIsDragging(true)
-  }
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isDragging) return
-    seekToPosition(e.clientX)
-  }
-
-  const handleMouseUp = () => {
-    setIsDragging(false)
-  }
-
-  const handleExport = async () => {
-    if (isExporting || videos.length === 0) return
-
-    setIsPlaying(false)
-    setIsExporting(true)
-    setExportProgress({ phase: 'preparing', progress: 0, message: 'Starting export...' })
-
-    try {
-      const blob = await exportVideo(videos, aspectRatio, setExportProgress)
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-      downloadBlob(blob, `seedance-export-${timestamp}.webm`)
-    } catch (error) {
-      setExportProgress({
-        phase: 'error',
-        progress: 0,
-        message: error instanceof Error ? error.message : 'Export failed',
-      })
-    } finally {
-      setIsExporting(false)
-      setTimeout(() => setExportProgress(null), 3000)
-    }
-  }
-
-  const handleTrimStart = useCallback((videoId: string, handle: TrimHandle, e: React.MouseEvent) => {
-    e.stopPropagation()
-    e.preventDefault()
-    
-    const video = videos.find((v) => v.id === videoId)
-    if (!video || !timelineRowRef.current) return
-
-    const rect = timelineRowRef.current.getBoundingClientRect()
-    
-    setTrimDragging({ videoId, handle })
-    trimStartRef.current = {
-      trimStart: video.trimStart,
-      trimEnd: video.trimEnd,
-      originalDuration: video.originalDuration ?? video.duration ?? 0,
-      initialMouseX: e.clientX,
-      timelineWidth: rect.width,
-    }
-    setIsPlaying(false)
-  }, [videos, setIsPlaying])
-
-  const handleTrimMove = useCallback((e: MouseEvent) => {
-    if (!trimDragging || !timelineRowRef.current || !trimStartRef.current) return
-
-    const video = videos.find((v) => v.id === trimDragging.videoId)
-    if (!video) return
-
-    const { originalDuration, trimStart: initialTrimStart, trimEnd: initialTrimEnd, initialMouseX, timelineWidth } = trimStartRef.current
-    
-    const mouseDeltaX = e.clientX - initialMouseX
-    const mouseDeltaTime = (mouseDeltaX / timelineWidth) * totalDuration
-    
-    const minDuration = 0.5
-    const snapThreshold = 0.15
-
-    const currentPlaybackTime = useManifestStore.getState().playbackTime
-    const localPlaybackInVideo = currentPlaybackTime - video.timestamp + video.trimStart
-
-    if (trimDragging.handle === 'start') {
-      let newTrimStart = initialTrimStart + mouseDeltaTime
-      
-      if (Math.abs(newTrimStart - localPlaybackInVideo) < snapThreshold) {
-        newTrimStart = localPlaybackInVideo
-      }
-
-      const maxTrimStart = originalDuration - initialTrimEnd - minDuration
-      newTrimStart = Math.max(0, Math.min(newTrimStart, maxTrimStart))
-      
-      const frameTimeInOriginal = localPlaybackInVideo
-      
-      trimVideo(trimDragging.videoId, newTrimStart, initialTrimEnd)
-      
-      const updatedVideo = useManifestStore.getState().videos.find((v) => v.id === trimDragging.videoId)
-      if (updatedVideo && frameTimeInOriginal >= newTrimStart && frameTimeInOriginal <= originalDuration - initialTrimEnd) {
-        const newPlaybackTime = updatedVideo.timestamp + (frameTimeInOriginal - newTrimStart)
-        setPlaybackTime(Math.max(0, newPlaybackTime))
-      }
-    } else if (trimDragging.handle === 'end') {
-      let newTrimEnd = initialTrimEnd - mouseDeltaTime
-      
-      const playbackEndInOriginal = originalDuration - newTrimEnd
-      if (Math.abs(playbackEndInOriginal - localPlaybackInVideo) < snapThreshold) {
-        newTrimEnd = originalDuration - localPlaybackInVideo
-      }
-      
-      const maxTrimEnd = originalDuration - initialTrimStart - minDuration
-      newTrimEnd = Math.max(0, Math.min(newTrimEnd, maxTrimEnd))
-      
-      trimVideo(trimDragging.videoId, initialTrimStart, newTrimEnd)
-    }
-  }, [trimDragging, videos, totalDuration, trimVideo, setPlaybackTime])
-
-  const handleTrimEnd = useCallback(() => {
-    setTrimDragging(null)
-    trimStartRef.current = null
-  }, [])
+  useTimelineShortcuts({
+    replaceVideoData,
+    applyZoom,
+    visibleDurationRef,
+    MIN_VISIBLE,
+    MAX_VISIBLE,
+    selectedAudioId,
+    setSelectedAudioId,
+    uploadInputRef,
+  })
 
   useEffect(() => {
-    if (!isDragging) return
-
-    const handleGlobalMouseMove = (e: MouseEvent) => {
-      seekToPosition(e.clientX)
+    const handler = (e: WheelEvent) => {
+      if (replaceVideoData) return
+      const container = scrollContainerRef.current
+      if (!container || !container.contains(e.target as Node)) return
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault()
+        const factor = Math.exp(e.deltaY * 0.005)
+        const next = Math.max(MIN_VISIBLE, Math.min(MAX_VISIBLE, visibleDurationRef.current * factor))
+        applyZoom(next)
+      } else {
+        e.preventDefault()
+        if (!useManifestStore.getState().isPlaying) {
+          const delta = e.deltaX + e.deltaY
+          const atLeftEdge = container.scrollLeft === 0
+          container.scrollLeft += delta
+          if (atLeftEdge && delta < 0) {
+            useManifestStore.getState().setPlaybackTime(0)
+          }
+        }
+      }
     }
-
-    const handleGlobalMouseUp = () => {
-      setIsDragging(false)
-    }
-
-    document.addEventListener('mousemove', handleGlobalMouseMove)
-    document.addEventListener('mouseup', handleGlobalMouseUp)
-    
-    return () => {
-      document.removeEventListener('mousemove', handleGlobalMouseMove)
-      document.removeEventListener('mouseup', handleGlobalMouseUp)
-    }
-  }, [isDragging, totalDuration, videos, selectedVideoId])
-
-  useEffect(() => {
-    if (!trimDragging) return
-
-    document.addEventListener('mousemove', handleTrimMove)
-    document.addEventListener('mouseup', handleTrimEnd)
-
-    return () => {
-      document.removeEventListener('mousemove', handleTrimMove)
-      document.removeEventListener('mouseup', handleTrimEnd)
-    }
-  }, [trimDragging, handleTrimMove, handleTrimEnd])
+    document.addEventListener('wheel', handler, { passive: false })
+    return () => document.removeEventListener('wheel', handler)
+  }, [applyZoom, replaceVideoData])
 
   return (
     <div className={styles.container}>
+      {replaceVideoData && (
+        <VideoReplaceModal
+          videoUrl={replaceVideoData.url}
+          windowDuration={replaceVideoData.windowDuration}
+          videoDuration={replaceVideoData.duration}
+          playbackSpeed={replaceVideoData.playbackSpeed}
+          initialTrimStart={replaceVideoData.initialTrimStart}
+          projectStartTime={replaceVideoData.projectStartTime}
+          confirmLabel={replaceVideoData.targetType === 'image' ? 'Replace' : 'Update'}
+          isProcessing={isReplacingClip}
+          onConfirm={handleConfirmReplaceVideo}
+          onCancel={() => {
+            if (replaceVideoData.isNew) {
+              URL.revokeObjectURL(replaceVideoData.url)
+            }
+            setReplaceVideoData(null)
+            setReplaceTargetId(null)
+          }}
+        />
+      )}
       <div className={styles.content}>
-        {videos.length === 0 ? (
+        <input
+          ref={uploadInputRef}
+          type="file"
+          accept="video/*,image/*,audio/*"
+          multiple
+          onChange={handleFileSelect}
+          style={{ display: 'none' }}
+        />
+        <input
+          ref={replaceInputRef}
+          type="file"
+          accept="image/*,video/*"
+          onChange={handleReplaceSelect}
+          style={{ display: 'none' }}
+        />
+        {videos.length === 0 && images.length === 0 ? (
           <div className={styles.emptyState}>
-            <p>No videos yet. Generate a video in the chat to see it here.</p>
+            <p>No content yet. Generate a video in the chat or</p>
+            <button
+              className={styles.uploadVideoButton}
+              onClick={() => uploadInputRef.current?.click()}
+            >
+              upload a file
+            </button>
           </div>
         ) : (
           <div className={styles.timelineWrapper}>
-            <div className={styles.playbackControls}>
-              <button
-                className={styles.playButton}
-                onClick={() => setIsPlaying(!isPlaying)}
-                disabled={isExporting}
-              >
-                {isPlaying ? '⏸' : '▶'}
-              </button>
-              <span className={styles.timeDisplay}>
-                {formatTime(playbackTime)} / {formatTime(totalDuration)}
-              </span>
-              <button
-                className={styles.exportButton}
-                onClick={handleExport}
-                disabled={isExporting || videos.length === 0}
-              >
-                {isExporting ? 'Exporting...' : 'Export'}
-              </button>
-            </div>
-            {exportProgress && (
-              <div className={styles.exportProgress}>
-                <div 
-                  className={styles.exportProgressBar} 
-                  style={{ width: `${exportProgress.progress}%` }}
-                />
-                <span className={styles.exportProgressText}>{exportProgress.message}</span>
-              </div>
-            )}
+            <PlaybackControls
+              playbackTime={playbackTime}
+              totalDuration={totalDuration}
+              formatTime={formatTime}
+              uploadInputRef={uploadInputRef}
+              onOpenTransitions={onOpenAnimations}
+              onOpenFont={onOpenFont}
+              onOpenEffects={onOpenEffects}
+              onOpenSpeed={onOpenSpeed}
+              isExporting={isExporting}
+              handleExport={handleExport}
+              handleCancelExport={handleCancelExport}
+              exportProgress={exportProgress}
+              handleAddText={handleAddText}
+            />
             <div className={styles.timelineRowContainer}>
-              <div ref={timelineRowRef} className={styles.timelineRow}>
-                {videos.map((video) => {
-                  const leftPercent = totalDuration > 0 ? (video.timestamp / totalDuration) * 100 : 0
-                  const widthPercent = totalDuration > 0 && video.duration ? (video.duration / totalDuration) * 100 : 0
-                  const isSelected = selectedVideoId === video.id
-                  const hasTrim = video.trimStart > 0 || video.trimEnd > 0
-                  return (
-                    <div
-                      key={video.id}
-                      className={`${styles.timelineItem} ${isSelected ? styles.selected : ''} ${hasTrim ? styles.trimmed : ''}`}
-                      style={{
-                        left: `${leftPercent}%`,
-                        width: `${widthPercent}%`,
-                        position: 'absolute',
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setSelectedVideoId(video.id)
-                      }}
-                    >
-                      {isSelected && (
-                        <>
-                          <div
-                            className={styles.trimHandleStart}
-                            onMouseDown={(e) => handleTrimStart(video.id, 'start', e)}
-                          />
-                          <div
-                            className={styles.trimHandleEnd}
-                            onMouseDown={(e) => handleTrimStart(video.id, 'end', e)}
-                          />
-                        </>
-                      )}
-                      <div className={styles.videoBox}>
-                        <div className={styles.videoInfo}>
-                          <div className={styles.title}>{video.title}</div>
-                          {hasTrim && (
-                            <div className={styles.trimIndicator}>
-                              Trimmed: {video.trimStart.toFixed(1)}s / {video.trimEnd.toFixed(1)}s
-                            </div>
-                          )}
+              <div className={styles.playheadLine} />
+              <div ref={scrollContainerRef} className={styles.scrollContainer} onScroll={handleScroll}>
+                <div
+                  ref={timelineRowRef}
+                  className={`${styles.timelineContent} ${activeDrag || holdDragPreview ? styles.draggingActive : ''}`}
+                  style={{ width: `${totalTimelineWidth}%` }}
+                  onClick={handleTimelineDeselect}
+                >
+                  <AudioTrack
+                    totalDuration={totalDuration}
+                    effectivePadding={effectivePadding}
+                    getContentPosition={getContentPosition}
+                    handleAudioBodyDragStart={handleAudioBodyDragStart}
+                    handleAudioTrimStart={handleAudioTrimStart}
+                  />
+                  {overlayRows.map((rowIndex) => (
+                    <UnifiedRow
+                      key={`unified-row-${rowIndex}`}
+                      rowIndex={rowIndex}
+                      showEmptyForDrag={Boolean(activeDrag && dragPreview && dragPreview.targetRow === rowIndex)}
+                      getContentPosition={getContentPosition}
+                      totalDuration={totalDuration}
+                      effectivePadding={effectivePadding}
+                      handleImageDragStart={handleImageDragStart}
+                      handleOverlayVideoDragStart={handleOverlayVideoDragStart}
+                      handleTrimStart={handleTrimStart}
+                      handleTextDragStart={handleTextDragStart}
+                      handleEffectDragStart={handleEffectDragStart}
+                      handleAudioBodyDragStart={handleAudioBodyDragStart}
+                      handleAudioTrimStart={handleAudioTrimStart}
+                      handleVideoDoubleClick={handleVideoDoubleClick}
+                      onOpenEffects={onOpenEffects}
+                      onCloseTransitions={onCloseTransitions}
+                    />
+                  ))}
+                  <MainTrack
+                    getContentPosition={getContentPosition}
+                    totalDuration={totalDuration}
+                    effectivePadding={effectivePadding}
+                    setSelectedVideoId={setSelectedVideoId}
+                    setSelectedImageId={setSelectedImageId}
+                    handleTrimStart={handleTrimStart}
+                    handleVideoDoubleClick={handleVideoDoubleClick}
+                    replaceTargetId={replaceTargetId}
+                    setReplaceTargetId={setReplaceTargetId}
+                    replaceInputRef={replaceInputRef}
+                    videoThumbnails={videoThumbnails}
+                    scrollContainerRef={scrollContainerRef}
+                    handleImageDragStart={handleImageDragStart}
+                    onOpenTransitions={onOpenTransitions}
+                    onCloseTransitions={onCloseTransitions}
+                  />
+
+                  {(() => {
+                    const ui =
+                      holdDragPreview ??
+                      (activeDrag && dragPreview
+                        ? {
+                            targetRow: dragPreview.targetRow,
+                            targetTime: dragPreview.targetTime,
+                            isInsertion: dragPreview.isInsertion,
+                            isValid: dragPreview.isValid,
+                            duration: activeDrag.duration,
+                            itemType: activeDrag.itemType,
+                          }
+                        : null)
+                    if (!ui) return null
+                    return (
+                      <>
+                        <div
+                          className={styles.dragPreview}
+                          style={{
+                            left: `${getContentPosition(ui.targetTime)}%`,
+                            width: `${(ui.duration / (totalDuration + effectivePadding * 2)) * 100}%`,
+                            top: (() => {
+                              const container = timelineRowRef.current
+                              if (!container) return 0
+                              const rowEls = Array.from(container.children).filter(
+                                (child) => child.getAttribute('data-row-index') === String(ui.targetRow)
+                              )
+                              if (rowEls.length > 0) {
+                                return (rowEls[0] as HTMLElement).offsetTop
+                              }
+                              return 0
+                            })(),
+                            height: '40px',
+                            opacity: ui.isValid ? 0.5 : 0.2,
+                            backgroundColor: ui.isValid ? '#ffffff' : '#ff4a4a',
+                          }}
+                        >
+                          {ui.itemType}
                         </div>
-                      </div>
-                    </div>
-                  )
-                })}
+                        {ui.isInsertion && (
+                          <div
+                            className={styles.insertionIndicator}
+                            style={{
+                              left: `${getContentPosition(0)}%`,
+                              width: `${(totalDuration / (totalDuration + effectivePadding * 2)) * 100}%`,
+                              top: (() => {
+                                const container = timelineRowRef.current
+                                if (!container) return 0
+                                const rowEls = Array.from(container.children).filter(
+                                  (child) => child.getAttribute('data-row-index') === String(ui.targetRow)
+                                )
+                                if (rowEls.length > 0) {
+                                  return (rowEls[0] as HTMLElement).offsetTop - 4
+                                }
+                                return 0
+                              })(),
+                            }}
+                          />
+                        )}
+                      </>
+                    )
+                  })()}
+                </div>
               </div>
-              {totalDuration > 0 && (
-                <>
-                  <div
-                    ref={timelineRef}
-                    className={styles.playbar}
-                    onClick={handleTimelineClick}
-                    onMouseDown={handleMouseDown}
-                    onMouseMove={handleMouseMove}
-                    onMouseUp={handleMouseUp}
-                  />
-                  <div
-                    className={styles.playbarLine}
-                    style={{ left: `${getPlayheadPosition()}%` }}
-                  />
-                  <div
-                    className={styles.playhead}
-                    style={{ left: `${getPlayheadPosition()}%` }}
-                    onMouseDown={handleMouseDown}
-                  />
-                </>
-              )}
             </div>
+            <ContextMenu
+              playbackTime={playbackTime}
+              onOpenTransitions={onOpenTransitions}
+              onOpenAnimations={onOpenAnimations}
+              onOpenFont={onOpenFont}
+              onOpenEffects={onOpenEffects}
+              onOpenSpeed={onOpenSpeed}
+              onReplace={(id) => {
+                setReplaceTargetId(id)
+                replaceInputRef.current?.click()
+              }}
+            />
           </div>
         )}
       </div>

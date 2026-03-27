@@ -6,6 +6,94 @@
   border-left: 1px solid #333333;
 }
 
+.header {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #222;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #0d0d0d;
+}
+
+.userInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.userEmail {
+  font-size: 0.75rem;
+  color: #888;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
+}
+
+.requestCount {
+  font-size: 0.65rem;
+  color: #555;
+}
+
+.headerButtons {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.proButton {
+  background: white;
+  color: black;
+  border: none;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.4rem 0.8rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.proButton:hover {
+  opacity: 0.9;
+}
+
+.manageButton {
+  background: #000;
+  color: #fff;
+  border: 1px solid #333;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.4rem 0.8rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.manageButton:hover {
+  background-color: #111;
+  border-color: #555;
+}
+
+.signOutButton {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: none;
+  border: 1px solid #333;
+  color: #aaa;
+  font-size: 0.75rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.signOutButton:hover {
+  background-color: #222;
+  border-color: #444;
+  color: #fff;
+}
+
 .messages {
   flex: 1;
   overflow-y: auto;
@@ -46,7 +134,7 @@
   gap: 0.5rem;
   border-top: 1px solid #333333;
   background-color: #0f0f0f;
-  align-items: flex-end;
+  align-items: flex-start;
 }
 
 .input {
@@ -59,7 +147,7 @@
   color: #ffffff;
   resize: none;
   overflow-y: auto;
-  min-height: 42px;
+  min-height: 70px;
   max-height: 150px;
   font-family: inherit;
   line-height: 1.4;
@@ -70,15 +158,23 @@
   border-color: #ffffff;
 }
 
+.input:disabled {
+  background-color: #1a1a1a;
+  cursor: not-allowed;
+}
+
 .sendButton {
-  padding: 0.75rem 1.5rem;
+  width: 40px;
+  height: 40px;
   background-color: #ffffff;
   color: #0f0f0f;
   border: none;
   border-radius: 6px;
-  font-size: 1rem;
   cursor: pointer;
-  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .sendButton:hover {
@@ -96,149 +192,95 @@
   opacity: 0.6;
 }
 
-.input:disabled {
-  background-color: #1a1a1a;
-  cursor: not-allowed;
+.spinnerIcon {
+  animation: spin 1s linear infinite;
 }
 
-.systemPromptButton {
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.attachButton {
   width: 40px;
   height: 40px;
   border: 1px solid #333333;
   border-radius: 6px;
   background-color: #1f1f1f;
   color: #666666;
-  font-size: 1.2rem;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.2s ease;
+  flex-shrink: 0;
 }
 
-.systemPromptButton:hover {
+.attachButton:hover:not(:disabled) {
   border-color: #555555;
   color: #888888;
 }
 
-.systemPromptButton.active {
-  background-color: #2a2a2a;
-  border-color: #ffffff;
-  color: #ffffff;
-  box-shadow: 0 0 12px 2px rgba(255, 255, 255, 0.3);
-  animation: glow 2s ease-in-out infinite alternate;
+.attachButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
-@keyframes glow {
-  from {
-    box-shadow: 0 0 8px 2px rgba(255, 255, 255, 0.2);
-  }
-  to {
-    box-shadow: 0 0 16px 4px rgba(255, 255, 255, 0.4);
-  }
+.referenceImagesContainer {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  flex-wrap: wrap;
+  border-top: 1px solid #222222;
 }
 
-.modalOverlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+.referenceImageItem {
+  position: relative;
+  width: 60px;
+  height: 60px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #333333;
+}
+
+.referenceImagePreview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.removeImageButton {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
   background-color: rgba(0, 0, 0, 0.7);
+  color: #ffffff;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
 }
 
-.modal {
-  background-color: #1f1f1f;
-  border-radius: 12px;
-  padding: 1.5rem;
-  width: 90%;
-  max-width: 400px;
-  box-shadow: 0 0 20px 10px rgba(0, 0, 0, 0.5);
+.removeImageButton:hover {
+  background-color: #ff4444;
 }
 
-.modal h3 {
-  margin: 0 0 0.5rem 0;
-  color: #ffffff;
-  font-size: 1.2rem;
+.loadingBar {
+  height: 2px;
+  margin-top: 0.5rem;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent 0%, #ffffff 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: loadingSlide 1.4s ease-in-out infinite;
 }
 
-.modalDescription {
-  margin: 0 0 0.5rem 0;
-  color: #888888;
-  font-size: 0.875rem;
-}
-
-.promptSection {
-  margin-bottom: 1rem;
-}
-
-.promptLabel {
-  display: block;
-  color: #ffffff;
-  font-size: 0.875rem;
-  font-weight: 500;
-  margin-bottom: 0.25rem;
-}
-
-.systemPromptInput {
-  width: 100%;
-  padding: 0.75rem;
-  border: 1px solid #333333;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  background-color: #0f0f0f;
-  color: #ffffff;
-  resize: vertical;
-  font-family: inherit;
-  box-sizing: border-box;
-}
-
-.systemPromptInput:focus {
-  outline: none;
-  border-color: #ffffff;
-}
-
-.systemPromptInput::placeholder {
-  color: #555555;
-}
-
-.modalButtons {
-  display: flex;
-  gap: 0.75rem;
-  margin-top: 1rem;
-  justify-content: flex-end;
-}
-
-.modalButtonClear {
-  padding: 0.5rem 1rem;
-  background-color: transparent;
-  border: 1px solid #333333;
-  border-radius: 6px;
-  color: #888888;
-  font-size: 0.9rem;
-  cursor: pointer;
-}
-
-.modalButtonClear:hover {
-  border-color: #555555;
-  color: #aaaaaa;
-}
-
-.modalButtonSave {
-  padding: 0.5rem 1rem;
-  background-color: #ffffff;
-  border: none;
-  border-radius: 6px;
-  color: #0f0f0f;
-  font-size: 0.9rem;
-  cursor: pointer;
-  font-weight: 500;
-}
-
-.modalButtonSave:hover {
-  background-color: #e0e0e0;
+@keyframes loadingSlide {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
