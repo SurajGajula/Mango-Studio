@@ -4,25 +4,39 @@
 
 ### Overview
 
-Mango Studio is a Next.js (App Router, v16) single-page app for AI video generation using Google Veo 3.1. There is one service: the Next.js dev server (`npm run dev` on port 3000), which serves both frontend and API routes.
+Mango Studio is a Next.js 16 (App Router, Turbopack) web-based video editor with AI-assisted editing, multi-track timeline, effects, transitions, speed ramping, and audio support. Single service: the Next.js dev server (`npm run dev` on port 3000).
 
 ### Running the app
 
 - **Dev server**: `npm run dev` (port 3000)
-- Requires `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) in a `.env.local` file for the video generation API route at `/api/generate-video` to work. Without it, the UI loads but video generation returns an error.
+- The app requires a `.env.local` file with at least placeholder Supabase values to start, because the middleware (`middleware.ts`) calls `createServerClient` and crashes without them:
+  ```
+  NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder
+  ```
+- With placeholder values the app loads but auth features won't work; the AuthModal shows and the editor is blurred behind it.
+- For full functionality, these env vars are also needed: `GEMINI_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SUPABASE_SECRET_KEY`.
 
 ### Lint
 
 - `next lint` was removed in Next.js 16. Run ESLint directly: `npx eslint . --ext .ts,.tsx`
-- There are 2 pre-existing warnings (react-hooks/exhaustive-deps) in `PreviewArea.tsx` and `Timeline.tsx`.
+- Pre-existing: 2 ESLint errors (unescaped apostrophes in `AuthModal.tsx`) and ~29 warnings.
+
+### Tests
+
+- Vitest is configured. Run: `npm test` (or `npx vitest run`).
+- Test file: `tests/manifestStore.core.test.ts` (10 tests covering core manifest operations and undo/redo).
 
 ### Build
 
-- `npm run build` has a pre-existing TypeScript error (`VideoClass.url` is `string | undefined` but assigned to `video.src` which expects `string` in `PreviewArea.tsx:38`). The dev server works fine since it doesn't enforce strict type-checking.
+- `npm run build` runs `npm run test && next build`. The build fails without real Supabase/Stripe env vars because API routes like `/api/checkout` instantiate Stripe clients at module scope.
 
-### Key files
+### Key directories
 
-- `app/api/generate-video/route.ts` — backend API route for video generation
-- `app/lib/genaiClient.ts` — Google GenAI client (reads API key from env)
-- `app/stores/manifestStore.ts` — Zustand state store
-- `app/components/` — React components (ChatWindow, PreviewArea, Timeline, MainView)
+- `app/api/` — API routes (`route-prompt`, `checkout`, `customer-portal`, `webhook`, `auth/callback`)
+- `app/components/` — React components, subdivided into `modals/`, `panels/`, `tracks/`, `ui/`
+- `app/hooks/` — Custom hooks (`timeline/`, `preview/`)
+- `app/lib/` — Utilities, rendering engine, transforms, media/audio/text utils
+- `app/models/` — Data classes (`VideoClass`, `ImageClass`, `AudioClass`, `TextClass`, `EffectClass`)
+- `app/stores/` — Zustand stores (`manifestStore` with slices in `manifest/`, `selectionStore`, `audioStore`)
+- `app/utils/supabase/` — Supabase client helpers (client, server, middleware, admin)
