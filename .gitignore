@@ -9,5 +9,3 @@ node_modules
 public/ffmpeg
 
 .DS_Store
-
-debug-seedance.ndjson

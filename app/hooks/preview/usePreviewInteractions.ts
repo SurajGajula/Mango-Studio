@@ -14,7 +14,6 @@ import {
   normalizeCropToFrameAspect,
   placementMatchesCanvasAspect,
 } from '@/app/lib/mediaUtils'
-import { devLog } from '@/app/lib/devLog'
 
 type DragMode = 'move' | null
 
@@ -188,7 +187,6 @@ export function usePreviewInteractions(
   const enterCropEdit = useCallback(async (id: string, type: 'image' | 'video') => {
     let targetItem = type === 'image' ? images.find(i => i.id === id) : videos.find(v => v.id === id)
     if (!targetItem) return
-    devLog('enter-crop-edit', { id, type })
 
     const isMainTrackForCover =
       type === 'image'
@@ -585,12 +583,6 @@ export function usePreviewInteractions(
 
       e.preventDefault()
       const item = images.find((i) => i.id === cropEditId) || videos.find((v) => v.id === cropEditId)
-      devLog('crop-wheel', {
-        cropEditId,
-        hasItem: !!item,
-        hasNatural: !!cropNaturalSize,
-        deltaY: e.deltaY,
-      })
       if (!item) return
       if (!cropNaturalSize) return
       const factor = Math.exp(e.deltaY * 0.002)
