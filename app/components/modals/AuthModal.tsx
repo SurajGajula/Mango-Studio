@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { getAuthCallbackUrl } from '@/app/lib/authRedirect'
 import { useAuth } from '../AuthProvider'
 import styles from './AuthModal.module.css'
 
@@ -30,7 +31,7 @@ export default function AuthModal() {
           email,
           password,
           options: {
-            emailRedirectTo: `${window.location.origin}/auth/callback`,
+            emailRedirectTo: getAuthCallbackUrl(),
           },
         })
         if (error) throw error
@@ -57,7 +58,7 @@ export default function AuthModal() {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo: getAuthCallbackUrl(),
         },
       })
       if (error) throw error

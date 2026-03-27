@@ -1,9 +1,20 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { ImageClass } from '@/app/models/ImageClass'
 import { VideoClass } from '@/app/models/VideoClass'
 import { TextClass } from '@/app/models/TextClass'
-import { ASPECT_RATIOS, computeMediaCropForAspect } from '@/app/lib/mediaUtils'
+import {
+  ASPECT_RATIOS,
+  clampCropZoomToFrameAspect,
+  clampPlacementRectToLogicalCanvas,
+  computeMediaCropForAspect,
+  getLogicalCanvasDimensions,
+  loadNaturalMediaSize,
+  minUniformScaleToCoverLogicalCanvas,
+  normalizeCropToFrameAspect,
+  placementMatchesCanvasAspect,
+} from '@/app/lib/mediaUtils'
+import { devLog } from '@/app/lib/devLog'
 
 type DragMode = 'move' | null
 
@@ -80,19 +91,143 @@ export function usePreviewInteractions(
   const [snapLines, setSnapLines] = useState<{ horizontal: number[], vertical: number[] }>({ horizontal: [], vertical: [] })
   const [cropEditId, setCropEditId] = useState<string | null>(null)
   const [cropPanState, setCropPanState] = useState<CropPanState | null>(null)
+  const [cropNaturalSize, setCropNaturalSize] = useState<{ nw: number; nh: number } | null>(null)
   const yScaleRef = useRef(yScale)
   yScaleRef.current = yScale
+
+  const cropTargetUrl = useMemo(() => {
+    if (!cropEditId) return null
+    const item = images.find((i) => i.id === cropEditId) || videos.find((v) => v.id === cropEditId)
+    return item?.url ?? null
+  }, [cropEditId, images, videos])
+
+  useEffect(() => {
+    if (!cropEditId || !cropTargetUrl) {
+      setCropNaturalSize(null)
+      return
+    }
+    let cancelled = false
+    const isImage = useManifestStore.getState().images.some((i) => i.id === cropEditId)
+    if (isImage) {
+      const im = new Image()
+      im.onload = () => {
+        if (cancelled) return
+        const nw = im.naturalWidth
+        const nh = im.naturalHeight
+        if (nw === 0 || nh === 0) return
+        setCropNaturalSize({ nw, nh })
+        const s = useManifestStore.getState()
+        const cur = s.images.find((i) => i.id === cropEditId) || s.videos.find((v) => v.id === cropEditId)
+        if (!cur) return
+        const n = normalizeCropToFrameAspect(
+          cur.width,
+          cur.height,
+          nw,
+          nh,
+          cur.cropSx,
+          cur.cropSy,
+          cur.cropSw,
+          cur.cropSh,
+          0.05
+        )
+        if (!n) return
+        const changed =
+          Math.abs(n.cropSw - cur.cropSw) > 1e-4 ||
+          Math.abs(n.cropSh - cur.cropSh) > 1e-4 ||
+          Math.abs(n.cropSx - cur.cropSx) > 1e-4 ||
+          Math.abs(n.cropSy - cur.cropSy) > 1e-4
+        if (!changed) return
+        if (s.images.some((i) => i.id === cropEditId)) s.updateImage(cropEditId, n)
+        else s.updateVideo(cropEditId, n)
+      }
+      im.src = cropTargetUrl
+    } else {
+      const v = document.createElement('video')
+      v.preload = 'metadata'
+      v.muted = true
+      v.playsInline = true
+      v.onloadedmetadata = () => {
+        if (cancelled) return
+        const nw = v.videoWidth
+        const nh = v.videoHeight
+        if (nw === 0 || nh === 0) return
+        setCropNaturalSize({ nw, nh })
+        v.src = ''
+        v.load()
+        const s = useManifestStore.getState()
+        const cur = s.images.find((i) => i.id === cropEditId) || s.videos.find((v) => v.id === cropEditId)
+        if (!cur) return
+        const n = normalizeCropToFrameAspect(
+          cur.width,
+          cur.height,
+          nw,
+          nh,
+          cur.cropSx,
+          cur.cropSy,
+          cur.cropSw,
+          cur.cropSh,
+          0.05
+        )
+        if (!n) return
+        const changed =
+          Math.abs(n.cropSw - cur.cropSw) > 1e-4 ||
+          Math.abs(n.cropSh - cur.cropSh) > 1e-4 ||
+          Math.abs(n.cropSx - cur.cropSx) > 1e-4 ||
+          Math.abs(n.cropSy - cur.cropSy) > 1e-4
+        if (!changed) return
+        if (s.images.some((i) => i.id === cropEditId)) s.updateImage(cropEditId, n)
+        else s.updateVideo(cropEditId, n)
+      }
+      v.src = cropTargetUrl
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [cropEditId, cropTargetUrl])
 
   const enterCropEdit = useCallback(async (id: string, type: 'image' | 'video') => {
     let targetItem = type === 'image' ? images.find(i => i.id === id) : videos.find(v => v.id === id)
     if (!targetItem) return
+    devLog('enter-crop-edit', { id, type })
+
+    const isMainTrackForCover =
+      type === 'image'
+        ? (targetItem as ImageClass).isMainTrack
+        : !(targetItem as VideoClass).isOverlay
+    if (isMainTrackForCover) {
+      const coverS = minUniformScaleToCoverLogicalCanvas(
+        targetItem.width,
+        targetItem.height,
+        aspectRatio
+      )
+      if (coverS > 1) {
+        const w = targetItem.width * coverS
+        const h = targetItem.height * coverS
+        const cx = targetItem.x + targetItem.width / 2
+        const cy = targetItem.y + targetItem.height / 2
+        const patch = { width: w, height: h, x: cx - w / 2, y: cy - h / 2 }
+        if (type === 'image') updateImage(id, patch)
+        else updateVideo(id, patch)
+        const st = useManifestStore.getState()
+        const next =
+          type === 'image' ? st.images.find((i) => i.id === id) : st.videos.find((v) => v.id === id)
+        if (next) targetItem = next
+      }
+    }
 
     if (!targetItem.cropAspect) {
-      const isMainTrack = (targetItem as any).row === 0
-      const [rw, rh] = isMainTrack ? ASPECT_RATIOS[aspectRatio] : [targetItem.width, targetItem.height]
-      const label = isMainTrack ? aspectRatio : 'Original'
+      const [rw, rh] = [targetItem.width, targetItem.height]
+      const isMainTrack =
+        type === 'image'
+          ? (targetItem as ImageClass).isMainTrack
+          : (targetItem as VideoClass).row === 0 && !(targetItem as VideoClass).isOverlay
+      const [cw, ch] = ASPECT_RATIOS[aspectRatio]
+      const matchesCanvas =
+        targetItem.width > 0 &&
+        targetItem.height > 0 &&
+        Math.abs(targetItem.width / targetItem.height - cw / ch) < 1e-6
+      const label = isMainTrack && matchesCanvas ? aspectRatio : 'Original'
       const updates = await computeMediaCropForAspect(targetItem.url || '', type, aspectRatio, rw, rh, label)
-      
       if (type === 'image') updateImage(id, updates as Partial<ImageClass>)
       else updateVideo(id, updates as Partial<VideoClass>)
     }
@@ -447,18 +582,28 @@ export function usePreviewInteractions(
       if (!canvas) return
       const rect = canvas.getBoundingClientRect()
       if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return
-      
-      // Only zoom if a modifier key is pressed (Cmd, Ctrl, or Alt)
-      // This prevents trackpad scrolls from being interpreted as zoom.
-      // e.ctrlKey is also true for pinch-to-zoom on most trackpads.
-      if (!e.ctrlKey && !e.metaKey && !e.altKey) return
 
       e.preventDefault()
       const item = images.find((i) => i.id === cropEditId) || videos.find((v) => v.id === cropEditId)
+      devLog('crop-wheel', {
+        cropEditId,
+        hasItem: !!item,
+        hasNatural: !!cropNaturalSize,
+        deltaY: e.deltaY,
+      })
       if (!item) return
+      if (!cropNaturalSize) return
       const factor = Math.exp(e.deltaY * 0.002)
-      const newCropSw = Math.min(1, Math.max(0.05, item.cropSw * factor))
-      const newCropSh = Math.min(1, Math.max(0.05, item.cropSh * factor))
+      const { cropSw: newCropSw, cropSh: newCropSh } = clampCropZoomToFrameAspect(
+        item.width,
+        item.height,
+        cropNaturalSize.nw,
+        cropNaturalSize.nh,
+        item.cropSw,
+        item.cropSh,
+        factor,
+        0.05
+      )
       const centerSx = item.cropSx + item.cropSw / 2
       const centerSy = item.cropSy + item.cropSh / 2
       const updates = {
@@ -476,7 +621,7 @@ export function usePreviewInteractions(
     }
     document.addEventListener('wheel', handleWheel, { passive: false })
     return () => document.removeEventListener('wheel', handleWheel)
-  }, [cropEditId, images, videos, updateImage, updateVideo, canvasRef])
+  }, [cropEditId, images, videos, updateImage, updateVideo, canvasRef, cropNaturalSize, xScale, yScale])
 
   useEffect(() => {
     if (!selectedTextId || cropEditId) return
@@ -522,35 +667,117 @@ export function usePreviewInteractions(
       
       if (selectedImageId) {
         const img = images.find(i => i.id === selectedImageId)
-        if (!img || img.isMainTrack) return
-        const newWidth = Math.max(50, img.width * factor)
-        const newHeight = img.height * (newWidth / img.width)
+        if (!img?.url) return
+        const { logicalW, logicalH } = getLogicalCanvasDimensions(aspectRatio)
+        let newWidth = Math.max(50, img.width * factor)
+        let newHeight = img.height * (newWidth / img.width)
+        if (img.isMainTrack) {
+          const s = minUniformScaleToCoverLogicalCanvas(newWidth, newHeight, aspectRatio)
+          newWidth *= s
+          newHeight *= s
+        }
         const centerX = img.x + img.width / 2
         const centerY = img.y + img.height / 2
-        updateImage(selectedImageId, {
-          width: newWidth,
-          height: newHeight,
-          x: centerX - newWidth / 2,
-          y: centerY - newHeight / 2
-        })
+        let nextX = centerX - newWidth / 2
+        let nextY = centerY - newHeight / 2
+        const shouldClampImage =
+          !img.isMainTrack ||
+          placementMatchesCanvasAspect(newWidth, newHeight, logicalW, logicalH)
+        if (shouldClampImage) {
+          const c = clampPlacementRectToLogicalCanvas(
+            newWidth,
+            newHeight,
+            centerX,
+            centerY,
+            logicalW,
+            logicalH
+          )
+          newWidth = c.width
+          newHeight = c.height
+          nextX = c.x
+          nextY = c.y
+        }
+        const imageId = selectedImageId
+        void loadNaturalMediaSize(img.url, 'image')
+          .then(({ nw, nh }) => {
+            const cur = useManifestStore.getState().images.find((i) => i.id === imageId)
+            if (!cur) return
+            const n = normalizeCropToFrameAspect(
+              newWidth,
+              newHeight,
+              nw,
+              nh,
+              cur.cropSx,
+              cur.cropSy,
+              cur.cropSw,
+              cur.cropSh,
+              0.05
+            )
+            const base = { width: newWidth, height: newHeight, x: nextX, y: nextY }
+            updateImage(imageId, n ? { ...base, ...n } : base)
+          })
+          .catch(() => {
+            updateImage(imageId, { width: newWidth, height: newHeight, x: nextX, y: nextY })
+          })
       } else if (selectedVideoId) {
         const vid = videos.find(v => v.id === selectedVideoId)
-        if (!vid || !vid.isOverlay) return
-        const newWidth = Math.max(50, vid.width * factor)
-        const newHeight = vid.height * (newWidth / vid.width)
+        if (!vid?.url) return
+        const { logicalW, logicalH } = getLogicalCanvasDimensions(aspectRatio)
+        let newWidth = Math.max(50, vid.width * factor)
+        let newHeight = vid.height * (newWidth / vid.width)
+        if (!vid.isOverlay) {
+          const s = minUniformScaleToCoverLogicalCanvas(newWidth, newHeight, aspectRatio)
+          newWidth *= s
+          newHeight *= s
+        }
         const centerX = vid.x + vid.width / 2
         const centerY = vid.y + vid.height / 2
-        updateVideo(selectedVideoId, {
-          width: newWidth,
-          height: newHeight,
-          x: centerX - newWidth / 2,
-          y: centerY - newHeight / 2
-        })
+        let nextX = centerX - newWidth / 2
+        let nextY = centerY - newHeight / 2
+        const shouldClampVideo =
+          vid.isOverlay ||
+          placementMatchesCanvasAspect(newWidth, newHeight, logicalW, logicalH)
+        if (shouldClampVideo) {
+          const c = clampPlacementRectToLogicalCanvas(
+            newWidth,
+            newHeight,
+            centerX,
+            centerY,
+            logicalW,
+            logicalH
+          )
+          newWidth = c.width
+          newHeight = c.height
+          nextX = c.x
+          nextY = c.y
+        }
+        const videoId = selectedVideoId
+        void loadNaturalMediaSize(vid.url, 'video')
+          .then(({ nw, nh }) => {
+            const cur = useManifestStore.getState().videos.find((v) => v.id === videoId)
+            if (!cur) return
+            const n = normalizeCropToFrameAspect(
+              newWidth,
+              newHeight,
+              nw,
+              nh,
+              cur.cropSx,
+              cur.cropSy,
+              cur.cropSw,
+              cur.cropSh,
+              0.05
+            )
+            const base = { width: newWidth, height: newHeight, x: nextX, y: nextY }
+            updateVideo(videoId, n ? { ...base, ...n } : base)
+          })
+          .catch(() => {
+            updateVideo(videoId, { width: newWidth, height: newHeight, x: nextX, y: nextY })
+          })
       }
     }
     document.addEventListener('wheel', handleWheel, { passive: false })
     return () => document.removeEventListener('wheel', handleWheel)
-  }, [selectedImageId, selectedVideoId, images, videos, updateImage, updateVideo, cropEditId, canvasRef])
+  }, [selectedImageId, selectedVideoId, images, videos, updateImage, updateVideo, cropEditId, canvasRef, aspectRatio])
 
   return {
     snapLines,

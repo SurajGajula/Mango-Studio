@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { AudioClass } from '@/app/models/AudioClass'
-import { ASPECT_RATIOS, computeMediaCropForAspect, computeMediaDimensions, computeImageDimensions, resolveVideoMetadata } from '@/app/lib/mediaUtils'
+import { ASPECT_RATIOS, computeMediaCropForAspect, resolveVideoMetadata } from '@/app/lib/mediaUtils'
 import { findFreeAudioOverlayRow, findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useManifestStore } from '@/app/stores/manifestStore'
@@ -59,7 +59,7 @@ export function useTimelineMedia({
     for (const file of Array.from(files)) {
       if (file.type.startsWith('video/')) {
         const blobUrl = URL.createObjectURL(file)
-        const { duration, width: videoWidth, height: videoHeight } = await resolveVideoMetadata(blobUrl)
+        const { duration } = await resolveVideoMetadata(blobUrl)
         const id = `video-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
         const title = file.name.replace(/\.[^.]+$/, '').substring(0, 50)
         const start = playbackTime
@@ -77,16 +77,17 @@ export function useTimelineMedia({
           row = findFreeVisualOverlayRow(start, end)
         }
         const isMainTrack = row === 0
-        let x, y, width, height, cropAspect, cropSx, cropSy, cropSw, cropSh
-        if (isMainTrack) {
-          const [rw, rh] = ASPECT_RATIOS[aspectRatio]
-          const crop = await computeMediaCropForAspect(blobUrl, 'video', aspectRatio, rw, rh, aspectRatio)
-          x = crop.x; y = crop.y; width = crop.width; height = crop.height
-          cropAspect = crop.cropAspect; cropSx = crop.cropSx; cropSy = crop.cropSy; cropSw = crop.cropSw; cropSh = crop.cropSh
-        } else {
-          const dims = computeMediaDimensions(videoWidth, videoHeight, aspectRatio, isMainTrack)
-          x = dims.x; y = dims.y; width = dims.width; height = dims.height
-        }
+        const [rw, rh] = ASPECT_RATIOS[aspectRatio]
+        const crop = await computeMediaCropForAspect(blobUrl, 'video', aspectRatio, rw, rh, aspectRatio)
+        const x = crop.x
+        const y = crop.y
+        const width = crop.width
+        const height = crop.height
+        const cropAspect = crop.cropAspect
+        const cropSx = crop.cropSx
+        const cropSy = crop.cropSy
+        const cropSw = crop.cropSw
+        const cropSh = crop.cropSh
         addVideo(new VideoClass(
           id,
           title,
@@ -129,17 +130,17 @@ export function useTimelineMedia({
           row = findFreeVisualOverlayRow(start, end)
         }
         const isMainTrack = row === 0
-        let x, y, width, height, cropAspect, cropSx, cropSy, cropSw, cropSh
-        if (isMainTrack) {
-          const [rw, rh] = ASPECT_RATIOS[aspectRatio]
-          const crop = await computeMediaCropForAspect(url, 'image', aspectRatio, rw, rh, aspectRatio)
-          x = crop.x; y = crop.y; width = crop.width; height = crop.height
-          cropAspect = crop.cropAspect; cropSx = crop.cropSx; cropSy = crop.cropSy; cropSw = crop.cropSw; cropSh = crop.cropSh
-        } else {
-          const dims = await computeImageDimensions(url, aspectRatio, isMainTrack)
-          x = dims.x; y = dims.y; width = dims.width; height = dims.height
-          cropAspect = 'Original'; cropSx = 0; cropSy = 0; cropSw = 1; cropSh = 1
-        }
+        const [rw, rh] = ASPECT_RATIOS[aspectRatio]
+        const crop = await computeMediaCropForAspect(url, 'image', aspectRatio, rw, rh, aspectRatio)
+        const x = crop.x
+        const y = crop.y
+        const width = crop.width
+        const height = crop.height
+        const cropAspect = crop.cropAspect
+        const cropSx = crop.cropSx
+        const cropSy = crop.cropSy
+        const cropSw = crop.cropSw
+        const cropSh = crop.cropSh
         addImage(new ImageClass(
           `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           file.name,

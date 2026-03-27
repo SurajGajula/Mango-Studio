@@ -10,6 +10,233 @@ export const ASPECT_RATIOS: Record<string, [number, number]> = {
   '9:16': [9, 16],
 }
 
+export function clampCropZoomDimensions(
+  cropSw: number,
+  cropSh: number,
+  factor: number,
+  minSize: number
+): { cropSw: number; cropSh: number } {
+  const w = cropSw * factor
+  const h = cropSh * factor
+  const sLo = Math.max(minSize / w, minSize / h)
+  const sHi = Math.min(1 / w, 1 / h)
+  if (sLo <= sHi) {
+    const s = Math.max(sLo, Math.min(sHi, 1))
+    return { cropSw: w * s, cropSh: h * s }
+  }
+  return { cropSw, cropSh }
+}
+
+export function cropSwToShRatioForFrame(
+  itemW: number,
+  itemH: number,
+  nw: number,
+  nh: number
+): number {
+  return (itemW / itemH) * (nh / nw)
+}
+
+export function minUniformScaleToCoverLogicalCanvas(
+  w: number,
+  h: number,
+  canvasAspectRatio: AspectRatio
+): number {
+  if (!(w > 0) || !(h > 0)) return 1
+  const logicalW = canvasAspectRatio === '16:9' ? 1920 : 1080
+  const logicalH = canvasAspectRatio === '16:9' ? 1080 : 1920
+  return Math.max(1, logicalW / w, logicalH / h)
+}
+
+export function getLogicalCanvasDimensions(canvasAspectRatio: AspectRatio): {
+  logicalW: number
+  logicalH: number
+} {
+  if (canvasAspectRatio === '16:9') return { logicalW: 1920, logicalH: 1080 }
+  return { logicalW: 1080, logicalH: 1920 }
+}
+
+export function placementMatchesCanvasAspect(
+  width: number,
+  height: number,
+  logicalW: number,
+  logicalH: number
+): boolean {
+  if (!(width > 0) || !(height > 0)) return false
+  return Math.abs(width / height - logicalW / logicalH) < 1e-4
+}
+
+export function clampPlacementRectToLogicalCanvas(
+  width: number,
+  height: number,
+  centerX: number,
+  centerY: number,
+  logicalW: number,
+  logicalH: number
+): { width: number; height: number; x: number; y: number } {
+  if (!(width > 0) || !(height > 0)) {
+    return { width, height, x: centerX - width / 2, y: centerY - height / 2 }
+  }
+  const scale = Math.min(1, logicalW / width, logicalH / height)
+  const w = width * scale
+  const h = height * scale
+  let x = centerX - w / 2
+  let y = centerY - h / 2
+  x = Math.max(0, Math.min(x, logicalW - w))
+  y = Math.max(0, Math.min(y, logicalH - h))
+  return { width: w, height: h, x, y }
+}
+
+export function clampCropPairToSourceBounds(sw: number, sh: number, r: number): { cropSw: number; cropSh: number } {
+  if (!(r > 0) || !Number.isFinite(r)) return { cropSw: sw, cropSh: sh }
+  let s = sw
+  let t = sh
+  t = s / r
+  if (t > 1) {
+    t = 1
+    s = r * t
+  }
+  if (s > 1) {
+    s = 1
+    t = s / r
+  }
+  if (t > 1) {
+    t = 1
+    s = r * t
+  }
+  if (s > 1) {
+    s = 1
+    t = s / r
+  }
+  return { cropSw: s, cropSh: t }
+}
+
+export function computeCanvasCropPlacement(
+  url: string,
+  type: 'image',
+  aspectRatio: AspectRatio
+): Promise<Partial<ImageClass>>
+export function computeCanvasCropPlacement(
+  url: string,
+  type: 'video',
+  aspectRatio: AspectRatio
+): Promise<Partial<VideoClass>>
+export function computeCanvasCropPlacement(
+  url: string,
+  type: 'image' | 'video',
+  aspectRatio: AspectRatio
+): Promise<Partial<ImageClass | VideoClass>> {
+  const [rw, rh] = ASPECT_RATIOS[aspectRatio]
+  return computeMediaCropForAspect(url, type, aspectRatio, rw, rh, aspectRatio)
+}
+
+export function clampCropZoomToFrameAspect(
+  itemW: number,
+  itemH: number,
+  nw: number,
+  nh: number,
+  cropSw: number,
+  cropSh: number,
+  factor: number,
+  minSize: number
+): { cropSw: number; cropSh: number } {
+  if (itemW <= 0 || itemH <= 0 || nw <= 0 || nh <= 0) {
+    return clampCropZoomDimensions(cropSw, cropSh, factor, minSize)
+  }
+  const r = cropSwToShRatioForFrame(itemW, itemH, nw, nh)
+  const lo = Math.max(minSize, minSize * r)
+  const hi = Math.min(1, r)
+  if (lo > hi) {
+    return clampCropPairToSourceBounds(hi, hi / r, r)
+  }
+  let sw = cropSw * factor
+  sw = Math.max(lo, Math.min(hi, sw))
+  let sh = sw / r
+  return clampCropPairToSourceBounds(sw, sh, r)
+}
+
+export function loadNaturalMediaSize(
+  url: string,
+  kind: 'image' | 'video'
+): Promise<{ nw: number; nh: number }> {
+  return new Promise((resolve, reject) => {
+    if (!url) {
+      reject(new Error('loadNaturalMediaSize: empty url'))
+      return
+    }
+    if (kind === 'image') {
+      const im = new Image()
+      im.onload = () => {
+        if (im.naturalWidth === 0 || im.naturalHeight === 0) {
+          reject(new Error('loadNaturalMediaSize: zero image dimensions'))
+          return
+        }
+        resolve({ nw: im.naturalWidth, nh: im.naturalHeight })
+      }
+      im.onerror = () => reject(new Error('loadNaturalMediaSize: image load failed'))
+      im.src = url
+    } else {
+      const v = document.createElement('video')
+      v.preload = 'metadata'
+      v.muted = true
+      v.playsInline = true
+      v.onloadedmetadata = () => {
+        const nw = v.videoWidth
+        const nh = v.videoHeight
+        v.src = ''
+        v.load()
+        if (nw === 0 || nh === 0) {
+          reject(new Error('loadNaturalMediaSize: zero video dimensions'))
+          return
+        }
+        resolve({ nw, nh })
+      }
+      v.onerror = () => reject(new Error('loadNaturalMediaSize: video load failed'))
+      v.src = url
+    }
+  })
+}
+
+export function normalizeCropToFrameAspect(
+  itemW: number,
+  itemH: number,
+  nw: number,
+  nh: number,
+  cropSx: number,
+  cropSy: number,
+  cropSw: number,
+  cropSh: number,
+  minSize: number
+): { cropSx: number; cropSy: number; cropSw: number; cropSh: number } | null {
+  if (itemW <= 0 || itemH <= 0 || nw <= 0 || nh <= 0) return null
+  const r = cropSwToShRatioForFrame(itemW, itemH, nw, nh)
+  const lo = Math.max(minSize, minSize * r)
+  const hi = Math.min(1, r)
+  if (lo > hi) {
+    const pair = clampCropPairToSourceBounds(hi, hi / r, r)
+    const centerSx = cropSx + cropSw / 2
+    const centerSy = cropSy + cropSh / 2
+    return {
+      cropSx: Math.max(0, Math.min(1 - pair.cropSw, centerSx - pair.cropSw / 2)),
+      cropSy: Math.max(0, Math.min(1 - pair.cropSh, centerSy - pair.cropSh / 2)),
+      cropSw: pair.cropSw,
+      cropSh: pair.cropSh,
+    }
+  }
+  const centerSx = cropSx + cropSw / 2
+  const centerSy = cropSy + cropSh / 2
+  let sw = Math.max(lo, Math.min(hi, cropSw))
+  let sh = sw / r
+  const pair = clampCropPairToSourceBounds(sw, sh, r)
+  sw = pair.cropSw
+  sh = pair.cropSh
+  return {
+    cropSx: Math.max(0, Math.min(1 - sw, centerSx - sw / 2)),
+    cropSy: Math.max(0, Math.min(1 - sh, centerSy - sh / 2)),
+    cropSw: sw,
+    cropSh: sh,
+  }
+}
+
 export function computeMediaCropForAspect(
   url: string,
   type: 'image' | 'video',

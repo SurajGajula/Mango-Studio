@@ -1,8 +1,6 @@
 'use client'
 
 import { useManifestStore } from '@/app/stores/manifestStore'
-import { ImageClass } from '@/app/models/ImageClass'
-import { VideoClass } from '@/app/models/VideoClass'
 import { useEffect, useRef } from 'react'
 
 interface CropEditorProps {
@@ -34,7 +32,6 @@ export default function CropEditor({
   const mediaRef = useRef<HTMLImageElement | HTMLVideoElement | null>(null)
   const images = useManifestStore((state) => state.images)
   const videos = useManifestStore((state) => state.videos)
-  const aspectRatio = useManifestStore((state) => state.aspectRatio)
 
   const img = images.find((i) => i.id === cropEditId)
   const vid = videos.find((v) => v.id === cropEditId)
@@ -89,10 +86,14 @@ export default function CropEditor({
       const destW = itemW * xScale
       const destH = itemH * yScale
 
-      const fullImgW = destW / item.cropSw
-      const fullImgH = fullImgW * (mNh / mNw)
-      const fullImgLeft = destX - item.cropSx * fullImgW
-      const fullImgTop = destY - item.cropSy * fullImgH
+      const cs = item.cropSw ?? 1
+      const ct = item.cropSh ?? 1
+      const sx = item.cropSx ?? 0
+      const sy = item.cropSy ?? 0
+      const fullImgW = destW / cs
+      const fullImgH = destH / ct
+      const fullImgLeft = destX - sx * fullImgW
+      const fullImgTop = destY - sy * fullImgH
 
       canvas.width = contentRect.width
       canvas.height = contentRect.height
@@ -160,7 +161,7 @@ export default function CropEditor({
     }
 
     return () => { active = false }
-  }, [item, xScale, yScale, offsetX, offsetY, contentRect, playbackTime, aspectRatio])
+  }, [item, xScale, yScale, offsetX, offsetY, contentRect, playbackTime])
 
   if (!item) return null
 

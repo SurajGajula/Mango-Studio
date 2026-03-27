@@ -16,7 +16,7 @@ import type {
 import { TextClass } from '@/app/models/TextClass'
 import { EffectClass } from '@/app/models/EffectClass'
 import { ImageClass, AnimationMode, TransitionMode } from '@/app/models/ImageClass'
-import { computeCropForAspect, computeImageDimensions, ASPECT_RATIOS, computeVideoDimensions, computeVideoCropForAspect, computeMediaCropForAspect } from '@/app/lib/mediaUtils'
+import { computeCropForAspect, computeCanvasCropPlacement, ASPECT_RATIOS, computeVideoCropForAspect, computeMediaCropForAspect } from '@/app/lib/mediaUtils'
 import { findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
 import styles from './ChatWindow.module.css'
 
@@ -195,8 +195,8 @@ export default function ChatWindow() {
         const image = images.find((i) => i.id === c.id)
         if (!image) continue
         if (c.cropAspect === 'none') {
-          const dims = await computeImageDimensions(image.url, aspectRatio, image.isMainTrack)
-          updateImage(c.id, { ...dims, cropAspect: undefined, cropSx: 0, cropSy: 0, cropSw: 1, cropSh: 1 })
+          const patch = await computeCanvasCropPlacement(image.url, 'image', aspectRatio)
+          updateImage(c.id, patch)
         } else {
           const ratio = ASPECT_RATIOS[c.cropAspect]
           if (!ratio) continue
@@ -207,8 +207,9 @@ export default function ChatWindow() {
         const video = videos.find((v) => v.id === c.id)
         if (!video) continue
         if (c.cropAspect === 'none') {
-          const dims = await computeVideoDimensions(video.url || '', aspectRatio, video.row === 0)
-          updateVideo(c.id, { ...dims, cropAspect: undefined, cropSx: 0, cropSy: 0, cropSw: 1, cropSh: 1 })
+          if (!video.url) continue
+          const patch = await computeCanvasCropPlacement(video.url, 'video', aspectRatio)
+          updateVideo(c.id, patch)
         } else {
           const ratio = ASPECT_RATIOS[c.cropAspect]
           if (!ratio) continue
@@ -241,12 +242,12 @@ export default function ChatWindow() {
             const patch = await computeCropForAspect(tempImage, aspectRatio, ratio[0], ratio[1], originalImage.cropAspect)
             updateImage(r.targetId, { ...patch, url, name: file.name })
           } else {
-            const dims = await computeImageDimensions(url, aspectRatio, originalImage.isMainTrack)
-            updateImage(r.targetId, { ...dims, url, name: file.name })
+            const patch = await computeCanvasCropPlacement(url, 'image', aspectRatio)
+            updateImage(r.targetId, { ...patch, url, name: file.name })
           }
         } else {
-          const dims = await computeImageDimensions(url, aspectRatio, originalImage.isMainTrack)
-          updateImage(r.targetId, { ...dims, url, name: file.name })
+          const patch = await computeCanvasCropPlacement(url, 'image', aspectRatio)
+          updateImage(r.targetId, { ...patch, url, name: file.name })
         }
       } else if (originalVideo) {
         const imageId = `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
@@ -258,8 +259,7 @@ export default function ChatWindow() {
           const ratio = ASPECT_RATIOS[originalVideo.cropAspect]
           patch = await computeMediaCropForAspect(url, 'image', aspectRatio, ratio[0], ratio[1], originalVideo.cropAspect)
         } else {
-          const dims = await computeImageDimensions(url, aspectRatio, originalVideo.row === 0)
-          patch = { ...dims, cropSx: 0, cropSy: 0, cropSw: 1, cropSh: 1 }
+          patch = await computeCanvasCropPlacement(url, 'image', aspectRatio)
         }
 
         const image = new ImageClass(

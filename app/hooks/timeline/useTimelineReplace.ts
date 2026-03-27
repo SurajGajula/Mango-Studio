@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
-import { resolveVideoMetadata, computeCropForAspect, computeImageDimensions, ASPECT_RATIOS, computeVideoDimensions, computeVideoCropForAspect } from '@/app/lib/mediaUtils'
+import { resolveVideoMetadata, computeCropForAspect, computeCanvasCropPlacement, ASPECT_RATIOS, computeVideoCropForAspect } from '@/app/lib/mediaUtils'
 import { extractVideoClip } from '@/app/lib/videoExporter'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { generateId } from '@/app/lib/idUtils'
@@ -63,12 +63,12 @@ export function useTimelineReplace({
             const patch = await computeCropForAspect(tempImage, aspectRatio, ratio[0], ratio[1], image.cropAspect)
             updateImage(image.id, { ...patch, url: newUrl, name: newName })
           } else {
-            const dims = await computeImageDimensions(newUrl, aspectRatio, image.isMainTrack)
-            updateImage(image.id, { ...dims, url: newUrl, name: newName })
+            const patch = await computeCanvasCropPlacement(newUrl, 'image', aspectRatio)
+            updateImage(image.id, { ...patch, url: newUrl, name: newName })
           }
         } else {
-          const dims = await computeImageDimensions(newUrl, aspectRatio, image.isMainTrack)
-          updateImage(image.id, { ...dims, url: newUrl, name: newName })
+          const patch = await computeCanvasCropPlacement(newUrl, 'image', aspectRatio)
+          updateImage(image.id, { ...patch, url: newUrl, name: newName })
         }
         setReplaceTargetId(null)
       } else if (file.type.startsWith('video/')) {
@@ -96,7 +96,7 @@ export function useTimelineReplace({
             patch = await computeVideoCropForAspect(new VideoClass(generateId('v'), '', url), aspectRatio, ratio[0], ratio[1], image.cropAspect)
           }
         } else {
-          patch = await computeVideoDimensions(url, aspectRatio, image.isMainTrack)
+          patch = await computeCanvasCropPlacement(url, 'video', aspectRatio)
         }
 
         if (duration === sourceWindowDuration) {
@@ -166,7 +166,7 @@ export function useTimelineReplace({
             patch = await computeCropForAspect(new ImageClass('tmp', '', url, 0, 1), aspectRatio, ratio[0], ratio[1], video.cropAspect)
           }
         } else {
-          patch = await computeImageDimensions(url, aspectRatio, !video.isOverlay)
+          patch = await computeCanvasCropPlacement(url, 'image', aspectRatio)
         }
 
         const imageInstance = new ImageClass(
@@ -221,8 +221,7 @@ export function useTimelineReplace({
               patch = await computeVideoCropForAspect(video.copy({ url }), aspectRatio, ratio[0], ratio[1], video.cropAspect)
             }
           } else {
-            const dims = await computeVideoDimensions(url, aspectRatio, !video.isOverlay)
-            patch = dims
+            patch = await computeCanvasCropPlacement(url, 'video', aspectRatio)
           }
           updateVideo(replaceTargetId, { ...patch, url, title: file.name, playbackSpeed, speedStart, speedEnd })
           setReplaceTargetId(null)
@@ -304,7 +303,7 @@ export function useTimelineReplace({
             patch = await computeVideoCropForAspect(new VideoClass(generateId('v'), '', finalUrl), aspectRatio, ratio[0], ratio[1], image.cropAspect)
           }
         } else {
-          patch = await computeVideoDimensions(finalUrl, aspectRatio, image.isMainTrack)
+          patch = await computeCanvasCropPlacement(finalUrl, 'video', aspectRatio)
         }
 
         const videoInstance = new VideoClass(
@@ -356,7 +355,7 @@ export function useTimelineReplace({
             patch = await computeVideoCropForAspect(video.copy({ url: finalUrl }), aspectRatio, ratio[0], ratio[1], video.cropAspect)
           }
         } else {
-          patch = await computeVideoDimensions(finalUrl, aspectRatio, !video.isOverlay)
+          patch = await computeCanvasCropPlacement(finalUrl, 'video', aspectRatio)
         }
 
         updateVideo(video.id, {

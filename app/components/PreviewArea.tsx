@@ -135,7 +135,6 @@ export default function PreviewArea() {
       | { kind: 'text'; row: number; t0: number; text: TextClass }
     const layers: Layer[] = []
     for (const image of images) {
-      if (image.isMainTrack) continue
       if (playbackTime < image.startTime || playbackTime >= image.endTime) continue
       layers.push({ kind: 'image', row: image.row, t0: image.startTime, image })
     }
@@ -163,9 +162,8 @@ export default function PreviewArea() {
     const item = img || vid
     if (!item) return
 
-    const isMainTrack = (item as any).row === 0
-    const itemW = isMainTrack ? (state.aspectRatio === '16:9' ? 1920 : 1080) : item.width
-    const itemH = isMainTrack ? (state.aspectRatio === '16:9' ? 1080 : 1920) : item.height
+    const itemW = item.width
+    const itemH = item.height
 
     setCropPanState({
       startX: e.clientX,
@@ -212,21 +210,6 @@ export default function PreviewArea() {
       }
     }
 
-    const visibleMainImages = images.filter(
-      (img) => img.isMainTrack && playbackTime >= img.startTime && playbackTime < img.endTime
-    )
-    for (let i = visibleMainImages.length - 1; i >= 0; i--) {
-      const img = visibleMainImages[i]
-      const ix = img.x * xScale + offsetX
-      const iy = img.y * yScale + offsetY
-      const iw = img.width * xScale
-      const ih = img.height * yScale
-      if (px >= ix && px <= ix + iw && py >= iy && py <= iy + ih) {
-        enterCropEdit(img.id, 'image')
-        return
-      }
-    }
-
     // Check main video
     const mainVideo = videos.find((v) => !v.isOverlay && playbackTime >= v.timestamp && playbackTime < v.timestamp + (v.duration ?? 0))
     if (mainVideo) {
@@ -235,7 +218,7 @@ export default function PreviewArea() {
         return
       }
     }
-  }, [images, videos, sortedPreviewLayers, playbackTime, xScale, yScale, offsetX, offsetY, contentRect, enterCropEdit])
+  }, [videos, sortedPreviewLayers, playbackTime, xScale, yScale, offsetX, offsetY, contentRect, enterCropEdit])
 
   useEffect(() => {
     if (!cropEditId) return
