@@ -15,9 +15,18 @@ Mango Studio is a Next.js 16 (App Router, Turbopack) web-based video editor with
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder
   ```
 - With placeholder values the app loads but auth features won't work; the AuthModal shows and the editor is blurred behind it.
-- For full functionality, these env vars are also needed: `GEMINI_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SUPABASE_SECRET_KEY`.
-- **Expected secret formats**: `NEXT_PUBLIC_SUPABASE_URL` must be `https://<project>.supabase.co`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and `SUPABASE_SECRET_KEY` are JWTs starting with `eyJ`, `GEMINI_API_KEY` starts with `AIzaSy`, `STRIPE_SECRET_KEY` starts with `sk_live_` or `sk_test_`, `STRIPE_WEBHOOK_SECRET` starts with `whsec_`.
-- If env vars are injected at the system level, `.env.local` values won't override them (Next.js gives precedence to actual env vars over `.env.local`).
+- For full functionality, all of these env vars are needed in `.env.local`:
+  ```
+  GOOGLE_API_KEY=AIzaSy...
+  NEXT_PUBLIC_SUPABASE_URL=https://<project>.supabase.co
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<supabase anon/publishable key>
+  SUPABASE_SECRET_KEY=sb_secret_...
+  STRIPE_PUBLISHABLE_KEY=pk_live_... or pk_test_...
+  STRIPE_SECRET_KEY=sk_live_... or sk_test_...
+  STRIPE_WEBHOOK_SECRET=whsec_...
+  ```
+- The code uses `GOOGLE_API_KEY` as a fallback for `GEMINI_API_KEY` (see `genaiClient.ts`).
+- **Important**: If env vars are injected at the system level, they take precedence over `.env.local`. Unset conflicting system vars before starting the dev server if `.env.local` corrections are needed.
 
 ### Lint
 
