@@ -16,6 +16,8 @@ Mango Studio is a Next.js 16 (App Router, Turbopack) web-based video editor with
   ```
 - With placeholder values the app loads but auth features won't work; the AuthModal shows and the editor is blurred behind it.
 - For full functionality, these env vars are also needed: `GEMINI_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SUPABASE_SECRET_KEY`.
+- **Expected secret formats**: `NEXT_PUBLIC_SUPABASE_URL` must be `https://<project>.supabase.co`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and `SUPABASE_SECRET_KEY` are JWTs starting with `eyJ`, `GEMINI_API_KEY` starts with `AIzaSy`, `STRIPE_SECRET_KEY` starts with `sk_live_` or `sk_test_`, `STRIPE_WEBHOOK_SECRET` starts with `whsec_`.
+- If env vars are injected at the system level, `.env.local` values won't override them (Next.js gives precedence to actual env vars over `.env.local`).
 
 ### Lint
 
