@@ -7,7 +7,7 @@
     "test": "vitest run",
     "build": "npm run test && next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "eslint . --ext .ts,.tsx"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.10",

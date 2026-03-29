@@ -2,7 +2,11 @@
 
 .cursor
 
-*.env
+# Env files (keep `.env.example` tracked)
+.env
+.env.*
+!.env.example
+*.local
 
 node_modules
 
