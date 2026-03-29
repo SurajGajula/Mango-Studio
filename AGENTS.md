@@ -8,27 +8,13 @@ Mango Studio is a Next.js 16 (App Router, Turbopack) web-based video editor with
 
 ### Running the app
 
-- **Dev server**: `npm run dev` (port 3000)
-- **Template**: copy `.env.example` to `.env.local` (or set the same variables in the agent environment).
-- The app requires a `.env.local` file with at least placeholder Supabase values to start, because the middleware (`middleware.ts`) calls `createServerClient` and crashes without them:
-  ```
-  NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co
-  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder
-  ```
-- With placeholder values the app loads but auth features won't work; the AuthModal shows and the editor is blurred behind it.
-- For full functionality, set these in `.env.local` (see `.env.example` for a template):
-  ```
-  GEMINI_API_KEY=...   # or GOOGLE_API_KEY
-  GOOGLE_API_KEY=AIzaSy...
-  NEXT_PUBLIC_SUPABASE_URL=https://<project>.supabase.co
-  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<supabase anon/publishable key>
-  SUPABASE_SECRET_KEY=sb_secret_...
-  STRIPE_SECRET_KEY=sk_live_... or sk_test_...
-  STRIPE_WEBHOOK_SECRET=whsec_...
-  ```
-- Optional: `NEXT_PUBLIC_AUTH_REDIRECT_ORIGIN` (see `authRedirect.ts`).
-- `genaiClient.ts` tries `GEMINI_API_KEY` first, then `GOOGLE_API_KEY`.
-- **Important**: If env vars are injected at the system level, they take precedence over `.env.local`. Unset conflicting system vars before starting the dev server if `.env.local` corrections are needed.
+1. Install dependencies: `npm ci` (or `npm install`).
+2. Start the dev server: `npm run dev`.
+3. Open [http://localhost:3000](http://localhost:3000).
+
+### Signing in
+
+When you are not signed in, the auth modal appears over the editor. Use **Sign in with Google** and complete the flow with a **personal Gmail account** (the same Google account you use for Gmail). Email/password sign-in is also available in the modal if you have an account set up that way.
 
 ### Lint
 
@@ -42,7 +28,7 @@ Mango Studio is a Next.js 16 (App Router, Turbopack) web-based video editor with
 
 ### Build
 
-- `npm run build` runs `npm run test && next build`. The build fails without real Supabase/Stripe env vars because API routes like `/api/checkout` instantiate Stripe clients at module scope.
+- `npm run build` runs `npm run test && next build`. A full production build may require the hosted project’s backend configuration to be present for some API routes.
 
 ### Key directories
 

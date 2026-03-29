@@ -2,10 +2,9 @@
 
 .cursor
 
-# Env files (keep `.env.example` tracked)
+# Local env (not committed)
 .env
 .env.*
-!.env.example
 *.local
 
 node_modules
