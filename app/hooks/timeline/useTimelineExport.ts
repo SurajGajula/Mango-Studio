@@ -1,11 +1,17 @@
 import { useState, useRef, useCallback } from 'react'
-import { exportVideo, downloadBlob, ExportProgress } from '@/app/lib/videoExporter'
+import { exportVideo, ExportProgress } from '@/app/lib/videoExporter'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { TextClass } from '@/app/models/TextClass'
 import { AudioClass } from '@/app/models/AudioClass'
 import { EffectClass } from '@/app/models/EffectClass'
 import { AspectRatio } from '@/app/stores/manifest/types'
+
+export interface TimelineExportResult {
+  blob: Blob
+  previewUrl: string
+  filename: string
+}
 
 interface UseTimelineExportProps {
   videos: VideoClass[]
@@ -29,13 +35,31 @@ export function useTimelineExport({
   setIsPlaying,
 }: UseTimelineExportProps) {
   const [isExporting, setIsExporting] = useState(false)
+  const [exportModalOpen, setExportModalOpen] = useState(false)
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null)
+  const [exportResult, setExportResult] = useState<TimelineExportResult | null>(null)
   const exportAbortRef = useRef<AbortController | null>(null)
+
+  const clearPreview = useCallback(() => {
+    setExportResult((prev) => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl)
+      return null
+    })
+  }, [])
+
+  const closeExportModal = useCallback(() => {
+    exportAbortRef.current?.abort()
+    clearPreview()
+    setExportProgress(null)
+    setExportModalOpen(false)
+  }, [clearPreview])
 
   const handleExport = useCallback(async () => {
     const hasMainContent = videos.filter((v) => !v.isOverlay).length > 0 || images.filter((img) => img.isMainTrack).length > 0
     if (isExporting || !hasMainContent) return
 
+    setExportModalOpen(true)
+    clearPreview()
     setIsPlaying(false)
     setIsExporting(true)
     setExportProgress({ phase: 'preparing', progress: 0, message: 'Starting export...' })
@@ -48,7 +72,10 @@ export function useTimelineExport({
       const audioStartTime = audios[0]?.startTime ?? 0
       const blob = await exportVideo(videos, aspectRatio, setExportProgress, images, audioUrl, texts, audioTrimStart, audioStartTime, effects, controller.signal, audios)
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-      downloadBlob(blob, `mango-export-${timestamp}.mp4`)
+      const filename = `mango-export-${timestamp}.mp4`
+      const previewUrl = URL.createObjectURL(blob)
+      setExportResult({ blob, previewUrl, filename })
+      setExportProgress(null)
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         setExportProgress({ phase: 'error', progress: 0, message: 'Export cancelled' })
@@ -62,13 +89,15 @@ export function useTimelineExport({
     } finally {
       exportAbortRef.current = null
       setIsExporting(false)
-      setTimeout(() => setExportProgress(null), 3000)
     }
-  }, [videos, images, isExporting, setIsPlaying, aspectRatio, audioUrl, texts, audios, effects])
+  }, [videos, images, isExporting, setIsPlaying, aspectRatio, audioUrl, texts, audios, effects, clearPreview])
 
-  const handleCancelExport = useCallback(() => {
-    exportAbortRef.current?.abort()
-  }, [])
-
-  return { isExporting, exportProgress, handleExport, handleCancelExport, setExportProgress }
+  return {
+    isExporting,
+    exportProgress,
+    exportModalOpen,
+    exportResult,
+    handleExport,
+    closeExportModal,
+  }
 }

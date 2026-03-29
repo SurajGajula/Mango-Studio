@@ -39,6 +39,17 @@ const EFFECT_OPTIONS: { value: EffectType; label: string; desc: string; icon: Re
       </svg>
     ),
   },
+  {
+    value: 'black-and-white',
+    label: 'Black & White',
+    desc: 'Desaturate the frame using standard luminance',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M12 2a10 10 0 0 1 0 20V2z" fill="currentColor" stroke="none" opacity="0.35" />
+      </svg>
+    ),
+  },
 ]
 
 export default function EffectsPanel({ onClose }: Props) {
@@ -63,37 +74,19 @@ export default function EffectsPanel({ onClose }: Props) {
 
   const intensitySliderHistory = useSliderHistorySession()
 
-  const findFreeRow = (
-    items: Array<{ startTime: number; endTime: number; row: number }>,
-    start: number,
-    end: number
-  ): number => {
-    let row = 0
-    while (true) {
-      const rowItems = items.filter((i) => i.row === row)
-      const hasOverlap = rowItems.some((i) => start < i.endTime && end > i.startTime)
-      if (!hasOverlap) return row
-      row++
-    }
-  }
-
   const handleSelect = (value: EffectType) => {
     const start = playbackTime
     const duration = 5
     const end = start + duration
-    
-    const effectItems = effects.map((e) => ({ startTime: e.startTime, endTime: e.endTime, row: e.row }))
-    let row = findFreeRow(effectItems, start, end)
-    if (row > 0) {
-      row = findFreeVisualOverlayRow(start, end)
-    }
-    
+    const row = findFreeVisualOverlayRow(start, end)
+
     addEffect(new EffectClass(
       generateId('effect'),
       value,
       start,
       end,
-      row
+      row,
+      value === 'black-and-white' ? 1 : 0.5
     ))
   }
 
@@ -128,10 +121,12 @@ export default function EffectsPanel({ onClose }: Props) {
           ))}
         </div>
 
-        {activeEffect?.type === 'flashing-black-vignette' && (
+        {(activeEffect?.type === 'flashing-black-vignette' || activeEffect?.type === 'black-and-white') && (
           <div className={styles.durationControl} style={{ marginTop: '2rem' }}>
             <div className={styles.durationHeader}>
-              <span className={styles.durationLabel}>Vignette Intensity</span>
+              <span className={styles.durationLabel}>
+                {activeEffect.type === 'black-and-white' ? 'Desaturation' : 'Vignette Intensity'}
+              </span>
               <span className={styles.durationValue}>{((activeEffect.intensity ?? 0.5) * 100).toFixed(0)}%</span>
             </div>
             <input

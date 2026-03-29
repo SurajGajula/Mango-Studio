@@ -8,7 +8,7 @@ import { fetchFile, toBlobURL } from '@ffmpeg/util'
 import { wrapTextToLines } from '@/app/lib/textUtils'
 import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
 import { applyEffect } from '@/app/lib/applyEffect'
-import { getSortedMainItems, findActiveAndNextItems, checkTransition, calculateAnimationProgress, calculateSourceTime } from '@/app/lib/renderUtils'
+import { getSortedMainItems, findActiveAndNextItems, checkTransition, calculateAnimationProgress, calculateSourceTime, clipTimelineSpanForSourceMap } from '@/app/lib/renderUtils'
 import { calculateTotalDuration } from '@/app/lib/timeUtils'
 import { audioBufferToWav } from '@/app/lib/audioUtils'
 
@@ -256,7 +256,7 @@ export async function exportVideo(
             const elapsed = Math.max(0, t - activeMain!.startTime)
             const sourceElapsed = calculateSourceTime(
               elapsed,
-              av.duration || 1,
+              clipTimelineSpanForSourceMap(av.duration),
               av.speedStart ?? av.playbackSpeed ?? 1,
               av.speedEnd ?? av.playbackSpeed ?? 1,
               av.playbackSpeed ?? 1,
@@ -272,7 +272,7 @@ export async function exportVideo(
           const elapsed = Math.max(0, t - activeMain.startTime)
           const sourceElapsed = calculateSourceTime(
             elapsed,
-            v.duration || 1,
+            clipTimelineSpanForSourceMap(v.duration),
             v.speedStart ?? v.playbackSpeed ?? 1,
             v.speedEnd ?? v.playbackSpeed ?? 1,
             v.playbackSpeed ?? 1,
@@ -289,7 +289,7 @@ export async function exportVideo(
           const elapsed = Math.max(0, t - v.timestamp)
           const sourceElapsed = calculateSourceTime(
             elapsed,
-            v.duration || 1,
+            clipTimelineSpanForSourceMap(v.duration),
             v.speedStart ?? v.playbackSpeed ?? 1,
             v.speedEnd ?? v.playbackSpeed ?? 1,
             v.playbackSpeed ?? 1,
@@ -334,7 +334,7 @@ export async function exportVideo(
               const elapsed = Math.max(0, t - activeMain.startTime)
             const sourceElapsed = calculateSourceTime(
               elapsed,
-              av.duration || 1,
+              clipTimelineSpanForSourceMap(av.duration),
               av.speedStart ?? av.playbackSpeed ?? 1,
               av.speedEnd ?? av.playbackSpeed ?? 1,
               av.playbackSpeed ?? 1,
@@ -355,14 +355,13 @@ export async function exportVideo(
             const elapsedB = t - nextMain.startTime
             const elapsedA = t - activeMain.startTime
             
-            const progB = calculateAnimationProgress(nextItem, t, nextMain.startTime)
             const progA = calculateAnimationProgress(activeItem, t, activeMain.startTime)
 
             applyZoomTransform(
               ctx,
               nextItem.animation,
               nextItem.transition,
-              progB,
+              progress,
               nextEl,
               nextParams.x, nextParams.y, nextParams.w, nextParams.h,
               nextItem.cropSx, nextItem.cropSy, nextItem.cropSw, nextItem.cropSh,
@@ -377,7 +376,10 @@ export async function exportVideo(
               activeItem.zoomIntensity,
               activeItem.duration,
               activeItem.animationDuration,
-              curParams
+              curParams,
+              nextItem.transitionColor,
+              nextItem.transitionDirection,
+              nextItem.transitionAxis
             )
           }
         }

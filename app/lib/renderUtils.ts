@@ -40,6 +40,11 @@ function cubicBezier(t: number): number {
   return t * t * (3 - 2 * t)
 }
 
+export function clipTimelineSpanForSourceMap(duration: number | undefined | null): number {
+  const d = duration ?? 0
+  return d > 0 ? d : 0
+}
+
 export function calculateSourceTime(
   elapsedTimelineTime: number,
   timelineDuration: number,

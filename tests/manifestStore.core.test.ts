@@ -128,6 +128,26 @@ describe('manifestStore core invariants', () => {
     expect(duplicate!.timestamp).toBe(5)
   })
 
+  it('duplicateTimelineRange copies images #1–#2 after the block and shifts following clips', () => {
+    const store = useManifestStore.getState()
+    store.addImage(makeImage('i-a', 4, 10))
+    store.addImage(makeImage('i-b', 10, 20))
+    store.addImage(makeImage('i-after', 20, 24))
+    store.duplicateTimelineRange('image', 1, 2)
+    const { images } = useManifestStore.getState()
+    expect(images).toHaveLength(5)
+    const sorted = [...images].sort((a, b) => a.startTime - b.startTime)
+    expect(sorted[0].id).toBe('i-a')
+    expect(sorted[1].id).toBe('i-b')
+    expect(sorted[2].startTime).toBe(20)
+    expect(sorted[2].endTime).toBe(26)
+    expect(sorted[3].startTime).toBe(26)
+    expect(sorted[3].endTime).toBe(36)
+    expect(sorted[4].id).toBe('i-after')
+    expect(sorted[4].startTime).toBe(36)
+    expect(sorted[4].endTime).toBe(40)
+  })
+
   it('undo and redo restore and reapply manifest lists after removeVideo', () => {
     const v = makeVideo('v-undo', 0, 3)
     const store = useManifestStore.getState()

@@ -1,5 +1,16 @@
 import type { EffectType } from '@/app/models/EffectClass'
 
+let bwScratch: HTMLCanvasElement | null = null
+
+function getBwScratch(w: number, h: number): HTMLCanvasElement {
+  if (!bwScratch) bwScratch = document.createElement('canvas')
+  if (bwScratch.width !== w || bwScratch.height !== h) {
+    bwScratch.width = w
+    bwScratch.height = h
+  }
+  return bwScratch
+}
+
 function makeLCG(seed: number) {
   let s = ((seed ^ 0xdeadbeef) >>> 0) || 1
   return () => {
@@ -107,6 +118,45 @@ function applyFlashingBlackVignette(
   ctx.restore()
 }
 
+function applyBlackAndWhite(
+  ctx: CanvasRenderingContext2D,
+  rx: number,
+  ry: number,
+  rw: number,
+  rh: number,
+  intensity: number = 0.5
+): void {
+  if (rw <= 0 || rh <= 0) return
+  const t = Math.max(0, Math.min(1, intensity))
+  if (t <= 0) return
+
+  const iw = Math.max(1, Math.round(rw))
+  const ih = Math.max(1, Math.round(rh))
+
+  const snap = getBwScratch(iw, ih)
+  const sctx = snap.getContext('2d')
+  if (!sctx) return
+
+  const source = ctx.canvas
+  sctx.setTransform(1, 0, 0, 1, 0, 0)
+  sctx.clearRect(0, 0, iw, ih)
+  const c = 1 + 1.2 * t
+  sctx.filter =
+    t >= 1
+      ? `grayscale(1) saturate(0) contrast(${c})`
+      : `grayscale(${t}) contrast(${c})`
+  sctx.drawImage(source, rx, ry, rw, rh, 0, 0, iw, ih)
+  sctx.filter = 'none'
+
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(rx, ry, rw, rh)
+  ctx.clip()
+  ctx.clearRect(rx, ry, rw, rh)
+  ctx.drawImage(snap, 0, 0, iw, ih, rx, ry, rw, rh)
+  ctx.restore()
+}
+
 export function applyEffect(
   ctx: CanvasRenderingContext2D,
   type: EffectType,
@@ -121,5 +171,7 @@ export function applyEffect(
     applyCrtDither(ctx, x, y, width, height, playbackTime)
   } else if (type === 'flashing-black-vignette') {
     applyFlashingBlackVignette(ctx, x, y, width, height, playbackTime, intensity)
+  } else if (type === 'black-and-white') {
+    applyBlackAndWhite(ctx, x, y, width, height, intensity)
   }
 }

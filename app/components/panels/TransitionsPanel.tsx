@@ -28,11 +28,11 @@ const ANIMATION_OPTIONS: { value: AnimationMode; label: string; desc: string; ic
   {
     value: 'pulse',
     label: 'Pulse',
-    desc: 'Zooms in fast, curves, then zooms out fast',
+    desc: 'Parabolic zoom: rises over 75% of the clip, falls over the rest',
     icon: (
       <svg 
         width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-        style={{ animation: 'pulse-preview 2s infinite' }}
+        style={{ animation: 'pulse-preview 2s linear infinite' }}
       >
         <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
       </svg>

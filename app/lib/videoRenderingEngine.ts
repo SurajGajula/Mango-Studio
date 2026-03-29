@@ -1,7 +1,7 @@
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { EffectClass } from '@/app/models/EffectClass'
-import { MainItem, calculateAnimationProgress, calculateSourceTime } from '@/app/lib/renderUtils'
+import { MainItem, calculateAnimationProgress, calculateSourceTime, clipTimelineSpanForSourceMap } from '@/app/lib/renderUtils'
 import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
 import { applyEffect } from '@/app/lib/applyEffect'
 
@@ -93,7 +93,7 @@ export class VideoRenderingEngine {
           const elapsed = Math.max(0, newTime - activeClip.startTime)
           const sourceElapsed = calculateSourceTime(
             elapsed,
-            v.duration || 0,
+            clipTimelineSpanForSourceMap(v.duration),
             v.speedStart ?? v.playbackSpeed ?? 1,
             v.speedEnd ?? v.playbackSpeed ?? 1,
             v.playbackSpeed ?? 1,
@@ -118,16 +118,14 @@ export class VideoRenderingEngine {
           }
 
           if (isPlaying) {
-            // High sync threshold (0.3s) to avoid constant seeking during playback
-            // Constant seeking is the #1 cause of stuttering in video elements.
             const drift = Math.abs(vEl.currentTime - target)
             
-            if (drift > 0.3) {
+            if (drift > 0.05) {
               vEl.currentTime = target
               onVideoTimeUpdate(activeClip.id, target)
             }
             
-            const x = elapsed / Math.max(0.1, v.duration || 1)
+            const x = elapsed / Math.max(0.1, clipTimelineSpanForSourceMap(v.duration))
             let f = x
             if (v.speedEasing === 'ease') {
               f = 3 * Math.pow(x, 2) - 2 * Math.pow(x, 3)
@@ -160,7 +158,7 @@ export class VideoRenderingEngine {
           const elapsedB = Math.max(0, newTime - nextClip.startTime)
           const sourceElapsedB = calculateSourceTime(
             elapsedB,
-            nv.duration || 0,
+            clipTimelineSpanForSourceMap(nv.duration),
             nv.speedStart ?? nv.playbackSpeed ?? 1,
             nv.speedEnd ?? nv.playbackSpeed ?? 1,
             nv.playbackSpeed ?? 1,
@@ -181,7 +179,7 @@ export class VideoRenderingEngine {
                   nvEl.currentTime = targetB
                   onVideoTimeUpdate(nextClip.id, targetB)
                 }
-                const x = elapsedB / Math.max(0.1, nv.duration || 1)
+                const x = elapsedB / Math.max(0.1, clipTimelineSpanForSourceMap(nv.duration))
                 let f = x
                 if (nv.speedEasing === 'ease') {
                   f = 3 * Math.pow(x, 2) - 2 * Math.pow(x, 3)
@@ -210,6 +208,30 @@ export class VideoRenderingEngine {
             }
           }
         }
+      }
+
+      for (let i = 0; i < state.videos.length; i++) {
+        const ov = state.videos[i]
+        if (!ov.isOverlay) continue
+        const span = ov.duration ?? 0
+        if (span <= 0 || newTime < ov.timestamp || newTime >= ov.timestamp + span) continue
+        const ovEl = videoElements.get(ov.id)
+        if (!ovEl) continue
+        const elapsedOv = Math.max(0, newTime - ov.timestamp)
+        const sourceElapsedOv = calculateSourceTime(
+          elapsedOv,
+          clipTimelineSpanForSourceMap(ov.duration),
+          ov.speedStart ?? ov.playbackSpeed ?? 1,
+          ov.speedEnd ?? ov.playbackSpeed ?? 1,
+          ov.playbackSpeed ?? 1,
+          ov.speedEasing
+        )
+        const targetOv = (ov.trimStart ?? 0) + sourceElapsedOv
+        if (Math.abs(ovEl.currentTime - targetOv) > 0.03) {
+          ovEl.currentTime = targetOv
+          onVideoTimeUpdate(ov.id, targetOv)
+        }
+        if (!ovEl.paused) onVideoPlayState(ov.id, false, 1)
       }
 
       // Cleanup: pause any video that is not the active or next one
@@ -395,7 +417,7 @@ export class VideoRenderingEngine {
     
     // Calculate Instantaneous Speed for adaptive logic
     const elapsed = Math.max(0, currentTime - videoClip.timestamp)
-    const x = elapsed / Math.max(0.1, videoClip.duration || 1)
+    const x = elapsed / Math.max(0.1, clipTimelineSpanForSourceMap(videoClip.duration))
     let f = x
     if (videoClip.speedEasing === 'ease') {
       f = 3 * Math.pow(x, 2) - 2 * Math.pow(x, 3)
@@ -572,7 +594,7 @@ export class VideoRenderingEngine {
         const video = e.video
         const elapsed = Math.max(0, currentTime - video.timestamp)
         const vEl = videoElements.get(video.id)
-        if (!vEl || vEl.readyState < 2 || vEl.seeking) continue
+        if (!vEl || vEl.readyState < 2) continue
         const progress = calculateAnimationProgress(video, currentTime, video.timestamp)
         ctx.save(); ctx.globalAlpha = video.opacity
         applyZoomTransform(ctx, video.animation, video.transition, progress, vEl, cr.x + video.x * xScale, cr.y + video.y * yScale, video.width * xScale, video.height * yScale, video.cropSx ?? 0, video.cropSy ?? 0, video.cropSw ?? 1, video.cropSh ?? 1, video.zoomIntensity, video.duration, video.animationDuration, currentTime - video.timestamp, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, video.transitionColor, video.transitionDirection, video.transitionAxis)

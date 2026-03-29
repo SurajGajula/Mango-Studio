@@ -74,6 +74,7 @@ export interface ManifestStore {
   splitVideoAtTimes: (id: string, times: number[]) => void
   splitImageAtTimes: (id: string, times: number[]) => void
   duplicateItem: (id: string) => void
+  duplicateTimelineRange: (kind: 'image' | 'video', firstNumber: number, lastNumber: number) => void
   effects: EffectClass[]
   addEffect: (effect: EffectClass) => void
   updateEffect: (id: string, updates: Partial<EffectClass>) => void

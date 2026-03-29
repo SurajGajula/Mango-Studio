@@ -8,6 +8,7 @@ import { TextClass } from '@/app/models/TextClass'
 import { formatTime } from '@/app/lib/timeUtils'
 import { findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
 import VideoReplaceModal from './modals/VideoReplaceModal'
+import ExportModal from './modals/ExportModal'
 import PlaybackControls from './PlaybackControls'
 import UnifiedRow from './tracks/UnifiedRow'
 import AudioTrack from './tracks/AudioTrack'
@@ -77,6 +78,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
   const totalDuration = getTotalDuration()
   const MIN_VISIBLE = 0.5
   const MAX_VISIBLE = 120
+  const WHEEL_VERTICAL_DOMINANCE_RATIO = 3
   const [visibleDuration, setVisibleDuration] = useState(8)
   const effectivePadding = visibleDuration / 2
   const visibleDurationRef = useRef(8)
@@ -131,14 +133,21 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     images.forEach(img => { if (img.row > 0) rows.add(img.row) })
     texts.forEach(t => { if (t.row > 0) rows.add(t.row) })
     audios.forEach(a => { if (a.row > 0) rows.add(a.row) })
-    effects.forEach(e => { if (e.row > 0) rows.add(e.row) })
+    effects.forEach((e) => rows.add(e.row))
     if (activeDrag && dragPreview && dragPreview.targetRow > 0 && !rows.has(dragPreview.targetRow)) {
       rows.add(dragPreview.targetRow)
     }
     return Array.from(rows).sort((a, b) => b - a)
   }, [videos, images, texts, audios, effects, activeDrag, dragPreview])
 
-  const { isExporting, exportProgress, handleExport, handleCancelExport, setExportProgress } = useTimelineExport({
+  const {
+    isExporting,
+    exportProgress,
+    exportModalOpen,
+    exportResult,
+    handleExport,
+    closeExportModal,
+  } = useTimelineExport({
     videos,
     aspectRatio,
     images,
@@ -168,7 +177,6 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     replaceImageWithVideo,
     replaceVideoWithImage,
     updateVideo,
-    setExportProgress,
   })
 
   const getContentPosition = useCallback((time: number) => {
@@ -262,11 +270,34 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
       } else {
         e.preventDefault()
         if (!useManifestStore.getState().isPlaying) {
-          const delta = e.deltaX + e.deltaY
-          const atLeftEdge = container.scrollLeft === 0
-          container.scrollLeft += delta
-          if (atLeftEdge && delta < 0) {
-            useManifestStore.getState().setPlaybackTime(0)
+          const deltaX = e.deltaX
+          const deltaY = e.deltaY
+          const canScrollY = container.scrollHeight > container.clientHeight + 1
+          if (canScrollY) {
+            const maxTop = Math.max(0, container.scrollHeight - container.clientHeight)
+            const topBefore = container.scrollTop
+            const nextTop = Math.min(maxTop, Math.max(0, topBefore + deltaY))
+            const appliedY = nextTop - topBefore
+            container.scrollTop = nextTop
+            const remainderY = deltaY - appliedY
+            const verticalDominant =
+              Math.abs(deltaY) >= Math.abs(deltaX) * WHEEL_VERTICAL_DOMINANCE_RATIO
+            const horizontalFromAxis = verticalDominant ? 0 : deltaX
+            const horizontalDelta = horizontalFromAxis + remainderY
+            if (horizontalDelta !== 0) {
+              const atLeftEdge = container.scrollLeft === 0
+              container.scrollLeft += horizontalDelta
+              if (atLeftEdge && horizontalDelta < 0) {
+                useManifestStore.getState().setPlaybackTime(0)
+              }
+            }
+          } else {
+            const delta = deltaX + deltaY
+            const atLeftEdge = container.scrollLeft === 0
+            container.scrollLeft += delta
+            if (atLeftEdge && delta < 0) {
+              useManifestStore.getState().setPlaybackTime(0)
+            }
           }
         }
       }
@@ -277,6 +308,14 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
 
   return (
     <div className={styles.container}>
+      <ExportModal
+        open={exportModalOpen}
+        aspectRatio={aspectRatio}
+        isExporting={isExporting}
+        exportProgress={exportProgress}
+        exportResult={exportResult}
+        onClose={closeExportModal}
+      />
       {replaceVideoData && (
         <VideoReplaceModal
           videoUrl={replaceVideoData.url}
@@ -336,8 +375,6 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
               onOpenSpeed={onOpenSpeed}
               isExporting={isExporting}
               handleExport={handleExport}
-              handleCancelExport={handleCancelExport}
-              exportProgress={exportProgress}
               handleAddText={handleAddText}
             />
             <div className={styles.timelineRowContainer}>

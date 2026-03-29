@@ -5,7 +5,6 @@ import { useSelectionStore } from '@/app/stores/selectionStore'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { ASPECT_RATIOS, computeMediaCropForAspect } from '@/app/lib/mediaUtils'
-import { ExportProgress } from '@/app/lib/videoExporter'
 import styles from './tracks/Timeline.module.css'
 
 interface PlaybackControlsProps {
@@ -19,8 +18,6 @@ interface PlaybackControlsProps {
   onOpenSpeed?: (id: string) => void
   isExporting: boolean
   handleExport: () => void
-  handleCancelExport: () => void
-  exportProgress: ExportProgress | null
   handleAddText: () => void
 }
 
@@ -35,8 +32,6 @@ export default function PlaybackControls({
   onOpenSpeed,
   isExporting,
   handleExport,
-  handleCancelExport,
-  exportProgress,
   handleAddText,
 }: PlaybackControlsProps) {
   const isPlaying = useManifestStore((state) => state.isPlaying)
@@ -168,20 +163,6 @@ export default function PlaybackControls({
           {isExporting ? 'Exporting...' : 'Export'}
         </button>
       </div>
-      {exportProgress && (
-        <div className={styles.exportProgressWrapper}>
-          <div className={styles.exportProgress}>
-            <div
-              className={styles.exportProgressBar}
-              style={{ width: `${exportProgress.progress}%` }}
-            />
-            <span className={styles.exportProgressText}>{exportProgress.message}</span>
-          </div>
-          {isExporting && (
-            <button className={styles.exportCancelBtn} onClick={handleCancelExport} title="Cancel export">✕</button>
-          )}
-        </div>
-      )}
     </>
   )
 }

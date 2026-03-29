@@ -82,7 +82,7 @@ export interface AddTextInstruction {
 }
 
 export interface AddEffectInstruction {
-  type: 'crt-dither' | 'flashing-black-vignette'
+  type: 'crt-dither' | 'flashing-black-vignette' | 'black-and-white'
   startTime: number
   endTime: number
   intensity?: number
@@ -107,6 +107,11 @@ export interface CropInstruction {
   cropAspect: '16:9' | '4:3' | '1:1' | '3:4' | '9:16' | 'none'
 }
 
+export interface DeleteTimelineItemInstruction {
+  type: 'image' | 'video' | 'text' | 'audio'
+  id: string
+}
+
 type RoutedAction =
   | 'no_op'
   | 'edit_manifest'
@@ -116,6 +121,8 @@ type RoutedAction =
   | 'set_transitions'
   | 'set_crop'
   | 'add_effect'
+  | 'delete_timeline_items'
+  | 'duplicate_timeline_range'
 
 interface RoutePromptResponse {
   action: RoutedAction
@@ -126,6 +133,8 @@ interface RoutePromptResponse {
   newEffects?: AddEffectInstruction[]
   transitions?: TransitionInstruction[]
   crops?: CropInstruction[]
+  deleteItems?: DeleteTimelineItemInstruction[]
+  duplicateRange?: { kind: 'image' | 'video'; firstNumber: number; lastNumber: number }
   message: string
 }
 
@@ -240,6 +249,8 @@ export async function POST(request: NextRequest) {
             allowedFunctionNames: [
               'no_op',
               'edit_manifest',
+              'delete_timeline_items',
+              'duplicate_timeline_range',
               'split_at_marks',
               'replace_images',
               'add_text',
@@ -280,6 +291,21 @@ export async function POST(request: NextRequest) {
         action: 'edit_manifest',
         mutations: (args?.mutations as ManifestMutation[]) || [],
         message: (args?.message as string) || 'Timeline updated.',
+      }
+    } else if (action === 'delete_timeline_items') {
+      result = {
+        action: 'delete_timeline_items',
+        deleteItems: (args?.items as DeleteTimelineItemInstruction[]) || [],
+        message: (args?.message as string) || 'Items removed.',
+      }
+    } else if (action === 'duplicate_timeline_range') {
+      const kind = args?.kind === 'video' ? 'video' : 'image'
+      const firstNumber = typeof args?.firstNumber === 'number' ? args.firstNumber : 1
+      const lastNumber = typeof args?.lastNumber === 'number' ? args.lastNumber : firstNumber
+      result = {
+        action: 'duplicate_timeline_range',
+        duplicateRange: { kind, firstNumber, lastNumber },
+        message: (args?.message as string) || 'Range duplicated.',
       }
     } else if (action === 'split_at_marks') {
       result = {

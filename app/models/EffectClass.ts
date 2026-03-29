@@ -1,4 +1,4 @@
-export type EffectType = 'crt-dither' | 'flashing-black-vignette'
+export type EffectType = 'crt-dither' | 'flashing-black-vignette' | 'black-and-white'
 
 export class EffectClass {
   id: string

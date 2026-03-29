@@ -92,6 +92,66 @@ export const functionDeclarations: FunctionDeclaration[] = [
     },
   },
   {
+    name: 'delete_timeline_items',
+    description:
+      'Remove one or more items from the timeline by id. Use when the user asks to delete, remove, or clear specific images, videos, text overlays, or audio clips — for example "delete images 19 through 31" (resolve to ids from the manifest #N order). Include every item to remove in one call. Main-track removals shift later clips earlier automatically.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        items: {
+          type: Type.ARRAY,
+          description: 'Each entry removes one timeline item.',
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              type: {
+                type: Type.STRING,
+                description: 'One of: image, video, text, audio.',
+              },
+              id: {
+                type: Type.STRING,
+                description: 'Exact id from the manifest for that item.',
+              },
+            },
+            required: ['type', 'id'],
+          },
+        },
+        message: {
+          type: Type.STRING,
+          description: 'Short confirmation, e.g. "Removed images #19–#31."',
+        },
+      },
+      required: ['items', 'message'],
+    },
+  },
+  {
+    name: 'duplicate_timeline_range',
+    description:
+      'Duplicate a contiguous run of images or videos by their 1-based order when sorted by start time (images) or timestamp (videos), matching the #N labels in the manifest. The duplicate block is placed immediately after the end of the original block: each copy keeps the same duration and relative spacing, shifted so the first copy starts where the original block ended (e.g. images #2–#18 spanning 4s–20s reappear from 20s–36s). Following main-track content shifts right by the length of the block. Use kind "image" or "video" accordingly.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        kind: {
+          type: Type.STRING,
+          description: 'Either "image" or "video".',
+        },
+        firstNumber: {
+          type: Type.NUMBER,
+          description: 'First item number in the range (inclusive), 1-based, same as manifest #N.',
+        },
+        lastNumber: {
+          type: Type.NUMBER,
+          description: 'Last item number in the range (inclusive), 1-based.',
+        },
+        message: {
+          type: Type.STRING,
+          description: 'Short confirmation, e.g. "Duplicated images #2–#18 after 20s."',
+        },
+      },
+      required: ['kind', 'firstNumber', 'lastNumber', 'message'],
+    },
+  },
+  {
     name: 'split_at_marks',
     description: "Split images or videos into multiple segments. Use this when the user asks to split, cut, or divide items at specific positions, or into equal parts like halves or fourths. For equal parts, compute the split times yourself based on the item's startTime and endTime. For splitting at audio marks, include only the marks that fall within that item's time range.",
     parameters: {
@@ -298,7 +358,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'add_effect',
-    description: 'Add one or more visual effects (e.g. "crt-dither" or "flashing-black-vignette") to the timeline. Use this when the user asks to add, apply, or insert an effect over a specific time range — for example "add a crt dither from image 12 to 22" or "apply flashing vignette to the first 5 seconds". Compute startTime and endTime from the manifest data.',
+    description: 'Add one or more visual effects (e.g. "crt-dither", "flashing-black-vignette", or "black-and-white") to the timeline. Use this when the user asks to add, apply, or insert an effect over a specific time range — for example "add a crt dither from image 12 to 22" or "apply flashing vignette to the first 5 seconds". Compute startTime and endTime from the manifest data.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -310,7 +370,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
             properties: {
               type: {
                 type: Type.STRING,
-                description: 'The type of effect: "crt-dither" or "flashing-black-vignette".',
+                description: 'The type of effect: "crt-dither", "flashing-black-vignette", or "black-and-white".',
               },
               startTime: {
                 type: Type.NUMBER,
@@ -322,7 +382,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
               },
               intensity: {
                 type: Type.NUMBER,
-                description: 'The intensity of the effect (0.0 to 1.0). Only for "flashing-black-vignette". Default is 0.5.',
+                description: 'The intensity of the effect (0.0 to 1.0). For "flashing-black-vignette" and "black-and-white" (0 = none / full color, 1 = full effect). Default is 0.5.',
               },
             },
             required: ['type', 'startTime', 'endTime'],
@@ -342,10 +402,12 @@ export const tools: Tool[] = [{ functionDeclarations }]
 
 export const systemInstruction =
   'You are a timeline editing assistant for a media studio. Your only job is to call the correct function:\n' +
+    '- delete_timeline_items: when the user asks to delete, remove, or clear one or more timeline items. Map phrases like "images 19–31" to the manifest #N order (sorted by start time for images, by timestamp for videos) and include one { type, id } per item in the items array in a SINGLE call.\n' +
+    '- duplicate_timeline_range: when the user asks to duplicate, repeat, or copy a range of images or videos so the copy plays immediately after the original block ends. Use kind "image" or "video" and firstNumber/lastNumber inclusive (same #N as the manifest).\n' +
     '- edit_manifest: when the user asks to change timing, duration, position, playback speed, or mute status of existing items. You MUST include all affected items as separate entries in the mutations array in a SINGLE call — never call edit_manifest multiple times. For audio mutations (type=updateAudio): ALWAYS use trimStart and trimEnd fields (not endTime). To restore an audio to its full original length set trimStart=0 and trimEnd=0. The active playing duration of an audio is: originalDuration - trimStart - trimEnd. Use playbackSpeed for constant video and audio playback speed changes (e.g. 0.5 for half speed). For speed ramps (e.g. "0.5x start to 0.1x end"), use both speedStart and speedEnd (and optionally speedEasing: "linear" or "ease"). If speedStart/speedEnd are used, they will override any constant playbackSpeed. Use muted for video mute status (true to mute, false to unmute). ALWAYS use the exact id strings from the manifest (e.g. "audio-1234-abc") — never make up or shorten ids.\n' +
   '- split_at_marks: when the user asks to split, cut, or divide images or videos at specific positions, or into equal parts (like halves or fourths). You must compute the absolute timeline split times yourself from the item\'s timing data (halves = 1 split at midpoint, fourths = 3 splits at 25%/50%/75%). Also use this for splitting at audio marks (use the marks listed in the audio data)\n' +
   '- add_text: when the user asks to add text overlays to the timeline at a computed time range\n' +
-  '- add_effect: when the user asks to add visual effects (like "crt-dither" or "flashing-black-vignette") over a specific time range; include intensity (0.0–1.0) if specified for flashing-black-vignette\n' +
+  '- add_effect: when the user asks to add visual effects (like "crt-dither", "flashing-black-vignette", or "black-and-white") over a specific time range; include intensity (0.0–1.0) if specified for flashing-black-vignette or black-and-white\n' +
     '- replace_images: when the user has attached files and asks to replace, swap, or update existing timeline images or videos with them\n' +
   '- set_transitions: when the user asks to set, apply, add, or remove animations (none, pulse, shake, or jitter) or transitions (none, split, fade, slide-in, circle, rotate, or flash) on images or videos; include zoomIntensity (0.05–1.0) if specified, transitionDuration if specified, transitionColor if specified (for flash), transitionDirection if specified (for slide-in), or transitionAxis if specified (for split)\n' +
   '- set_crop: when the user asks to set or change the aspect ratio of images or videos (e.g. "make images 2-25 16:9"); cropAspect must be one of "16:9", "4:3", "1:1", "3:4", "9:16", or "none"\n' +

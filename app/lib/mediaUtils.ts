@@ -55,6 +55,25 @@ export function getLogicalCanvasDimensions(canvasAspectRatio: AspectRatio): {
   return { logicalW: 1080, logicalH: 1920 }
 }
 
+export function frameDimensionsForCropClamp(
+  item: ImageClass | VideoClass,
+  aspectRatio: AspectRatio
+): { fw: number; fh: number } {
+  const { logicalW, logicalH } = getLogicalCanvasDimensions(aspectRatio)
+  if ('startTime' in item) {
+    const img = item as ImageClass
+    if (img.row === 0 && (img.cropAspect === aspectRatio || !img.cropAspect)) {
+      return { fw: logicalW, fh: logicalH }
+    }
+    return { fw: img.width, fh: img.height }
+  }
+  const v = item as VideoClass
+  if (v.row === 0 && (v.cropAspect === aspectRatio || !v.cropAspect)) {
+    return { fw: logicalW, fh: logicalH }
+  }
+  return { fw: v.width, fh: v.height }
+}
+
 export function placementMatchesCanvasAspect(
   width: number,
   height: number,
@@ -196,19 +215,15 @@ export function loadNaturalMediaSize(
   })
 }
 
-export function normalizeCropToFrameAspect(
-  itemW: number,
-  itemH: number,
-  nw: number,
-  nh: number,
+function normalizeCropRectangleForSourceRatio(
+  r: number,
   cropSx: number,
   cropSy: number,
   cropSw: number,
   cropSh: number,
   minSize: number
 ): { cropSx: number; cropSy: number; cropSw: number; cropSh: number } | null {
-  if (itemW <= 0 || itemH <= 0 || nw <= 0 || nh <= 0) return null
-  const r = cropSwToShRatioForFrame(itemW, itemH, nw, nh)
+  if (!(r > 0) || !Number.isFinite(r)) return null
   const lo = Math.max(minSize, minSize * r)
   const hi = Math.min(1, r)
   if (lo > hi) {
@@ -235,6 +250,22 @@ export function normalizeCropToFrameAspect(
     cropSw: sw,
     cropSh: sh,
   }
+}
+
+export function normalizeCropToFrameAspect(
+  itemW: number,
+  itemH: number,
+  nw: number,
+  nh: number,
+  cropSx: number,
+  cropSy: number,
+  cropSw: number,
+  cropSh: number,
+  minSize: number
+): { cropSx: number; cropSy: number; cropSw: number; cropSh: number } | null {
+  if (itemW <= 0 || itemH <= 0 || nw <= 0 || nh <= 0) return null
+  const r = cropSwToShRatioForFrame(itemW, itemH, nw, nh)
+  return normalizeCropRectangleForSourceRatio(r, cropSx, cropSy, cropSw, cropSh, minSize)
 }
 
 export function computeMediaCropForAspect(

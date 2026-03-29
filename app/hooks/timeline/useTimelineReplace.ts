@@ -12,7 +12,6 @@ interface UseTimelineReplaceProps {
   replaceImageWithVideo: (id: string, video: VideoClass) => void
   replaceVideoWithImage: (id: string, image: ImageClass) => void
   updateVideo: (id: string, updates: Partial<VideoClass>) => void
-  setExportProgress: (progress: any) => void
 }
 
 export function useTimelineReplace({
@@ -21,7 +20,6 @@ export function useTimelineReplace({
   replaceImageWithVideo,
   replaceVideoWithImage,
   updateVideo,
-  setExportProgress,
 }: UseTimelineReplaceProps) {
   const [replaceTargetId, setReplaceTargetId] = useState<string | null>(null)
   const [replaceVideoData, setReplaceVideoData] = useState<{
@@ -267,13 +265,11 @@ export function useTimelineReplace({
       let sourceDuration: number | undefined = undefined
 
       if (replaceVideoData.duration > 60) {
-        setExportProgress({ phase: 'rendering', progress: 0, message: 'Extracting clip...' })
         try {
           const clipBlob = await extractVideoClip(
             replaceVideoData.url,
             trimStart,
             sourceWindowDuration,
-            (msg) => setExportProgress({ phase: 'rendering', progress: 50, message: msg })
           )
           finalUrl = URL.createObjectURL(clipBlob)
           finalTrimStart = 0
@@ -286,8 +282,6 @@ export function useTimelineReplace({
         } catch (err) {
           console.error('Failed to extract clip:', err)
           alert('Failed to process video clip. Using original source instead.')
-        } finally {
-          setExportProgress(null)
         }
       }
 
@@ -380,7 +374,7 @@ export function useTimelineReplace({
     } finally {
       setIsReplacingClip(false)
     }
-  }, [replaceVideoData, images, videos, replaceImageWithVideo, updateVideo, setExportProgress])
+  }, [replaceVideoData, images, videos, replaceImageWithVideo, updateVideo])
 
   const handleVideoDoubleClick = useCallback((videoId: string) => {
     const video = videos.find((v) => v.id === videoId)

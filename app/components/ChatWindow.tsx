@@ -12,6 +12,7 @@ import type {
   AddEffectInstruction,
   TransitionInstruction,
   CropInstruction,
+  DeleteTimelineItemInstruction,
 } from '@/app/api/route-prompt/route'
 import { TextClass } from '@/app/models/TextClass'
 import { EffectClass } from '@/app/models/EffectClass'
@@ -59,6 +60,11 @@ export default function ChatWindow() {
   const pendingPrompt = useManifestStore((state) => state.pendingPrompt)
   const setPendingPrompt = useManifestStore((state) => state.setPendingPrompt)
   const setItemPlaybackSpeed = useManifestStore((state) => state.setItemPlaybackSpeed)
+  const removeImage = useManifestStore((state) => state.removeImage)
+  const removeVideo = useManifestStore((state) => state.removeVideo)
+  const removeText = useManifestStore((state) => state.removeText)
+  const removeAudio = useManifestStore((state) => state.removeAudio)
+  const duplicateTimelineRange = useManifestStore((state) => state.duplicateTimelineRange)
   const { user, supabase, profile } = useAuth()
 
   const handleManageSubscription = async () => {
@@ -137,6 +143,15 @@ export default function ChatWindow() {
     }
   }
 
+  const applyDeleteItems = (items: DeleteTimelineItemInstruction[]) => {
+    for (const item of items) {
+      if (item.type === 'image') removeImage(item.id)
+      else if (item.type === 'video') removeVideo(item.id)
+      else if (item.type === 'text') removeText(item.id)
+      else if (item.type === 'audio') removeAudio(item.id)
+    }
+  }
+
   const applyNewTexts = (newTexts: AddTextInstruction[]) => {
     for (const t of newTexts) {
       const id = `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
@@ -147,12 +162,13 @@ export default function ChatWindow() {
 
   const applyNewEffects = (newEffects: AddEffectInstruction[]) => {
     for (const e of newEffects) {
+      const row = findFreeVisualOverlayRow(e.startTime, e.endTime)
       addEffect(new EffectClass(
         `effect-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         e.type,
         e.startTime,
         e.endTime,
-        0, // Default row
+        row,
         e.intensity ?? 0.5
       ))
     }
@@ -350,6 +366,13 @@ export default function ChatWindow() {
       try {
         if (data.action === 'edit_manifest') {
           applyMutations(data.mutations || [])
+        } else if (data.action === 'delete_timeline_items') {
+          applyDeleteItems(data.deleteItems || [])
+        } else if (data.action === 'duplicate_timeline_range') {
+          const r = data.duplicateRange
+          if (r && (r.kind === 'image' || r.kind === 'video')) {
+            duplicateTimelineRange(r.kind, r.firstNumber, r.lastNumber)
+          }
         } else if (data.action === 'split_at_marks') {
           applySplits(data.splits || [])
         } else if (data.action === 'add_text') {
@@ -391,10 +414,10 @@ export default function ChatWindow() {
   }, [inputValue])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
-    }
+    if (e.key !== 'Enter' || e.shiftKey) return
+    if (isProcessing || !inputValue.trim()) return
+    e.preventDefault()
+    handleSend()
   }
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -518,7 +541,6 @@ export default function ChatWindow() {
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={handleKeyDown}
-          disabled={isProcessing}
           rows={2}
         />
         <button
