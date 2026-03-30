@@ -5,6 +5,7 @@ import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
+import { keyframeTimelineEntries } from '@/app/lib/mediaKeyframeTimeline'
 import styles from './Timeline.module.css'
 
 interface MainTrackProps {
@@ -44,9 +45,10 @@ const MainTrackComponent = ({
 }: MainTrackProps) => {
   const videos = useManifestStore((state) => state.videos)
   const images = useManifestStore((state) => state.images)
-  const updateVideo = useManifestStore((state) => state.updateVideo)
+  const setPlaybackTime = useManifestStore((state) => state.setPlaybackTime)
   const selectedVideoId = useSelectionStore((state) => state.selectedVideoId)
   const selectedImageId = useSelectionStore((state) => state.selectedImageId)
+  const selectedKeyframeId = useSelectionStore((state) => state.selectedKeyframeId)
   const selectVideo = useSelectionStore((state) => state.selectVideo)
   const selectImage = useSelectionStore((state) => state.selectImage)
   const setContextMenu = useSelectionStore((state) => state.setContextMenu)
@@ -73,6 +75,23 @@ const MainTrackComponent = ({
         const leftPercent = getContentPosition(startTime)
         const widthPercent = totalDuration > 0 && duration ? (duration / (totalDuration + effectivePadding * 2)) * 100 : 0
         const isSelected = isVideo ? selectedVideoId === item.id : selectedImageId === item.id
+        const activeStartPct = leftPercent
+        const activeEndPct =
+          totalDuration > 0 ? getContentPosition(startTime + (duration ?? 0)) : leftPercent + widthPercent
+        const segW = Math.max(1e-6, activeEndPct - activeStartPct)
+        const kfEntries = isVideo
+          ? keyframeTimelineEntries(
+              (item as VideoClass).timestamp,
+              (item as VideoClass).duration ?? 0,
+              (item as VideoClass).keyframes ?? [],
+              totalDuration
+            )
+          : keyframeTimelineEntries(
+              (item as ImageClass).startTime,
+              (item as ImageClass).endTime - (item as ImageClass).startTime,
+              (item as ImageClass).keyframes ?? [],
+              totalDuration
+            )
 
         const prevEntry = idx > 0 ? sortedItems[idx - 1] : null
         const prevEnd = prevEntry
@@ -119,7 +138,7 @@ const MainTrackComponent = ({
                   }}
                   onClick={(e) => {
                     e.stopPropagation()
-                    selectVideo(isSelected ? null : v.id)
+                    selectVideo(isSelected ? null : v.id, null)
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation()
@@ -199,6 +218,21 @@ const MainTrackComponent = ({
                       )}
                     </div>
                   </div>
+                  {kfEntries.map(({ id: kfId, timelinePos }) => (
+                    <div
+                      key={kfId}
+                      className={`${styles.keyframeMarker} ${selectedVideoId === v.id && selectedKeyframeId === kfId ? styles.keyframeMarkerSelected : ''}`}
+                      style={{
+                        left: `${((getContentPosition(timelinePos) - activeStartPct) / segW) * 100}%`,
+                      }}
+                      title={`Keyframe at ${timelinePos.toFixed(2)}s`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        selectVideo(v.id, kfId)
+                        setPlaybackTime(timelinePos)
+                      }}
+                    />
+                  ))}
                 </div>
               )
             })() : (() => {
@@ -209,7 +243,7 @@ const MainTrackComponent = ({
                   style={{ left: `${leftPercent}%`, width: `${widthPercent}%`, position: 'absolute', height: '100%' }}
                   onClick={(e) => {
                     e.stopPropagation()
-                    selectImage(isSelected ? null : img.id)
+                    selectImage(isSelected ? null : img.id, null)
                   }}
                   onMouseDown={(e) => handleImageDragStart(img.id, 'move', e)}
                   onContextMenu={(e) => {
@@ -245,6 +279,21 @@ const MainTrackComponent = ({
                     <img src={img.url} alt={img.name} className={styles.overlayThumbnail} draggable={false} />
                     <span className={styles.overlayName}>Image #{idx + 1}</span>
                   </div>
+                  {kfEntries.map(({ id: kfId, timelinePos }) => (
+                    <div
+                      key={kfId}
+                      className={`${styles.keyframeMarker} ${selectedImageId === img.id && selectedKeyframeId === kfId ? styles.keyframeMarkerSelected : ''}`}
+                      style={{
+                        left: `${((getContentPosition(timelinePos) - activeStartPct) / segW) * 100}%`,
+                      }}
+                      title={`Keyframe at ${timelinePos.toFixed(2)}s`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        selectImage(img.id, kfId)
+                        setPlaybackTime(timelinePos)
+                      }}
+                    />
+                  ))}
                 </div>
               )
             })()}

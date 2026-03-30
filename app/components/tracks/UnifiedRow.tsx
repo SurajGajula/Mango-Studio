@@ -4,8 +4,11 @@ import { memo, useMemo } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { AudioClass } from '@/app/models/AudioClass'
+import { ImageClass } from '@/app/models/ImageClass'
+import { VideoClass } from '@/app/models/VideoClass'
 import styles from './Timeline.module.css'
-import { audioMarkTimelinePositions } from '@/app/lib/audioMarkTimeline'
+import { audioMarkTimelineEntries } from '@/app/lib/audioMarkTimeline'
+import { keyframeTimelineEntries } from '@/app/lib/mediaKeyframeTimeline'
 
 interface UnifiedRowProps {
   rowIndex: number
@@ -54,6 +57,8 @@ const UnifiedRow = ({
   const selectedTextId = useSelectionStore((state) => state.selectedTextId)
   const selectedEffectId = useSelectionStore((state) => state.selectedEffectId)
   const selectedAudioId = useSelectionStore((state) => state.selectedAudioId)
+  const selectedAudioMarkId = useSelectionStore((state) => state.selectedAudioMarkId)
+  const selectedKeyframeId = useSelectionStore((state) => state.selectedKeyframeId)
   
   const selectImage = useSelectionStore((state) => state.selectImage)
   const selectVideo = useSelectionStore((state) => state.selectVideo)
@@ -90,12 +95,16 @@ const UnifiedRow = ({
         
         if (type === 'image') {
           const isSelected = selectedImageId === id
+          const imgItem = item as ImageClass
+          const activeEndPct = getContentPosition(startTime + duration)
+          const segWImg = Math.max(1e-6, activeEndPct - leftPercent)
+          const kfImg = keyframeTimelineEntries(startTime, duration, imgItem.keyframes ?? [], totalDuration)
           return (
             <div
               key={id}
               className={`${styles.overlayItem} ${isSelected ? styles.selected : ''}`}
               style={{ left: `${leftPercent}%`, width: `${widthPercent}%`, position: 'absolute' }}
-              onClick={(e) => { e.stopPropagation(); selectImage(isSelected ? null : id) }}
+              onClick={(e) => { e.stopPropagation(); selectImage(isSelected ? null : id, null) }}
               onMouseDown={(e) => handleImageDragStart(id, 'move', e)}
               onContextMenu={(e) => {
                 e.preventDefault(); e.stopPropagation(); selectImage(id)
@@ -108,17 +117,36 @@ const UnifiedRow = ({
                 <img src={(item as any).url} className={styles.overlayThumbnail} alt="" draggable={false} />
                 <span className={styles.overlayName}>Image</span>
               </div>
+              {kfImg.map(({ id: kfId, timelinePos }) => (
+                <div
+                  key={kfId}
+                  className={`${styles.keyframeMarker} ${selectedImageId === id && selectedKeyframeId === kfId ? styles.keyframeMarkerSelected : ''}`}
+                  style={{
+                    left: `${((getContentPosition(timelinePos) - leftPercent) / segWImg) * 100}%`,
+                  }}
+                  title={`Keyframe at ${timelinePos.toFixed(2)}s`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    selectImage(id, kfId)
+                    setPlaybackTime(timelinePos)
+                  }}
+                />
+              ))}
             </div>
           )
         }
         if (type === 'video') {
           const isSelected = selectedVideoId === id
+          const vidItem = item as VideoClass
+          const activeEndPctV = getContentPosition(startTime + duration)
+          const segWVid = Math.max(1e-6, activeEndPctV - leftPercent)
+          const kfVid = keyframeTimelineEntries(startTime, duration, vidItem.keyframes ?? [], totalDuration)
           return (
             <div
               key={id}
               className={`${styles.overlayItem} ${isSelected ? styles.selected : ''}`}
               style={{ left: `${leftPercent}%`, width: `${widthPercent}%`, position: 'absolute' }}
-              onClick={(e) => { e.stopPropagation(); selectVideo(isSelected ? null : id) }}
+              onClick={(e) => { e.stopPropagation(); selectVideo(isSelected ? null : id, null) }}
               onDoubleClick={(e) => { e.stopPropagation(); handleVideoDoubleClick(id) }}
               onMouseDown={(e) => handleOverlayVideoDragStart(id, e)}
               onContextMenu={(e) => {
@@ -132,6 +160,21 @@ const UnifiedRow = ({
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21" /></svg>
                 <span className={styles.overlayName}>Video</span>
               </div>
+              {kfVid.map(({ id: kfId, timelinePos }) => (
+                <div
+                  key={kfId}
+                  className={`${styles.keyframeMarker} ${selectedVideoId === id && selectedKeyframeId === kfId ? styles.keyframeMarkerSelected : ''}`}
+                  style={{
+                    left: `${((getContentPosition(timelinePos) - leftPercent) / segWVid) * 100}%`,
+                  }}
+                  title={`Keyframe at ${timelinePos.toFixed(2)}s`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    selectVideo(id, kfId)
+                    setPlaybackTime(timelinePos)
+                  }}
+                />
+              ))}
             </div>
           )
         }
@@ -184,14 +227,15 @@ const UnifiedRow = ({
         if (type === 'audio') {
           const isSelected = selectedAudioId === id
           const audioItem = item as AudioClass
-          const markPositions = audioMarkTimelinePositions(audioItem, totalDuration)
-          const segW = Math.max(1e-6, widthPercent)
+          const markEntries = audioMarkTimelineEntries(audioItem, totalDuration)
+          const activeEndPctA = getContentPosition(startTime + duration)
+          const segW = Math.max(1e-6, activeEndPctA - leftPercent)
           return (
             <div
               key={id}
               className={`${styles.overlayItem} ${isSelected ? styles.selected : ''}`}
               style={{ left: `${leftPercent}%`, width: `${widthPercent}%`, position: 'absolute' }}
-              onClick={(e) => { e.stopPropagation(); selectAudio(isSelected ? null : id) }}
+              onClick={(e) => { e.stopPropagation(); selectAudio(isSelected ? null : id, null) }}
               onMouseDown={(e) => handleAudioBodyDragStart(id, e)}
               onContextMenu={(e) => {
                 e.preventDefault(); e.stopPropagation(); selectAudio(id)
@@ -208,14 +252,19 @@ const UnifiedRow = ({
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
                 <span className={styles.overlayName}>Audio</span>
               </div>
-              {markPositions.map((timelinePos, i) => (
+              {markEntries.map(({ id: markId, timelinePos }) => (
                 <div
-                  key={`${id}-um-${i}`}
-                  className={styles.userMarkMarker}
+                  key={markId}
+                  className={`${styles.userMarkMarker} ${selectedAudioId === id && selectedAudioMarkId === markId ? styles.userMarkMarkerSelected : ''}`}
                   style={{
                     left: `${((getContentPosition(timelinePos) - leftPercent) / segW) * 100}%`,
                   }}
                   title={`Mark at ${timelinePos.toFixed(2)}s`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    selectAudio(id, markId)
+                    setPlaybackTime(timelinePos)
+                  }}
                 />
               ))}
             </div>

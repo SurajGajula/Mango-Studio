@@ -4,6 +4,8 @@ import { useEffect } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useAudioStore } from '@/app/stores/audioStore'
+import { generateId } from '@/app/lib/idUtils'
+import { resolveMediaKeyframeTransform } from '@/app/lib/resolveMediaKeyframeTransform'
 
 interface UseTimelineShortcutsProps {
   replaceVideoData: any
@@ -34,6 +36,9 @@ export function useTimelineShortcuts({
   const removeAudioFromManifest = useManifestStore((state) => state.removeAudio)
   const removeEffect = useManifestStore((state) => state.removeEffect)
   const duplicateItem = useManifestStore((state) => state.duplicateItem)
+  const updateVideo = useManifestStore((state) => state.updateVideo)
+  const updateImage = useManifestStore((state) => state.updateImage)
+  const updateAudio = useManifestStore((state) => state.updateAudio)
   const removeAudio = useAudioStore((state) => state.removeAudio)
 
   const clearSelection = useSelectionStore((state) => state.clearSelection)
@@ -47,22 +52,88 @@ export function useTimelineShortcuts({
       
       if (e.key === 'm' && !isEditing && !e.metaKey && !e.ctrlKey) {
         e.preventDefault()
-        const sid = useSelectionStore.getState().selectedAudioId
-        if (!sid) return
-        const audios = useManifestStore.getState().audios
-        const audio = audios.find((a) => a.id === sid)
-        if (!audio) return
+        const { selectedAudioId, selectedVideoId, selectedImageId } = useSelectionStore.getState()
         const playbackTime = useManifestStore.getState().playbackTime
-        const sourceMark = playbackTime - audio.startTime + audio.trimStart
-        const minM = audio.trimStart
-        const maxM = audio.originalDuration - audio.trimEnd
-        if (sourceMark < minM || sourceMark > maxM) return
-        const existing = audio.marks
-        if (existing.some((m) => Math.abs(m - sourceMark) < 0.05)) return
-        const newMarks = [...existing, sourceMark].sort((a, b) => a - b)
-        useManifestStore.getState().updateAudio(sid, { marks: newMarks })
+        if (selectedAudioId) {
+          const audios = useManifestStore.getState().audios
+          const audio = audios.find((a) => a.id === selectedAudioId)
+          if (!audio) return
+          const sourceMark = playbackTime - audio.startTime + audio.trimStart
+          const minM = audio.trimStart
+          const maxM = audio.originalDuration - audio.trimEnd
+          if (sourceMark < minM || sourceMark > maxM) return
+          if (audio.marks.some((m) => Math.abs(m.t - sourceMark) < 0.05)) return
+          const newMarks = [...audio.marks, { id: generateId('amark'), t: sourceMark }].sort((a, b) => a.t - b.t)
+          updateAudio(selectedAudioId, { marks: newMarks })
+          return
+        }
+        if (selectedVideoId) {
+          const videos = useManifestStore.getState().videos
+          const v = videos.find((x) => x.id === selectedVideoId)
+          if (!v) return
+          const dur = v.duration ?? 0
+          const localT = Math.max(0, Math.min(dur, playbackTime - v.timestamp))
+          if (v.keyframes.some((k) => Math.abs(k.t - localT) < 0.05)) return
+          const snap = resolveMediaKeyframeTransform(v, localT, dur)
+          const newKf = {
+            id: generateId('kf'),
+            t: localT,
+            cropSx: snap.cropSx,
+            cropSy: snap.cropSy,
+            cropSw: snap.cropSw,
+            cropSh: snap.cropSh,
+            zoomIntensity: snap.zoomIntensity,
+          }
+          updateVideo(selectedVideoId, { keyframes: [...v.keyframes, newKf].sort((a, b) => a.t - b.t) })
+          return
+        }
+        if (selectedImageId) {
+          const images = useManifestStore.getState().images
+          const img = images.find((x) => x.id === selectedImageId)
+          if (!img) return
+          const dur = img.duration
+          const localT = Math.max(0, Math.min(dur, playbackTime - img.startTime))
+          if (img.keyframes.some((k) => Math.abs(k.t - localT) < 0.05)) return
+          const snap = resolveMediaKeyframeTransform(img, localT, dur)
+          const newKf = {
+            id: generateId('kf'),
+            t: localT,
+            cropSx: snap.cropSx,
+            cropSy: snap.cropSy,
+            cropSw: snap.cropSw,
+            cropSh: snap.cropSh,
+            zoomIntensity: snap.zoomIntensity,
+          }
+          updateImage(selectedImageId, { keyframes: [...img.keyframes, newKf].sort((a, b) => a.t - b.t) })
+        }
       }
-      
+
+      if ((e.key === 'Backspace' || e.key === 'Delete') && !isEditing && !e.metaKey && !e.ctrlKey) {
+        const st = useSelectionStore.getState()
+        if (st.selectedAudioId && st.selectedAudioMarkId) {
+          e.preventDefault()
+          const a = useManifestStore.getState().audios.find((x) => x.id === st.selectedAudioId)
+          if (a) {
+            updateAudio(st.selectedAudioId, { marks: a.marks.filter((m) => m.id !== st.selectedAudioMarkId) })
+            useSelectionStore.getState().setSelectedAudioMarkId(null)
+          }
+        } else if (st.selectedKeyframeId && st.selectedVideoId) {
+          e.preventDefault()
+          const v = useManifestStore.getState().videos.find((x) => x.id === st.selectedVideoId)
+          if (v) {
+            updateVideo(st.selectedVideoId, { keyframes: v.keyframes.filter((k) => k.id !== st.selectedKeyframeId) })
+            useSelectionStore.getState().setSelectedKeyframeId(null)
+          }
+        } else if (st.selectedKeyframeId && st.selectedImageId) {
+          e.preventDefault()
+          const img = useManifestStore.getState().images.find((x) => x.id === st.selectedImageId)
+          if (img) {
+            updateImage(st.selectedImageId, { keyframes: img.keyframes.filter((k) => k.id !== st.selectedKeyframeId) })
+            useSelectionStore.getState().setSelectedKeyframeId(null)
+          }
+        }
+      }
+
       if (!(e.metaKey || e.ctrlKey)) return
       
       if (e.key === '=' || e.key === '+') {
@@ -120,7 +191,7 @@ export function useTimelineShortcuts({
     return () => document.removeEventListener('keydown', handler)
   }, [
     undo, redo, removeVideo, removeImage, removeText, 
-    removeAudioFromManifest, removeAudio, removeEffect, duplicateItem,
+    removeAudioFromManifest, removeAudio, removeEffect, duplicateItem, updateVideo, updateImage, updateAudio,
     replaceVideoData, applyZoom, visibleDurationRef, 
     MIN_VISIBLE, MAX_VISIBLE, selectedAudioId, 
     setSelectedAudioId, uploadInputRef

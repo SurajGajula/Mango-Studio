@@ -1,5 +1,6 @@
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
+import type { MediaKeyframe } from '@/app/models/mediaKeyframe'
 import { TextClass } from '@/app/models/TextClass'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { ManifestStore, AspectRatio } from './types'
@@ -298,6 +299,16 @@ export const createGeneralSlice = (set: any, get: any) => ({
     } else {
       newItem = item.copy({ id: newId, startTime: endTime, endTime: endTime + duration, createdAt: new Date() })
     }
+    if (type === 'video' || type === 'image') {
+      newItem = newItem.copy({
+        keyframes: (newItem.keyframes ?? []).map((k: MediaKeyframe) => ({ ...k, id: generateId('kf') })),
+      })
+    }
+    if (type === 'audio') {
+      newItem = newItem.copy({
+        marks: newItem.marks.map((m: { id: string; t: number }) => ({ ...m, id: generateId('amark') })),
+      })
+    }
 
     set((s: ManifestStore) => {
       const nextVideos = s.videos.map((v) => {
@@ -364,6 +375,7 @@ export const createGeneralSlice = (set: any, get: any) => ({
           startTime: img.startTime + delta,
           endTime: img.endTime + delta,
           createdAt: now,
+          keyframes: (img.keyframes ?? []).map((k: MediaKeyframe) => ({ ...k, id: generateId('kf') })),
         })
       )
 
@@ -414,6 +426,7 @@ export const createGeneralSlice = (set: any, get: any) => ({
         id: generateId('video'),
         timestamp: vid.timestamp + delta,
         createdAt: now,
+        keyframes: (vid.keyframes ?? []).map((k: MediaKeyframe) => ({ ...k, id: generateId('kf') })),
       })
     )
 

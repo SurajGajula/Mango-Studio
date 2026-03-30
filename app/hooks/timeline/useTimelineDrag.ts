@@ -124,7 +124,19 @@ export function useTimelineDrag({
     targets.add(useManifestStore.getState().playbackTime)
     audios.forEach((a) => {
       a.marks.forEach((m) => {
-        targets.add(a.startTime + (m - a.trimStart))
+        targets.add(a.startTime + (m.t - a.trimStart))
+      })
+    })
+
+    videos.forEach((v) => {
+      const start = v.timestamp
+      v.keyframes?.forEach((k) => {
+        targets.add(start + k.t)
+      })
+    })
+    images.forEach((img) => {
+      img.keyframes?.forEach((k) => {
+        targets.add(img.startTime + k.t)
       })
     })
 

@@ -2,6 +2,7 @@ import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { EffectClass } from '@/app/models/EffectClass'
 import { MainItem, calculateAnimationProgress, calculateSourceTime, clipTimelineSpanForSourceMap } from '@/app/lib/renderUtils'
+import { resolveMediaKeyframeTransform } from '@/app/lib/resolveMediaKeyframeTransform'
 import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
 import { applyEffect } from '@/app/lib/applyEffect'
 
@@ -277,19 +278,41 @@ export class VideoRenderingEngine {
         // Once transProgress hit 1.0, we want to use the standard drawVideo path for consistency.
         if (transitionActive && nextClip && backgroundDrawn && transProgress < 1.0) {
           transActive = true
+          const elapsedB = Math.max(0, newTime - nextClip.startTime)
+          const elapsedA = activeClip ? Math.max(0, newTime - activeClip.startTime) : 0
           let nextEl: HTMLVideoElement | ImageBitmap | null = null
           let nextParams: any = undefined
           if (nextClip.type === 'video') {
             const nv = nextClip.item as VideoClass
             nextEl = videoElements.get(nextClip.id) || null
             if (nextEl instanceof HTMLVideoElement && nextEl.readyState >= 2) {
-              nextParams = { x: cr.x + (nv.x ?? 0) * xScale, y: cr.y + (nv.y ?? 0) * yScale, w: (nv.width ?? logicalW) * xScale, h: (nv.height ?? logicalH) * yScale, sx: nextEl.videoWidth * nv.cropSx, sy: nextEl.videoHeight * nv.cropSy, sw: nextEl.videoWidth * nv.cropSw, sh: nextEl.videoHeight * nv.cropSh }
+              const kn = resolveMediaKeyframeTransform(nv, elapsedB, nv.duration ?? 0)
+              nextParams = {
+                x: cr.x + (nv.x ?? 0) * xScale,
+                y: cr.y + (nv.y ?? 0) * yScale,
+                w: (nv.width ?? logicalW) * xScale,
+                h: (nv.height ?? logicalH) * yScale,
+                sx: nextEl.videoWidth * kn.cropSx,
+                sy: nextEl.videoHeight * kn.cropSy,
+                sw: nextEl.videoWidth * kn.cropSw,
+                sh: nextEl.videoHeight * kn.cropSh,
+              }
             }
           } else {
             const ni = nextClip.item as ImageClass
             nextEl = imageBitmaps.get(nextClip.id) || null
             if (nextEl) {
-              nextParams = { x: cr.x + ni.x * xScale, y: cr.y + ni.y * yScale, w: ni.width * xScale, h: ni.height * yScale, sx: nextEl.width * ni.cropSx, sy: nextEl.height * ni.cropSy, sw: nextEl.width * ni.cropSw, sh: nextEl.height * ni.cropSh }
+              const kn = resolveMediaKeyframeTransform(ni, elapsedB, ni.duration)
+              nextParams = {
+                x: cr.x + ni.x * xScale,
+                y: cr.y + ni.y * yScale,
+                w: ni.width * xScale,
+                h: ni.height * yScale,
+                sx: nextEl.width * kn.cropSx,
+                sy: nextEl.height * kn.cropSy,
+                sw: nextEl.width * kn.cropSw,
+                sh: nextEl.height * kn.cropSh,
+              }
             }
           }
 
@@ -300,27 +323,47 @@ export class VideoRenderingEngine {
               const av = activeClip.item as VideoClass
               curEl = videoElements.get(activeClip.id) || null
               if (curEl instanceof HTMLVideoElement && curEl.readyState >= 2) {
-                curParams = { x: cr.x + (av.x ?? 0) * xScale, y: cr.y + (av.y ?? 0) * yScale, w: (av.width ?? logicalW) * xScale, h: (av.height ?? logicalH) * yScale, sx: curEl.videoWidth * (av.cropSx ?? 0), sy: curEl.videoHeight * (av.cropSy ?? 0), sw: curEl.videoWidth * (av.cropSw ?? 1), sh: curEl.videoHeight * (av.cropSh ?? 1) }
+                const ka = resolveMediaKeyframeTransform(av, elapsedA, av.duration ?? 0)
+                curParams = {
+                  x: cr.x + (av.x ?? 0) * xScale,
+                  y: cr.y + (av.y ?? 0) * yScale,
+                  w: (av.width ?? logicalW) * xScale,
+                  h: (av.height ?? logicalH) * yScale,
+                  sx: curEl.videoWidth * ka.cropSx,
+                  sy: curEl.videoHeight * ka.cropSy,
+                  sw: curEl.videoWidth * ka.cropSw,
+                  sh: curEl.videoHeight * ka.cropSh,
+                }
               }
             } else {
               const ai = activeClip.item as ImageClass
               curEl = imageBitmaps.get(activeClip.id) || null
               if (curEl) {
-                curParams = { x: cr.x + ai.x * xScale, y: cr.y + ai.y * yScale, w: ai.width * xScale, h: ai.height * yScale, sx: curEl.width * ai.cropSx, sy: curEl.height * ai.cropSy, sw: curEl.width * ai.cropSw, sh: curEl.height * ai.cropSh }
+                const ka = resolveMediaKeyframeTransform(ai, elapsedA, ai.duration)
+                curParams = {
+                  x: cr.x + ai.x * xScale,
+                  y: cr.y + ai.y * yScale,
+                  w: ai.width * xScale,
+                  h: ai.height * yScale,
+                  sx: curEl.width * ka.cropSx,
+                  sy: curEl.height * ka.cropSy,
+                  sw: curEl.width * ka.cropSw,
+                  sh: curEl.height * ka.cropSh,
+                }
               }
             }
 
             if (curEl && curParams) {
               const nextItem = nextClip.item
               const activeItem = activeClip.item
-              const elapsedB = Math.max(0, newTime - nextClip.startTime)
-              const elapsedA = Math.max(0, newTime - activeClip.startTime)
               const progB = calculateAnimationProgress(nextItem, newTime, nextClip.startTime)
               const progA = calculateAnimationProgress(activeItem, newTime, activeClip.startTime)
-              
-              // If the incoming item is a video, we should use drawVideo to get smoothing/blur
-              // But applyZoomTransform handles the dual-element transition logic.
-              // For now, let's ensure the parameters passed are perfectly consistent.
+              const kn = nextClip.type === 'video'
+                ? resolveMediaKeyframeTransform(nextItem as VideoClass, elapsedB, (nextItem as VideoClass).duration ?? 0)
+                : resolveMediaKeyframeTransform(nextItem as ImageClass, elapsedB, (nextItem as ImageClass).duration)
+              const ka = activeClip.type === 'video'
+                ? resolveMediaKeyframeTransform(activeItem as VideoClass, elapsedA, (activeItem as VideoClass).duration ?? 0)
+                : resolveMediaKeyframeTransform(activeItem as ImageClass, elapsedA, (activeItem as ImageClass).duration)
               applyZoomTransform(
               bufferCtx,
               nextItem.animation,
@@ -328,8 +371,8 @@ export class VideoRenderingEngine {
               transProgress,
               nextEl,
               nextParams.x, nextParams.y, nextParams.w, nextParams.h,
-              nextItem.cropSx, nextItem.cropSy, nextItem.cropSw, nextItem.cropSh,
-              nextItem.zoomIntensity,
+              kn.cropSx, kn.cropSy, kn.cropSw, kn.cropSh,
+              kn.zoomIntensity,
               nextItem.duration,
               nextItem.animationDuration,
               elapsedB,
@@ -337,7 +380,7 @@ export class VideoRenderingEngine {
               activeItem.animation,
               progA,
               elapsedA,
-              activeItem.zoomIntensity,
+              ka.zoomIntensity,
               activeItem.duration,
               activeItem.animationDuration,
               curParams,
@@ -414,9 +457,9 @@ export class VideoRenderingEngine {
     const drawWidth = (videoClip.width ?? logicalW) * xScale
     const drawHeight = (videoClip.height ?? logicalH) * yScale
     const progress = calculateAnimationProgress(videoClip, currentTime, videoClip.timestamp)
-    
-    // Calculate Instantaneous Speed for adaptive logic
     const elapsed = Math.max(0, currentTime - videoClip.timestamp)
+    const clipDur = videoClip.duration ?? 0
+    const kf = resolveMediaKeyframeTransform(videoClip, elapsed, clipDur)
     const x = elapsed / Math.max(0.1, clipTimelineSpanForSourceMap(videoClip.duration))
     let f = x
     if (videoClip.speedEasing === 'ease') {
@@ -446,7 +489,7 @@ export class VideoRenderingEngine {
         
         // Initialize accumulation with the first frame
         const curCtx = current.getContext('2d', { alpha: true })!
-        applyZoomTransform(curCtx, videoClip.animation, videoClip.transition, progress, videoEl, drawX, drawY, drawWidth, drawHeight, videoClip.cropSx, videoClip.cropSy, videoClip.cropSw, videoClip.cropSh, videoClip.zoomIntensity, videoClip.duration, videoClip.animationDuration, currentTime - videoClip.timestamp)
+        applyZoomTransform(curCtx, videoClip.animation, videoClip.transition, progress, videoEl, drawX, drawY, drawWidth, drawHeight, kf.cropSx, kf.cropSy, kf.cropSw, kf.cropSh, kf.zoomIntensity, videoClip.duration, videoClip.animationDuration, currentTime - videoClip.timestamp)
         
         const accCtx = accumulation.getContext('2d', { alpha: false })!
         accCtx.drawImage(current, 0, 0)
@@ -485,7 +528,7 @@ export class VideoRenderingEngine {
         curCtx.filter = 'none'
       }
       
-      applyZoomTransform(curCtx, videoClip.animation, videoClip.transition, progress, videoEl, drawX + jX, drawY + jY, drawWidth, drawHeight, videoClip.cropSx, videoClip.cropSy, videoClip.cropSw, videoClip.cropSh, videoClip.zoomIntensity, videoClip.duration, videoClip.animationDuration, currentTime - videoClip.timestamp)
+      applyZoomTransform(curCtx, videoClip.animation, videoClip.transition, progress, videoEl, drawX + jX, drawY + jY, drawWidth, drawHeight, kf.cropSx, kf.cropSy, kf.cropSw, kf.cropSh, kf.zoomIntensity, videoClip.duration, videoClip.animationDuration, currentTime - videoClip.timestamp)
       curCtx.filter = 'none'
 
       // 4. Speed-Adaptive Alpha (Variable Shutter)
@@ -506,7 +549,7 @@ export class VideoRenderingEngine {
     } else {
       // Normal playback without expensive motion blur
       this.lastTransformStates.delete(videoClip.id)
-      applyZoomTransform(ctx, videoClip.animation, videoClip.transition, progress, videoEl, drawX, drawY, drawWidth, drawHeight, videoClip.cropSx, videoClip.cropSy, videoClip.cropSw, videoClip.cropSh, videoClip.zoomIntensity, videoClip.duration, videoClip.animationDuration, currentTime - videoClip.timestamp, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, videoClip.transitionColor, videoClip.transitionDirection, videoClip.transitionAxis)
+      applyZoomTransform(ctx, videoClip.animation, videoClip.transition, progress, videoEl, drawX, drawY, drawWidth, drawHeight, kf.cropSx, kf.cropSy, kf.cropSw, kf.cropSh, kf.zoomIntensity, videoClip.duration, videoClip.animationDuration, currentTime - videoClip.timestamp, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, videoClip.transitionColor, videoClip.transitionDirection, videoClip.transitionAxis)
     }
   }
 
@@ -534,8 +577,9 @@ export class VideoRenderingEngine {
         if (lastEnded) {
           const prevBitmap = imageBitmaps.get(lastEnded.id)
           if (prevBitmap) {
+            const kLast = resolveMediaKeyframeTransform(lastEnded, lastEnded.duration, lastEnded.duration)
             ctx.save(); ctx.globalAlpha = image.opacity
-            applyZoomTransform(ctx, 'none', 'none', 0, prevBitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, lastEnded.cropSx, lastEnded.cropSy, lastEnded.cropSw, lastEnded.cropSh, 0, undefined, 0, 0, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, image.transitionColor, image.transitionDirection, image.transitionAxis)
+            applyZoomTransform(ctx, 'none', 'none', 0, prevBitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, kLast.cropSx, kLast.cropSy, kLast.cropSw, kLast.cropSh, 0, undefined, 0, 0, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, image.transitionColor, image.transitionDirection, image.transitionAxis)
             ctx.restore()
             return
           }
@@ -543,8 +587,9 @@ export class VideoRenderingEngine {
       }
       if (!bitmap) return
       const progress = calculateAnimationProgress(image, currentTime, image.startTime)
+      const kImg = resolveMediaKeyframeTransform(image, currentTime - image.startTime, image.duration)
       ctx.save(); ctx.globalAlpha = image.opacity
-      applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, image.duration, image.animationDuration, currentTime - image.startTime, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, image.transitionColor, image.transitionDirection, image.transitionAxis)
+      applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, kImg.cropSx, kImg.cropSy, kImg.cropSw, kImg.cropSh, kImg.zoomIntensity, image.duration, image.animationDuration, currentTime - image.startTime, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, image.transitionColor, image.transitionDirection, image.transitionAxis)
       ctx.restore()
     })
   }
@@ -587,8 +632,9 @@ export class VideoRenderingEngine {
         const bitmap = imageBitmaps.get(image.id)
         if (!bitmap) continue
         const progress = calculateAnimationProgress(image, currentTime, image.startTime)
+        const kOvImg = resolveMediaKeyframeTransform(image, currentTime - image.startTime, image.duration)
         ctx.save(); ctx.globalAlpha = image.opacity
-        applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, image.cropSx, image.cropSy, image.cropSw, image.cropSh, image.zoomIntensity, image.duration, image.animationDuration, currentTime - image.startTime, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, image.transitionColor, image.transitionDirection, image.transitionAxis)
+        applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, cr.x + (image.x ?? 0) * xScale, cr.y + (image.y ?? 0) * yScale, (image.width ?? logicalW) * xScale, (image.height ?? logicalH) * yScale, kOvImg.cropSx, kOvImg.cropSy, kOvImg.cropSw, kOvImg.cropSh, kOvImg.zoomIntensity, image.duration, image.animationDuration, currentTime - image.startTime, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, image.transitionColor, image.transitionDirection, image.transitionAxis)
         ctx.restore()
       } else {
         const video = e.video
@@ -596,8 +642,9 @@ export class VideoRenderingEngine {
         const vEl = videoElements.get(video.id)
         if (!vEl || vEl.readyState < 2) continue
         const progress = calculateAnimationProgress(video, currentTime, video.timestamp)
+        const kOvVid = resolveMediaKeyframeTransform(video, elapsed, video.duration ?? 0)
         ctx.save(); ctx.globalAlpha = video.opacity
-        applyZoomTransform(ctx, video.animation, video.transition, progress, vEl, cr.x + video.x * xScale, cr.y + video.y * yScale, video.width * xScale, video.height * yScale, video.cropSx ?? 0, video.cropSy ?? 0, video.cropSw ?? 1, video.cropSh ?? 1, video.zoomIntensity, video.duration, video.animationDuration, currentTime - video.timestamp, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, video.transitionColor, video.transitionDirection, video.transitionAxis)
+        applyZoomTransform(ctx, video.animation, video.transition, progress, vEl, cr.x + video.x * xScale, cr.y + video.y * yScale, video.width * xScale, video.height * yScale, kOvVid.cropSx, kOvVid.cropSy, kOvVid.cropSw, kOvVid.cropSh, kOvVid.zoomIntensity, video.duration, video.animationDuration, currentTime - video.timestamp, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, video.transitionColor, video.transitionDirection, video.transitionAxis)
         ctx.restore()
       }
     }

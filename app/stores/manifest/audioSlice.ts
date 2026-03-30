@@ -1,5 +1,6 @@
 import { AudioClass } from '@/app/models/AudioClass'
 import { ManifestStore } from './types'
+import { partitionAudioMarksAtSplit } from '@/app/lib/splitClipKeyframes'
 
 export const createAudioSlice = (set: any, get: any) => ({
   addAudio: (audio: AudioClass) => {
@@ -33,9 +34,12 @@ export const createAudioSlice = (set: any, get: any) => ({
 
     const splitPointInOriginal = audio.trimStart + localTime * (audio.playbackSpeed ?? 1)
 
+    const { first: marksFirst, second: marksSecond } = partitionAudioMarksAtSplit(audio.marks, splitPointInOriginal)
+
     const firstHalf = audio.copy({
       endTime: audio.startTime + localTime,
-      trimEnd: audio.originalDuration - splitPointInOriginal
+      trimEnd: audio.originalDuration - splitPointInOriginal,
+      marks: marksFirst,
     })
 
     const secondHalf = audio.copy({
@@ -43,7 +47,8 @@ export const createAudioSlice = (set: any, get: any) => ({
       startTime: audio.startTime + localTime,
       endTime: audio.endTime,
       trimStart: splitPointInOriginal,
-      createdAt: new Date()
+      createdAt: new Date(),
+      marks: marksSecond,
     })
 
     set((s: ManifestStore) => ({

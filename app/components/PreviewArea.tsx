@@ -8,6 +8,7 @@ import { usePreviewInteractions } from '@/app/hooks/preview/usePreviewInteractio
 import { ImageClass } from '@/app/models/ImageClass'
 import { VideoClass } from '@/app/models/VideoClass'
 import { TextClass } from '@/app/models/TextClass'
+import { getEffectiveCropForEdit } from '@/app/lib/cropKeyframeHelpers'
 import styles from './PreviewArea.module.css'
 import TextOverlay from './TextOverlay'
 import CropEditor from './CropEditor'
@@ -90,6 +91,7 @@ export default function PreviewArea() {
   const setSelectedVideoId = useSelectionStore((state) => state.setSelectedVideoId)
   const selectedTextId = useSelectionStore((state) => state.selectedTextId)
   const setSelectedTextId = useSelectionStore((state) => state.setSelectedTextId)
+  const selectedKeyframeId = useSelectionStore((state) => state.selectedKeyframeId)
   const updateImage = useManifestStore((state) => state.updateImage)
   const updateVideo = useManifestStore((state) => state.updateVideo)
   const updateText = useManifestStore((state) => state.updateText)
@@ -164,18 +166,19 @@ export default function PreviewArea() {
 
     const itemW = item.width
     const itemH = item.height
+    const eff = getEffectiveCropForEdit(item, selectedKeyframeId)
 
     setCropPanState({
       startX: e.clientX,
       startY: e.clientY,
-      startCropSx: item.cropSx ?? 0,
-      startCropSy: item.cropSy ?? 0,
-      cropSw: item.cropSw ?? 1,
-      cropSh: item.cropSh ?? 1,
+      startCropSx: eff.cropSx ?? 0,
+      startCropSy: eff.cropSy ?? 0,
+      cropSw: eff.cropSw ?? 1,
+      cropSh: eff.cropSh ?? 1,
       destW: itemW * xScale,
       destH: itemH * yScale,
     })
-  }, [cropEditId, xScale, yScale, setCropPanState])
+  }, [cropEditId, selectedKeyframeId, xScale, yScale, setCropPanState])
 
   const handleCanvasDoubleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current

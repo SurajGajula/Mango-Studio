@@ -1,3 +1,5 @@
+import type { MediaKeyframe } from './mediaKeyframe'
+
 export type AnimationMode = 'none' | 'pulse' | 'shake' | 'jitter'
 export type TransitionMode = 'none' | 'split' | 'fade' | 'slide-in' | 'circle' | 'rotate' | 'flash'
 
@@ -28,6 +30,7 @@ export class ImageClass {
   cropSw: number
   cropSh: number
   row: number
+  keyframes: MediaKeyframe[]
 
   constructor(
     id: string,
@@ -56,7 +59,8 @@ export class ImageClass {
     transitionDirection?: 'left' | 'right' | 'top' | 'bottom',
     transitionAxis?: 'horizontal' | 'vertical',
     row?: number,
-    zoom?: any // Migration field
+    keyframes?: MediaKeyframe[],
+    zoom?: any
   ) {
     this.id = id
     this.name = name
@@ -127,6 +131,7 @@ export class ImageClass {
     this.cropSy = cropSy ?? 0
     this.cropSw = cropSw ?? 1
     this.cropSh = cropSh ?? 1
+    this.keyframes = keyframes ?? []
   }
 
   copy(updates: Partial<ImageClass>): ImageClass {
@@ -156,7 +161,9 @@ export class ImageClass {
       updates.transitionColor ?? this.transitionColor,
       updates.transitionDirection ?? this.transitionDirection,
       updates.transitionAxis ?? this.transitionAxis,
-      updates.row ?? this.row
+      updates.row ?? this.row,
+      updates.keyframes ?? this.keyframes,
+      undefined
     )
   }
 

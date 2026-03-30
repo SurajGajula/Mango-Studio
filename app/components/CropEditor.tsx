@@ -1,6 +1,8 @@
 'use client'
 
 import { useManifestStore } from '@/app/stores/manifestStore'
+import { useSelectionStore } from '@/app/stores/selectionStore'
+import { getEffectiveCropForEdit } from '@/app/lib/cropKeyframeHelpers'
 import { useEffect, useRef } from 'react'
 
 interface CropEditorProps {
@@ -32,6 +34,7 @@ export default function CropEditor({
   const mediaRef = useRef<HTMLImageElement | HTMLVideoElement | null>(null)
   const images = useManifestStore((state) => state.images)
   const videos = useManifestStore((state) => state.videos)
+  const selectedKeyframeId = useSelectionStore((state) => state.selectedKeyframeId)
 
   const img = images.find((i) => i.id === cropEditId)
   const vid = videos.find((v) => v.id === cropEditId)
@@ -61,6 +64,7 @@ export default function CropEditor({
 
   useEffect(() => {
     if (!item || !canvasRef.current || !mediaRef.current) return
+    const eff = getEffectiveCropForEdit(item, selectedKeyframeId)
 
     const canvas = canvasRef.current
     const ctx = canvas.getContext('2d')
@@ -86,10 +90,10 @@ export default function CropEditor({
       const destW = itemW * xScale
       const destH = itemH * yScale
 
-      const cs = item.cropSw ?? 1
-      const ct = item.cropSh ?? 1
-      const sx = item.cropSx ?? 0
-      const sy = item.cropSy ?? 0
+      const cs = eff.cropSw ?? 1
+      const ct = eff.cropSh ?? 1
+      const sx = eff.cropSx ?? 0
+      const sy = eff.cropSy ?? 0
       const fullImgW = destW / cs
       const fullImgH = destH / ct
       const fullImgLeft = destX - sx * fullImgW
@@ -161,7 +165,7 @@ export default function CropEditor({
     }
 
     return () => { active = false }
-  }, [item, xScale, yScale, offsetX, offsetY, contentRect, playbackTime])
+  }, [item, selectedKeyframeId, xScale, yScale, offsetX, offsetY, contentRect, playbackTime])
 
   if (!item) return null
 

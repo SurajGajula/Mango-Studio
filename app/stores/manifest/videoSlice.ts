@@ -2,6 +2,7 @@ import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { generateId } from '@/app/lib/idUtils'
+import { keyframesAfterSingleSplit, keyframesForVideoSegmentBoundaries } from '@/app/lib/splitClipKeyframes'
 import { ManifestStore, BlobEntry } from './types'
 
 export const createVideoSlice = (set: any, get: any) => ({
@@ -162,11 +163,14 @@ export const createVideoSlice = (set: any, get: any) => ({
     const origDuration = video.originalDuration ?? duration
     const originalSplitPoint = video.trimStart + localTime * (video.playbackSpeed ?? 1)
 
+    const { first: kfFirst, second: kfSecond } = keyframesAfterSingleSplit(video.keyframes ?? [], localTime)
+
     const firstHalf = video.copy({
       duration: localTime,
       trimEnd: origDuration - originalSplitPoint,
       updatedAt: new Date(),
-      originalDuration: origDuration
+      originalDuration: origDuration,
+      keyframes: kfFirst,
     })
 
     const secondHalf = video.copy({
@@ -176,7 +180,8 @@ export const createVideoSlice = (set: any, get: any) => ({
       trimStart: originalSplitPoint,
       createdAt: new Date(),
       updatedAt: new Date(),
-      originalDuration: origDuration
+      originalDuration: origDuration,
+      keyframes: kfSecond,
     })
 
     useSelectionStore.getState().setSelectedVideoId(secondHalf.id)
@@ -207,6 +212,7 @@ export const createVideoSlice = (set: any, get: any) => ({
     if (relTimes.length === 0) return
 
     const boundaries = [0, ...relTimes, duration]
+    const segKeyframes = keyframesForVideoSegmentBoundaries(video.keyframes ?? [], boundaries)
     const newClips: VideoClass[] = boundaries.slice(0, -1).map((segStart, i) => {
       const segEnd = boundaries[i + 1]
       return video.copy({
@@ -217,7 +223,8 @@ export const createVideoSlice = (set: any, get: any) => ({
         updatedAt: new Date(),
         originalDuration: origDuration,
         trimStart: video.trimStart + segStart * (video.playbackSpeed ?? 1),
-        trimEnd: Math.max(0, origDuration - (video.trimStart + segEnd * (video.playbackSpeed ?? 1)))
+        trimEnd: Math.max(0, origDuration - (video.trimStart + segEnd * (video.playbackSpeed ?? 1))),
+        keyframes: segKeyframes[i] ?? [],
       })
     })
 

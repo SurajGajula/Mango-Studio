@@ -1,10 +1,13 @@
+import type { AudioMark } from './mediaKeyframe'
+import { normalizeAudioMarks } from './mediaKeyframe'
+
 export class AudioClass {
   id: string
   name: string
   url: string
   startTime: number
   endTime: number
-  marks: number[]
+  marks: AudioMark[]
   trimStart: number
   trimEnd: number
   originalDuration: number
@@ -23,7 +26,7 @@ export class AudioClass {
     url: string,
     startTime: number,
     endTime: number,
-    marks?: number[],
+    marks?: AudioMark[] | number[],
     createdAt?: Date,
     trimStart?: number,
     trimEnd?: number,
@@ -41,7 +44,7 @@ export class AudioClass {
     this.url = url
     this.startTime = startTime
     this.endTime = endTime
-    this.marks = marks ?? []
+    this.marks = normalizeAudioMarks(marks ?? [])
     this.trimStart = trimStart ?? 0
     this.trimEnd = trimEnd ?? 0
     this.originalDuration = originalDuration ?? endTime
@@ -56,13 +59,14 @@ export class AudioClass {
   }
 
   copy(updates: Partial<AudioClass>): AudioClass {
+    const nextMarks = updates.marks !== undefined ? normalizeAudioMarks(updates.marks) : this.marks
     return new AudioClass(
       updates.id ?? this.id,
       updates.name ?? this.name,
       updates.url ?? this.url,
       updates.startTime ?? this.startTime,
       updates.endTime ?? this.endTime,
-      updates.marks ?? this.marks,
+      nextMarks,
       updates.createdAt ?? this.createdAt,
       updates.trimStart ?? this.trimStart,
       updates.trimEnd ?? this.trimEnd,

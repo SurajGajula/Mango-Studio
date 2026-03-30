@@ -1,4 +1,5 @@
 import type { AnimationMode, TransitionMode } from './ImageClass'
+import type { MediaKeyframe } from './mediaKeyframe'
 
 export class VideoClass {
   id: string
@@ -40,6 +41,7 @@ export class VideoClass {
   speedStart?: number
   speedEnd?: number
   speedEasing: 'linear' | 'ease'
+  keyframes: MediaKeyframe[]
 
   constructor(
     id: string,
@@ -81,7 +83,8 @@ export class VideoClass {
     speedStart?: number,
     speedEnd?: number,
     speedEasing?: 'linear' | 'ease',
-    zoom?: any // Migration field
+    keyframes?: MediaKeyframe[],
+    zoom?: any
   ) {
     this.id = id
     this.title = title
@@ -165,6 +168,7 @@ export class VideoClass {
     this.speedStart = speedStart ?? this.playbackSpeed
     this.speedEnd = speedEnd ?? this.playbackSpeed
     this.speedEasing = speedEasing ?? 'linear'
+    this.keyframes = keyframes ?? []
   }
 
   copy(updates: Partial<VideoClass>): VideoClass {
@@ -207,7 +211,9 @@ export class VideoClass {
       updates.playbackSpeed ?? this.playbackSpeed,
       updates.speedStart ?? this.speedStart,
       updates.speedEnd ?? this.speedEnd,
-      updates.speedEasing ?? this.speedEasing
+      updates.speedEasing ?? this.speedEasing,
+      updates.keyframes ?? this.keyframes,
+      undefined
     )
   }
 }

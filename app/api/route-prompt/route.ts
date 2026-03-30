@@ -13,7 +13,7 @@ interface ManifestItem {
   timestamp?: number
   duration?: number
   isOverlay?: boolean
-  marks?: number[]
+  marks?: Array<number | { t: number; id?: string }>
   animation?: string
   transition?: string
   zoomIntensity?: number
@@ -179,7 +179,11 @@ function buildManifestContext(manifest: SerializedManifest): string {
     const sorted = [...manifest.audios].sort((a, b) => (a.startTime ?? 0) - (b.startTime ?? 0))
     lines.push(`Audios (${sorted.length}):`)
     sorted.forEach((aud, i) => {
-      const markStr = aud.marks?.length ? aud.marks.map((m) => `${m.toFixed(3)}s`).join(', ') : 'none'
+      const markStr = aud.marks?.length
+        ? aud.marks
+            .map((m) => `${(typeof m === 'number' ? m : m.t).toFixed(3)}s`)
+            .join(', ')
+        : 'none'
       const origDur = aud.originalDuration ?? aud.endTime ?? 0
       const ts = aud.trimStart ?? 0
       const te = aud.trimEnd ?? 0

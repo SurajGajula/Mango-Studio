@@ -913,9 +913,36 @@
   bottom: 0;
   width: 2px;
   background-color: #facc15;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
   z-index: 11;
   box-shadow: 0 0 4px rgba(250, 204, 21, 0.6);
+}
+
+.userMarkMarkerSelected {
+  width: 3px;
+  background-color: #fde047;
+  box-shadow: 0 0 6px rgba(253, 224, 71, 0.95);
+}
+
+.keyframeMarker {
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  margin-left: -4px;
+  background-color: #38bdf8;
+  transform: rotate(45deg);
+  pointer-events: auto;
+  cursor: pointer;
+  z-index: 12;
+  box-shadow: 0 0 4px rgba(56, 189, 248, 0.7);
+}
+
+.keyframeMarkerSelected {
+  background-color: #7dd3fc;
+  box-shadow: 0 0 8px rgba(125, 211, 252, 0.95);
 }
 
 .clearMarksButton {

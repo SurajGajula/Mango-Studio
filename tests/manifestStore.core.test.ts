@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, beforeAll } from 'vitest'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
+import { AudioClass } from '@/app/models/AudioClass'
 
 function makeVideo(id: string, timestamp: number, duration: number) {
   return new VideoClass(id, id, `https://example.com/${id}.mp4`, duration, timestamp)
@@ -146,6 +147,23 @@ describe('manifestStore core invariants', () => {
     expect(sorted[4].id).toBe('i-after')
     expect(sorted[4].startTime).toBe(36)
     expect(sorted[4].endTime).toBe(40)
+  })
+
+  it('AudioClass normalizes legacy numeric marks to id and t', () => {
+    const a = new AudioClass('x', 'n', 'https://example.com/x.wav', 0, 10, [1.5, 3])
+    expect(a.marks.length).toBe(2)
+    expect(a.marks.map((m) => m.t)).toEqual([1.5, 3])
+    expect(a.marks.every((m) => typeof m.id === 'string')).toBe(true)
+  })
+
+  it('updateAudio removes a single mark by id', () => {
+    const m1 = { id: 'mark-a', t: 1 }
+    const m2 = { id: 'mark-b', t: 4 }
+    const a = new AudioClass('aud', 'n', 'https://example.com/a.wav', 0, 10, [m1, m2])
+    const store = useManifestStore.getState()
+    store.addAudio(a)
+    store.updateAudio('aud', { marks: [m2] })
+    expect(useManifestStore.getState().audios[0].marks).toEqual([m2])
   })
 
   it('undo and redo restore and reapply manifest lists after removeVideo', () => {

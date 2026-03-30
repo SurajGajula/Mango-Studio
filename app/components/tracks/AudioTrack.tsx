@@ -4,7 +4,7 @@ import { memo } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import styles from './Timeline.module.css'
-import { audioMarkTimelinePositions } from '@/app/lib/audioMarkTimeline'
+import { audioMarkTimelineEntries } from '@/app/lib/audioMarkTimeline'
 
 interface AudioTrackProps {
   totalDuration: number
@@ -22,7 +22,9 @@ const AudioTrack = ({
   handleAudioTrimStart,
 }: AudioTrackProps) => {
   const audios = useManifestStore((state) => state.audios)
+  const setPlaybackTime = useManifestStore((state) => state.setPlaybackTime)
   const selectedAudioId = useSelectionStore((state) => state.selectedAudioId)
+  const selectedAudioMarkId = useSelectionStore((state) => state.selectedAudioMarkId)
   const selectAudio = useSelectionStore((state) => state.selectAudio)
   const setContextMenu = useSelectionStore((state) => state.setContextMenu)
 
@@ -44,7 +46,7 @@ const AudioTrack = ({
         const activeStartPct = getContentPosition(aStartTime)
         const activeEndPct = getContentPosition(aEndTime)
         const isSelected = selectedAudioId === audioItem.id
-        const markPositions = audioMarkTimelinePositions(audioItem, totalDuration)
+        const markEntries = audioMarkTimelineEntries(audioItem, totalDuration)
         const segW = Math.max(1e-6, activeEndPct - activeStartPct)
 
         return (
@@ -98,14 +100,19 @@ const AudioTrack = ({
               </svg>
               <span className={styles.overlayName}>Audio</span>
             </div>
-            {markPositions.map((timelinePos, i) => (
+            {markEntries.map(({ id: markId, timelinePos }) => (
               <div
-                key={`${audioItem.id}-um-${i}`}
-                className={styles.userMarkMarker}
+                key={markId}
+                className={`${styles.userMarkMarker} ${selectedAudioId === audioItem.id && selectedAudioMarkId === markId ? styles.userMarkMarkerSelected : ''}`}
                 style={{
                   left: `${((getContentPosition(timelinePos) - activeStartPct) / segW) * 100}%`,
                 }}
                 title={`Mark at ${timelinePos.toFixed(2)}s`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  selectAudio(audioItem.id, markId)
+                  setPlaybackTime(timelinePos)
+                }}
               />
             ))}
           </div>

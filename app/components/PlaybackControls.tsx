@@ -67,11 +67,16 @@ export default function PlaybackControls({
   const selectedTextId = useSelectionStore((state) => state.selectedTextId)
   const selectedAudioId = useSelectionStore((state) => state.selectedAudioId)
   const selectedEffectId = useSelectionStore((state) => state.selectedEffectId)
+  const selectedAudioMarkId = useSelectionStore((state) => state.selectedAudioMarkId)
+  const selectedKeyframeId = useSelectionStore((state) => state.selectedKeyframeId)
   const clearSelection = useSelectionStore((state) => state.clearSelection)
+  const setSelectedAudioMarkId = useSelectionStore((state) => state.setSelectedAudioMarkId)
+  const setSelectedKeyframeId = useSelectionStore((state) => state.setSelectedKeyframeId)
 
-  const selectedAudioMarks = selectedAudioId
-    ? audios.find((a) => a.id === selectedAudioId)?.marks.length ?? 0
-    : 0
+  const canDeleteSelectedMark =
+    Boolean(selectedAudioId && selectedAudioMarkId) ||
+    Boolean(selectedVideoId && selectedKeyframeId) ||
+    Boolean(selectedImageId && selectedKeyframeId)
 
   return (
     <>
@@ -146,13 +151,33 @@ export default function PlaybackControls({
         >
           Fx
         </button>
-        {selectedAudioId && selectedAudioMarks > 0 && (
+        {canDeleteSelectedMark && (
           <button
             className={styles.clearMarksButton}
-            onClick={() => updateAudio(selectedAudioId, { marks: [] })}
-            title="Clear marks on selected audio"
+            onClick={() => {
+              if (selectedAudioId && selectedAudioMarkId) {
+                const a = audios.find((x) => x.id === selectedAudioId)
+                if (a) {
+                  updateAudio(selectedAudioId, { marks: a.marks.filter((m) => m.id !== selectedAudioMarkId) })
+                  setSelectedAudioMarkId(null)
+                }
+              } else if (selectedVideoId && selectedKeyframeId) {
+                const v = videos.find((x) => x.id === selectedVideoId)
+                if (v) {
+                  updateVideo(selectedVideoId, { keyframes: v.keyframes.filter((k) => k.id !== selectedKeyframeId) })
+                  setSelectedKeyframeId(null)
+                }
+              } else if (selectedImageId && selectedKeyframeId) {
+                const img = images.find((x) => x.id === selectedImageId)
+                if (img) {
+                  updateImage(selectedImageId, { keyframes: img.keyframes.filter((k) => k.id !== selectedKeyframeId) })
+                  setSelectedKeyframeId(null)
+                }
+              }
+            }}
+            title="Delete selected timeline mark"
           >
-            ✕ {selectedAudioMarks}
+            ✕ mark
           </button>
         )}
         <button

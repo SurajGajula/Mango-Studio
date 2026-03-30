@@ -2,6 +2,7 @@ import { ImageClass } from '@/app/models/ImageClass'
 import { VideoClass } from '@/app/models/VideoClass'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { generateId } from '@/app/lib/idUtils'
+import { keyframesAfterSingleSplit, partitionImageKeyframesByAbsoluteBoundaries } from '@/app/lib/splitClipKeyframes'
 import { ManifestStore } from './types'
 
 export const createImageSlice = (set: any, get: any) => ({
@@ -99,11 +100,15 @@ export const createImageSlice = (set: any, get: any) => ({
 
     if (playbackTime <= image.startTime + 0.05 || playbackTime >= image.endTime - 0.05) return
 
-    const firstHalf = image.copy({ endTime: playbackTime })
+    const localSplit = playbackTime - image.startTime
+    const { first: kfFirst, second: kfSecond } = keyframesAfterSingleSplit(image.keyframes ?? [], localSplit)
+
+    const firstHalf = image.copy({ endTime: playbackTime, keyframes: kfFirst })
     const secondHalf = image.copy({
       id: generateId('image'),
       startTime: playbackTime,
-      createdAt: new Date()
+      createdAt: new Date(),
+      keyframes: kfSecond,
     })
 
     useSelectionStore.getState().setSelectedImageId(secondHalf.id)
@@ -128,13 +133,15 @@ export const createImageSlice = (set: any, get: any) => ({
     if (validTimes.length === 0) return
 
     const boundaries = [image.startTime, ...validTimes, image.endTime]
+    const segKeyframes = partitionImageKeyframesByAbsoluteBoundaries(image.startTime, image.keyframes ?? [], boundaries)
     const newSegments: ImageClass[] = boundaries.slice(0, -1).map((segStart, i) => {
       const segEnd = boundaries[i + 1]
       return image.copy({
         id: i === 0 ? image.id : generateId('image'),
         startTime: segStart,
         endTime: segEnd,
-        createdAt: i === 0 ? image.createdAt : new Date()
+        createdAt: i === 0 ? image.createdAt : new Date(),
+        keyframes: segKeyframes[i] ?? [],
       })
     })
 

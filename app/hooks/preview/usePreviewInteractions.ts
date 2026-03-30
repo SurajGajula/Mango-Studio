@@ -1,5 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
+import { useSelectionStore } from '@/app/stores/selectionStore'
+import { getEffectiveCropForEdit, patchCropForItemOrKeyframe } from '@/app/lib/cropKeyframeHelpers'
 import { ImageClass } from '@/app/models/ImageClass'
 import { VideoClass } from '@/app/models/VideoClass'
 import { TextClass } from '@/app/models/TextClass'
@@ -91,6 +93,7 @@ export function usePreviewInteractions(
   const [cropEditId, setCropEditId] = useState<string | null>(null)
   const [cropPanState, setCropPanState] = useState<CropPanState | null>(null)
   const [cropNaturalSize, setCropNaturalSize] = useState<{ nw: number; nh: number } | null>(null)
+  const selectedKeyframeId = useSelectionStore((state) => state.selectedKeyframeId)
   const yScaleRef = useRef(yScale)
   yScaleRef.current = yScale
 
@@ -118,27 +121,30 @@ export function usePreviewInteractions(
         const s = useManifestStore.getState()
         const cur = s.images.find((i) => i.id === cropEditId) || s.videos.find((v) => v.id === cropEditId)
         if (!cur) return
+        const kfId = useSelectionStore.getState().selectedKeyframeId
+        const eff = getEffectiveCropForEdit(cur as ImageClass, kfId)
         const { fw, fh } = frameDimensionsForCropClamp(cur, aspectRatio)
         const n = normalizeCropToFrameAspect(
           fw,
           fh,
           nw,
           nh,
-          cur.cropSx,
-          cur.cropSy,
-          cur.cropSw,
-          cur.cropSh,
+          eff.cropSx,
+          eff.cropSy,
+          eff.cropSw,
+          eff.cropSh,
           0.05
         )
         if (!n) return
         const changed =
-          Math.abs(n.cropSw - cur.cropSw) > 1e-4 ||
-          Math.abs(n.cropSh - cur.cropSh) > 1e-4 ||
-          Math.abs(n.cropSx - cur.cropSx) > 1e-4 ||
-          Math.abs(n.cropSy - cur.cropSy) > 1e-4
+          Math.abs(n.cropSw - eff.cropSw) > 1e-4 ||
+          Math.abs(n.cropSh - eff.cropSh) > 1e-4 ||
+          Math.abs(n.cropSx - eff.cropSx) > 1e-4 ||
+          Math.abs(n.cropSy - eff.cropSy) > 1e-4
         if (!changed) return
-        if (s.images.some((i) => i.id === cropEditId)) s.updateImage(cropEditId, n)
-        else s.updateVideo(cropEditId, n)
+        const patch = patchCropForItemOrKeyframe(cur as ImageClass, kfId, n)
+        if (s.images.some((i) => i.id === cropEditId)) s.updateImage(cropEditId, patch as Partial<ImageClass>)
+        else s.updateVideo(cropEditId, patch as Partial<VideoClass>)
       }
       im.src = cropTargetUrl
     } else {
@@ -157,34 +163,37 @@ export function usePreviewInteractions(
         const s = useManifestStore.getState()
         const cur = s.images.find((i) => i.id === cropEditId) || s.videos.find((v) => v.id === cropEditId)
         if (!cur) return
+        const kfId = useSelectionStore.getState().selectedKeyframeId
+        const eff = getEffectiveCropForEdit(cur as ImageClass, kfId)
         const { fw, fh } = frameDimensionsForCropClamp(cur, aspectRatio)
         const n = normalizeCropToFrameAspect(
           fw,
           fh,
           nw,
           nh,
-          cur.cropSx,
-          cur.cropSy,
-          cur.cropSw,
-          cur.cropSh,
+          eff.cropSx,
+          eff.cropSy,
+          eff.cropSw,
+          eff.cropSh,
           0.05
         )
         if (!n) return
         const changed =
-          Math.abs(n.cropSw - cur.cropSw) > 1e-4 ||
-          Math.abs(n.cropSh - cur.cropSh) > 1e-4 ||
-          Math.abs(n.cropSx - cur.cropSx) > 1e-4 ||
-          Math.abs(n.cropSy - cur.cropSy) > 1e-4
+          Math.abs(n.cropSw - eff.cropSw) > 1e-4 ||
+          Math.abs(n.cropSh - eff.cropSh) > 1e-4 ||
+          Math.abs(n.cropSx - eff.cropSx) > 1e-4 ||
+          Math.abs(n.cropSy - eff.cropSy) > 1e-4
         if (!changed) return
-        if (s.images.some((i) => i.id === cropEditId)) s.updateImage(cropEditId, n)
-        else s.updateVideo(cropEditId, n)
+        const patch = patchCropForItemOrKeyframe(cur as ImageClass, kfId, n)
+        if (s.images.some((i) => i.id === cropEditId)) s.updateImage(cropEditId, patch as Partial<ImageClass>)
+        else s.updateVideo(cropEditId, patch as Partial<VideoClass>)
       }
       v.src = cropTargetUrl
     }
     return () => {
       cancelled = true
     }
-  }, [cropEditId, cropTargetUrl, aspectRatio])
+  }, [cropEditId, cropTargetUrl, aspectRatio, selectedKeyframeId])
 
   const enterCropEdit = useCallback(async (id: string, type: 'image' | 'video') => {
     let targetItem = type === 'image' ? images.find(i => i.id === id) : videos.find(v => v.id === id)
@@ -490,16 +499,19 @@ export function usePreviewInteractions(
       const state = useManifestStore.getState()
       const item = state.images.find(i => i.id === cropEditId) || state.videos.find(v => v.id === cropEditId)
       if (!item) return
+      const kfId = useSelectionStore.getState().selectedKeyframeId
+      const eff = getEffectiveCropForEdit(item as ImageClass, kfId)
 
       const updates = {
-        cropSx: Math.max(0, Math.min(Math.max(0, 1 - item.cropSw), item.cropSx + dx)),
-        cropSy: Math.max(0, Math.min(Math.max(0, 1 - item.cropSh), item.cropSy + dy))
+        cropSx: Math.max(0, Math.min(Math.max(0, 1 - eff.cropSw), eff.cropSx + dx)),
+        cropSy: Math.max(0, Math.min(Math.max(0, 1 - eff.cropSh), eff.cropSy + dy))
       }
 
+      const patch = patchCropForItemOrKeyframe(item as ImageClass, kfId, updates)
       if (state.images.some(i => i.id === cropEditId)) {
-        state.updateImage(cropEditId, updates)
+        state.updateImage(cropEditId, patch as Partial<ImageClass>)
       } else {
-        state.updateVideo(cropEditId, updates)
+        state.updateVideo(cropEditId, patch as Partial<VideoClass>)
       }
     }
 
@@ -523,7 +535,7 @@ export function usePreviewInteractions(
         isKeyboardPanningRef.current = false
       }
     }
-  }, [cropEditId, pushHistory])
+  }, [cropEditId, pushHistory, selectedKeyframeId])
 
   useEffect(() => {
     if (!cropPanState || !cropEditId) return
@@ -556,11 +568,15 @@ export function usePreviewInteractions(
       }
       
       const state = useManifestStore.getState()
+      const item = state.images.find(i => i.id === imgId) || state.videos.find(v => v.id === imgId)
+      if (!item) return
+      const kfId = useSelectionStore.getState().selectedKeyframeId
+      const patch = patchCropForItemOrKeyframe(item as ImageClass, kfId, updates)
       const isImage = state.images.some(i => i.id === imgId)
       if (isImage) {
-        state.updateImage(imgId, updates)
+        state.updateImage(imgId, patch as Partial<ImageClass>)
       } else {
-        state.updateVideo(imgId, updates)
+        state.updateVideo(imgId, patch as Partial<VideoClass>)
       }
     }
 
@@ -581,7 +597,7 @@ export function usePreviewInteractions(
       // Make sure we resume history if the effect is cleaned up mid-drag
       useManifestStore.getState().resumeHistory()
     }
-  }, [cropPanState, cropEditId, updateImage, updateVideo, pushHistory])
+  }, [cropPanState, cropEditId, updateImage, updateVideo, pushHistory, selectedKeyframeId])
 
   useEffect(() => {
     if (!cropEditId) return
@@ -595,6 +611,8 @@ export function usePreviewInteractions(
       const item = images.find((i) => i.id === cropEditId) || videos.find((v) => v.id === cropEditId)
       if (!item) return
       if (!cropNaturalSize) return
+      const kfId = useSelectionStore.getState().selectedKeyframeId
+      const eff = getEffectiveCropForEdit(item as ImageClass, kfId)
       const factor = Math.exp(e.deltaY * 0.002)
       const { fw, fh } = frameDimensionsForCropClamp(item, aspectRatio)
       const { cropSw: newCropSw, cropSh: newCropSh } = clampCropZoomToFrameAspect(
@@ -602,29 +620,30 @@ export function usePreviewInteractions(
         fh,
         cropNaturalSize.nw,
         cropNaturalSize.nh,
-        item.cropSw,
-        item.cropSh,
+        eff.cropSw,
+        eff.cropSh,
         factor,
         0.05
       )
-      const centerSx = item.cropSx + item.cropSw / 2
-      const centerSy = item.cropSy + item.cropSh / 2
+      const centerSx = eff.cropSx + eff.cropSw / 2
+      const centerSy = eff.cropSy + eff.cropSh / 2
       const updates = {
         cropSw: newCropSw,
         cropSh: newCropSh,
         cropSx: Math.max(0, Math.min(1 - newCropSw, centerSx - newCropSw / 2)),
         cropSy: Math.max(0, Math.min(1 - newCropSh, centerSy - newCropSh / 2)),
       }
+      const patch = patchCropForItemOrKeyframe(item as ImageClass, kfId, updates)
       const isImage = images.some(i => i.id === cropEditId)
       if (isImage) {
-        updateImage(item.id, updates)
+        updateImage(item.id, patch as Partial<ImageClass>)
       } else {
-        updateVideo(item.id, updates)
+        updateVideo(item.id, patch as Partial<VideoClass>)
       }
     }
     document.addEventListener('wheel', handleWheel, { passive: false })
     return () => document.removeEventListener('wheel', handleWheel)
-  }, [cropEditId, images, videos, updateImage, updateVideo, canvasRef, cropNaturalSize, aspectRatio])
+  }, [cropEditId, images, videos, updateImage, updateVideo, canvasRef, cropNaturalSize, aspectRatio, selectedKeyframeId])
 
   useEffect(() => {
     if (!selectedTextId || cropEditId) return
