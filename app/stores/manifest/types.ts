@@ -4,7 +4,7 @@ import { TextClass } from '@/app/models/TextClass'
 import { AudioClass } from '@/app/models/AudioClass'
 import { EffectClass } from '@/app/models/EffectClass'
 
-export type AspectRatio = '16:9' | '9:16'
+export type AspectRatio = '9:16'
 
 export interface HistoryEntry {
   videos: VideoClass[]
@@ -43,7 +43,6 @@ export interface ManifestStore {
   setPlaybackTime: (time: number) => void
   setIsPlaying: (playing: boolean) => void
   setPlaybackRate: (rate: number) => void
-  setAspectRatio: (ratio: AspectRatio) => void
   addImage: (image: ImageClass) => void
   removeImage: (id: string) => void
   updateImage: (id: string, updates: Partial<ImageClass>) => void

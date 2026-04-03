@@ -3,7 +3,6 @@
 import { useEffect, useCallback, useMemo } from 'react'
 import { downloadBlob, ExportProgress } from '@/app/lib/videoExporter'
 import { TimelineExportResult } from '@/app/hooks/timeline/useTimelineExport'
-import { AspectRatio } from '@/app/stores/manifest/types'
 import styles from './ExportModal.module.css'
 
 const RING_RADIUS = 40
@@ -11,7 +10,6 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS
 
 interface ExportModalProps {
   open: boolean
-  aspectRatio: AspectRatio
   isExporting: boolean
   exportProgress: ExportProgress | null
   exportResult: TimelineExportResult | null
@@ -20,7 +18,6 @@ interface ExportModalProps {
 
 export default function ExportModal({
   open,
-  aspectRatio,
   isExporting,
   exportProgress,
   exportResult,
@@ -50,7 +47,7 @@ export default function ExportModal({
 
   const showError = exportProgress?.phase === 'error'
   const showProgress = isExporting || (exportProgress && !exportResult && !showError)
-  const ratioClass = aspectRatio === '9:16' ? styles.ratio916 : styles.ratio169
+  const ratioClass = styles.ratio916
   const pct = exportProgress ? Math.round(Math.min(100, Math.max(0, exportProgress.progress))) : 0
 
   return (

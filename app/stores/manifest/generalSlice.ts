@@ -19,11 +19,6 @@ export const createGeneralSlice = (set: any, get: any) => ({
   setPlaybackTime: (time: number) => set({ playbackTime: Math.max(0, time) }),
   setIsPlaying: (playing: boolean) => set({ isPlaying: playing }),
   setPlaybackRate: (rate: number) => set({ playbackRate: rate }),
-  setAspectRatio: (ratio: AspectRatio) => {
-    const state = get()
-    if (state.videos.length === 0) set({ aspectRatio: ratio })
-  },
-
   getTotalDuration: () => {
     const state = get()
     return calculateTotalDuration(state.videos, state.images, state.texts, state.audios)

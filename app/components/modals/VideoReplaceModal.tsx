@@ -37,6 +37,7 @@ export default function VideoReplaceModal({
   const [trimStart, setTrimStart] = useState(initialTrimStart)
   const videoRef = useRef<HTMLVideoElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
+  const overlayRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const timelineContainerRef = useRef<HTMLDivElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -260,8 +261,8 @@ export default function VideoReplaceModal({
   }, [trimStart, isPlaying, projectStartTime])
 
   useEffect(() => {
+    overlayRef.current?.focus()
     if (scrollContainerRef.current) {
-      scrollContainerRef.current.focus()
       isScrollingProgrammatically.current = true
       const initialScroll = initialTrimStart * PIXELS_PER_SECOND
       scrollContainerRef.current.scrollLeft = initialScroll
@@ -289,7 +290,7 @@ export default function VideoReplaceModal({
     }
   }, [])
 
-  const handlePlayPause = () => {
+  const handlePlayPause = useCallback(() => {
     if (!videoRef.current) return
     if (isPlaying) {
       if (videoPlayPromiseRef.current) {
@@ -297,7 +298,7 @@ export default function VideoReplaceModal({
       } else {
         videoRef.current.pause()
       }
-      
+
       if (audioRef.current && !audioRef.current.paused) {
         if (audioPlayPromiseRef.current) {
           audioPlayPromiseRef.current.then(() => audioRef.current?.pause()).catch(() => {})
@@ -314,7 +315,7 @@ export default function VideoReplaceModal({
       }
     }
     setIsPlaying(!isPlaying)
-  }
+  }, [isPlaying])
 
   const handleScroll = useCallback(() => {
     if (isPlaying || !scrollContainerRef.current) return
@@ -337,22 +338,24 @@ export default function VideoReplaceModal({
   }, [maxTrimStart, isPlaying, projectStartTime])
 
   useEffect(() => {
+    const container = scrollContainerRef.current
+    if (!container) return
     const handler = (e: WheelEvent) => {
       if (isPlaying) return
-      const container = scrollContainerRef.current
-      if (!container || !container.contains(e.target as Node)) return
-      
-      // We want to handle all wheel events inside the container as horizontal scrolls
-      // This includes vertical mouse wheels and trackpad swipes
       if (Math.abs(e.deltaY) > 0 || Math.abs(e.deltaX) > 0) {
         e.preventDefault()
-        // If it's mostly vertical, use deltaY. If horizontal, use deltaX.
-        // This covers both mouse wheel and trackpad.
+        e.stopPropagation()
         const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
         container.scrollLeft += delta
       }
     }
+    container.addEventListener('wheel', handler, { passive: false })
+    return () => container.removeEventListener('wheel', handler)
+  }, [isPlaying])
 
+  useEffect(() => {
+    const root = overlayRef.current
+    if (!root) return
     const keyHandler = (e: KeyboardEvent) => {
       const container = scrollContainerRef.current
       if (!container) return
@@ -374,13 +377,8 @@ export default function VideoReplaceModal({
         container.scrollLeft += step * PIXELS_PER_SECOND
       }
     }
-
-    document.addEventListener('wheel', handler, { passive: false })
-    document.addEventListener('keydown', keyHandler)
-    return () => {
-      document.removeEventListener('wheel', handler)
-      document.removeEventListener('keydown', keyHandler)
-    }
+    root.addEventListener('keydown', keyHandler)
+    return () => root.removeEventListener('keydown', keyHandler)
   }, [handlePlayPause, isPlaying])
 
   const totalTimelineWidth = videoDuration * PIXELS_PER_SECOND
@@ -389,7 +387,7 @@ export default function VideoReplaceModal({
   const playheadPosition = currentTime * PIXELS_PER_SECOND
 
   return (
-    <div className={styles.overlay}>
+    <div ref={overlayRef} className={styles.overlay} tabIndex={-1}>
       <div className={styles.modal}>
         <div className={styles.header}>
           <h3>Select Video Window</h3>
@@ -425,11 +423,10 @@ export default function VideoReplaceModal({
           </div>
           
           <div className={styles.timelineContainer} ref={timelineContainerRef}>
-            <div 
-              className={styles.scrollContainer} 
+            <div
+              className={styles.scrollContainer}
               ref={scrollContainerRef}
               onScroll={handleScroll}
-              tabIndex={0}
               style={{ pointerEvents: isPlaying ? 'none' : 'auto' }}
             >
               <div 

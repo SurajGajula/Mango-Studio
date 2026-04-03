@@ -82,7 +82,7 @@ export interface AddTextInstruction {
 }
 
 export interface AddEffectInstruction {
-  type: 'crt-dither' | 'flashing-black-vignette' | 'black-and-white'
+  type: 'crt-dither' | 'flashing-black-vignette' | 'black-and-white' | 'vivid-sharp'
   startTime: number
   endTime: number
   intensity?: number

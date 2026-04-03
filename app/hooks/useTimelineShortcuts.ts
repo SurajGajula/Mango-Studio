@@ -134,6 +134,52 @@ export function useTimelineShortcuts({
         }
       }
 
+      if (
+        (e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
+        !isEditing &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey
+      ) {
+        const st = useSelectionStore.getState()
+        const kfId = st.selectedKeyframeId
+        if (kfId) {
+          const manifest = useManifestStore.getState()
+          const delta = e.key === 'ArrowLeft' ? -1 : 1
+          if (st.selectedVideoId) {
+            const v = manifest.videos.find((x) => x.id === st.selectedVideoId)
+            const kfs = v?.keyframes ?? []
+            if (v && kfs.length > 1) {
+              const sorted = [...kfs].sort((a, b) => a.t - b.t)
+              const idx = sorted.findIndex((k) => k.id === kfId)
+              const nextIdx = idx + delta
+              if (idx >= 0 && nextIdx >= 0 && nextIdx < sorted.length) {
+                e.preventDefault()
+                e.stopPropagation()
+                const next = sorted[nextIdx]
+                manifest.setPlaybackTime(v.timestamp + next.t)
+                st.selectVideo(st.selectedVideoId, next.id)
+              }
+            }
+          } else if (st.selectedImageId) {
+            const img = manifest.images.find((x) => x.id === st.selectedImageId)
+            const kfs = img?.keyframes ?? []
+            if (img && kfs.length > 1) {
+              const sorted = [...kfs].sort((a, b) => a.t - b.t)
+              const idx = sorted.findIndex((k) => k.id === kfId)
+              const nextIdx = idx + delta
+              if (idx >= 0 && nextIdx >= 0 && nextIdx < sorted.length) {
+                e.preventDefault()
+                e.stopPropagation()
+                const next = sorted[nextIdx]
+                manifest.setPlaybackTime(img.startTime + next.t)
+                st.selectImage(st.selectedImageId, next.id)
+              }
+            }
+          }
+        }
+      }
+
       if (!(e.metaKey || e.ctrlKey)) return
       
       if (e.key === '=' || e.key === '+') {

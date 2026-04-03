@@ -2,16 +2,22 @@
 
 import { useState, useCallback, useEffect } from 'react'
 import ChatWindow from './ChatWindow'
+import ChatDisabledPlaceholder from './ChatDisabledPlaceholder'
+import AccountPanel from './AccountPanel'
 import Timeline from './Timeline'
 import PreviewArea from './PreviewArea'
 import TransitionsPanel from './panels/TransitionsPanel'
 import FontPanel from './panels/FontPanel'
 import EffectsPanel from './panels/EffectsPanel'
 import SpeedPanel from './panels/SpeedPanel'
-import AuthModal from './modals/AuthModal'
 import { useAuth } from './AuthProvider'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
+import {
+  hydrateLocalProjectIfNeeded,
+  useGuestProjectPersistence,
+  useUserProjectPersistence,
+} from '@/app/lib/projectPersistence'
 import styles from './MainView.module.css'
 
 type RightPanel = 'chat' | 'transitions' | 'animations' | 'font' | 'effects' | 'speed'
@@ -20,8 +26,8 @@ export default function MainView() {
   const [rightPanel, setRightPanel] = useState<RightPanel>('chat')
   const [transitionItemId, setTransitionItemId] = useState<string | null>(null)
   const [speedItemId, setSpeedItemId] = useState<string | null>(null)
+  const [localPersistReady, setLocalPersistReady] = useState(false)
   const { user, loading } = useAuth()
-  const aspectRatio = useManifestStore((s) => s.aspectRatio)
   const videos = useManifestStore((s) => s.videos)
   const images = useManifestStore((s) => s.images)
   const audios = useManifestStore((s) => s.audios)
@@ -33,7 +39,20 @@ export default function MainView() {
   const selectImage = useSelectionStore((s) => s.selectImage)
   const selectAudio = useSelectionStore((s) => s.selectAudio)
 
-  const timelineHeight = 'max(212px, calc(100vh - 75vw * 9 / 16))'
+  useEffect(() => {
+    if (loading) return
+    let cancelled = false
+    void (async () => {
+      await hydrateLocalProjectIfNeeded(user)
+      if (!cancelled) setLocalPersistReady(true)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [loading, user])
+
+  useGuestProjectPersistence(!user && localPersistReady)
+  useUserProjectPersistence(user && localPersistReady ? user : null)
 
   useEffect(() => {
     if (rightPanel === 'chat' || rightPanel === 'effects') return
@@ -61,7 +80,6 @@ export default function MainView() {
     } else if (rightPanel === 'transitions') {
       const currentSelectedId = selectedVideoId || selectedImageId
       if (currentSelectedId) {
-        // Only sync selection to panel if we don't have a transitionItemId yet
         if (!transitionItemId) {
           setTransitionItemId(currentSelectedId)
         }
@@ -93,10 +111,10 @@ export default function MainView() {
     setRightPanel('animations')
     if (id) {
       setTransitionItemId(id)
-      const isVideo = videos.some(v => v.id === id)
+      const isVideo = videos.some((v) => v.id === id)
       if (isVideo) selectVideo(id)
       else {
-        const isImage = images.some(i => i.id === id)
+        const isImage = images.some((i) => i.id === id)
         if (isImage) selectImage(id)
       }
     }
@@ -104,16 +122,19 @@ export default function MainView() {
 
   const onOpenFont = useCallback(() => setRightPanel('font'), [])
   const onOpenEffects = useCallback(() => setRightPanel('effects'), [])
-  const onOpenSpeed = useCallback((id: string) => {
-    setRightPanel('speed')
-    setSpeedItemId(id)
-    const isVideo = videos.some(v => v.id === id)
-    if (isVideo) selectVideo(id)
-    else {
-      const isAudio = audios.some(a => a.id === id)
-      if (isAudio) selectAudio(id)
-    }
-  }, [videos, audios, selectVideo, selectAudio])
+  const onOpenSpeed = useCallback(
+    (id: string) => {
+      setRightPanel('speed')
+      setSpeedItemId(id)
+      const isVideo = videos.some((v) => v.id === id)
+      if (isVideo) selectVideo(id)
+      else {
+        const isAudio = audios.some((a) => a.id === id)
+        if (isAudio) selectAudio(id)
+      }
+    },
+    [videos, audios, selectVideo, selectAudio]
+  )
 
   if (loading) {
     return (
@@ -125,35 +146,51 @@ export default function MainView() {
 
   return (
     <div className={styles.container}>
-      <div className={!user ? styles.blurredContent : styles.leftSection}>
+      <div className={styles.topRow}>
+        <div className={styles.accountSection}>
+          <AccountPanel />
+        </div>
         <div className={styles.previewContainer}>
           <PreviewArea />
         </div>
-        <div className={styles.timelineContainer} style={{ height: timelineHeight }}>
-          <Timeline
-            onOpenTransitions={onOpenTransitions}
-            onCloseTransitions={onCloseTransitions}
-            onOpenAnimations={onOpenAnimations}
-            onOpenFont={onOpenFont}
-            onOpenEffects={onOpenEffects}
-            onOpenSpeed={onOpenSpeed}
-          />
+        <div className={styles.rightSection}>
+          {rightPanel === 'transitions' ? (
+            <TransitionsPanel
+              key={`transition-${transitionItemId}`}
+              mode="transition"
+              itemId={transitionItemId || undefined}
+              onClose={() => setRightPanel('chat')}
+            />
+          ) : rightPanel === 'animations' ? (
+            <TransitionsPanel
+              key={`animation-${transitionItemId || selectedImageId || selectedVideoId}`}
+              mode="animation"
+              itemId={transitionItemId || undefined}
+              onClose={() => setRightPanel('chat')}
+            />
+          ) : rightPanel === 'font' ? (
+            <FontPanel onClose={() => setRightPanel('chat')} />
+          ) : rightPanel === 'effects' ? (
+            <EffectsPanel onClose={() => setRightPanel('chat')} />
+          ) : rightPanel === 'speed' ? (
+            <SpeedPanel key={`speed-${speedItemId}`} itemId={speedItemId || ''} onClose={() => setRightPanel('chat')} />
+          ) : user ? (
+            <ChatWindow />
+          ) : (
+            <ChatDisabledPlaceholder />
+          )}
         </div>
       </div>
-      <div className={!user ? styles.blurredContent : styles.rightSection}>
-        {rightPanel === 'transitions'
-          ? <TransitionsPanel key={`transition-${transitionItemId}`} mode="transition" itemId={transitionItemId || undefined} onClose={() => setRightPanel('chat')} />
-          : rightPanel === 'animations'
-          ? <TransitionsPanel key={`animation-${transitionItemId || selectedImageId || selectedVideoId}`} mode="animation" itemId={transitionItemId || undefined} onClose={() => setRightPanel('chat')} />
-          : rightPanel === 'font'
-          ? <FontPanel onClose={() => setRightPanel('chat')} />
-          : rightPanel === 'effects'
-          ? <EffectsPanel onClose={() => setRightPanel('chat')} />
-          : rightPanel === 'speed'
-          ? <SpeedPanel key={`speed-${speedItemId}`} itemId={speedItemId || ''} onClose={() => setRightPanel('chat')} />
-          : <ChatWindow />}
+      <div className={styles.timelineContainer}>
+        <Timeline
+          onOpenTransitions={onOpenTransitions}
+          onCloseTransitions={onCloseTransitions}
+          onOpenAnimations={onOpenAnimations}
+          onOpenFont={onOpenFont}
+          onOpenEffects={onOpenEffects}
+          onOpenSpeed={onOpenSpeed}
+        />
       </div>
-      {!user && <AuthModal />}
     </div>
   )
 }

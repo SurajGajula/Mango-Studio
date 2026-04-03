@@ -199,8 +199,8 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     const start = playbackTime
     const end = start + 5
     const row = findFreeVisualOverlayRow(start, end)
-    const logicalW = aspectRatio === '16:9' ? 1920 : 1080
-    const logicalH = aspectRatio === '16:9' ? 1080 : 1920
+    const logicalW = 1080
+    const logicalH = 1920
     const baseFontSize = 96
     const textWidth = Math.round(logicalW * 0.4)
     const fontSize = baseFontSize
@@ -261,7 +261,14 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     const handler = (e: WheelEvent) => {
       if (replaceVideoData) return
       const container = scrollContainerRef.current
-      if (!container || !container.contains(e.target as Node)) return
+      if (!container) return
+      const r = container.getBoundingClientRect()
+      const overTimeline =
+        e.clientX >= r.left &&
+        e.clientX <= r.right &&
+        e.clientY >= r.top &&
+        e.clientY <= r.bottom
+      if (!overTimeline) return
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault()
         const factor = Math.exp(e.deltaY * 0.005)
@@ -302,15 +309,14 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
         }
       }
     }
-    document.addEventListener('wheel', handler, { passive: false })
-    return () => document.removeEventListener('wheel', handler)
+    document.addEventListener('wheel', handler, { passive: false, capture: true })
+    return () => document.removeEventListener('wheel', handler, true)
   }, [applyZoom, replaceVideoData])
 
   return (
     <div className={styles.container}>
       <ExportModal
         open={exportModalOpen}
-        aspectRatio={aspectRatio}
         isExporting={isExporting}
         exportProgress={exportProgress}
         exportResult={exportResult}

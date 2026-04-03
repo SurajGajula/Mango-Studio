@@ -1,7 +1,6 @@
 'use client'
 
 import { useManifestStore } from '@/app/stores/manifestStore'
-import { useSelectionStore } from '@/app/stores/selectionStore'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { ASPECT_RATIOS, computeMediaCropForAspect } from '@/app/lib/mediaUtils'
@@ -36,6 +35,7 @@ export default function PlaybackControls({
 }: PlaybackControlsProps) {
   const isPlaying = useManifestStore((state) => state.isPlaying)
   const setIsPlaying = useManifestStore((state) => state.setIsPlaying)
+  const setPlaybackTime = useManifestStore((state) => state.setPlaybackTime)
   const playbackRate = useManifestStore((state) => state.playbackRate)
   const setPlaybackRate = useManifestStore((state) => state.setPlaybackRate)
   const setItemPlaybackSpeed = useManifestStore((state) => state.setItemPlaybackSpeed)
@@ -51,32 +51,12 @@ export default function PlaybackControls({
   const removeImage = useManifestStore((state) => state.removeImage)
   const removeText = useManifestStore((state) => state.removeText)
   const removeAudioFromManifest = useManifestStore((state) => state.removeAudio)
-  const updateAudio = useManifestStore((state) => state.updateAudio)
   const removeEffect = useManifestStore((state) => state.removeEffect)
-  const updateVideo = useManifestStore((state) => state.updateVideo)
-  const updateImage = useManifestStore((state) => state.updateImage)
   const pushHistory = useManifestStore((state) => state.pushHistory)
   const aspectRatio = useManifestStore((state) => state.aspectRatio)
   const videos = useManifestStore((state) => state.videos)
   const images = useManifestStore((state) => state.images)
   const texts = useManifestStore((state) => state.texts)
-  const audios = useManifestStore((state) => state.audios)
-
-  const selectedVideoId = useSelectionStore((state) => state.selectedVideoId)
-  const selectedImageId = useSelectionStore((state) => state.selectedImageId)
-  const selectedTextId = useSelectionStore((state) => state.selectedTextId)
-  const selectedAudioId = useSelectionStore((state) => state.selectedAudioId)
-  const selectedEffectId = useSelectionStore((state) => state.selectedEffectId)
-  const selectedAudioMarkId = useSelectionStore((state) => state.selectedAudioMarkId)
-  const selectedKeyframeId = useSelectionStore((state) => state.selectedKeyframeId)
-  const clearSelection = useSelectionStore((state) => state.clearSelection)
-  const setSelectedAudioMarkId = useSelectionStore((state) => state.setSelectedAudioMarkId)
-  const setSelectedKeyframeId = useSelectionStore((state) => state.setSelectedKeyframeId)
-
-  const canDeleteSelectedMark =
-    Boolean(selectedAudioId && selectedAudioMarkId) ||
-    Boolean(selectedVideoId && selectedKeyframeId) ||
-    Boolean(selectedImageId && selectedKeyframeId)
 
   return (
     <>
@@ -104,11 +84,40 @@ export default function PlaybackControls({
           </svg>
         </button>
         <button
+          type="button"
+          className={styles.historyButton}
+          onClick={() => setPlaybackTime(0)}
+          disabled={isExporting || playbackTime <= 0.001}
+          title="Go to start"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <line x1="5" y1="6" x2="5" y2="18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            <path d="M8 12 18 6 18 18 8 12Z" fill="currentColor" />
+          </svg>
+        </button>
+        <button
+          type="button"
           className={styles.playButton}
           onClick={() => setIsPlaying(!isPlaying)}
           disabled={isExporting}
         >
           {isPlaying ? '⏸' : '▶'}
+        </button>
+        <button
+          type="button"
+          className={styles.historyButton}
+          onClick={() => setPlaybackTime(totalDuration)}
+          disabled={
+            isExporting
+            || totalDuration <= 0
+            || playbackTime >= totalDuration - 0.001
+          }
+          title="Go to end"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <path d="M16 12 6 6 6 18 16 12Z" fill="currentColor" />
+            <line x1="19" y1="6" x2="19" y2="18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
         </button>
         <button
           className={styles.speedButton}
@@ -151,35 +160,6 @@ export default function PlaybackControls({
         >
           Fx
         </button>
-        {canDeleteSelectedMark && (
-          <button
-            className={styles.clearMarksButton}
-            onClick={() => {
-              if (selectedAudioId && selectedAudioMarkId) {
-                const a = audios.find((x) => x.id === selectedAudioId)
-                if (a) {
-                  updateAudio(selectedAudioId, { marks: a.marks.filter((m) => m.id !== selectedAudioMarkId) })
-                  setSelectedAudioMarkId(null)
-                }
-              } else if (selectedVideoId && selectedKeyframeId) {
-                const v = videos.find((x) => x.id === selectedVideoId)
-                if (v) {
-                  updateVideo(selectedVideoId, { keyframes: v.keyframes.filter((k) => k.id !== selectedKeyframeId) })
-                  setSelectedKeyframeId(null)
-                }
-              } else if (selectedImageId && selectedKeyframeId) {
-                const img = images.find((x) => x.id === selectedImageId)
-                if (img) {
-                  updateImage(selectedImageId, { keyframes: img.keyframes.filter((k) => k.id !== selectedKeyframeId) })
-                  setSelectedKeyframeId(null)
-                }
-              }
-            }}
-            title="Delete selected timeline mark"
-          >
-            ✕ mark
-          </button>
-        )}
         <button
           className={styles.exportButton}
           onClick={handleExport}

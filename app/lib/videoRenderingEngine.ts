@@ -10,7 +10,7 @@ export interface RenderState {
   playbackTime: number
   isPlaying: boolean
   playbackRate: number
-  aspectRatio: '16:9' | '9:16'
+  aspectRatio: '9:16'
   videos: VideoClass[]
   images: ImageClass[]
   effects: EffectClass[]
@@ -263,14 +263,16 @@ export class VideoRenderingEngine {
         const canDrawBackground = !isVideo || isReady || (isPlaying && activeEl instanceof HTMLVideoElement && activeEl.readyState >= 2)
         
         if (canDrawBackground) {
-          bufferCtx.fillStyle = '#000000'
+          bufferCtx.fillStyle = '#0f0f0f'
           bufferCtx.fillRect(0, 0, bufferCanvas.width, bufferCanvas.height)
+          bufferCtx.fillStyle = '#000000'
+          bufferCtx.fillRect(cr.x, cr.y, cr.width, cr.height)
           backgroundDrawn = true
         }
 
         let transActive = false
-        const logicalW = aspectRatio === '16:9' ? 1920 : 1080
-        const logicalH = aspectRatio === '16:9' ? 1080 : 1920
+        const logicalW = 1080
+        const logicalH = 1920
         const xScale = cr.width / logicalW
         const yScale = cr.height / logicalH
 
@@ -449,8 +451,8 @@ export class VideoRenderingEngine {
   ) {
     if (videoEl.readyState < 2 || videoEl.videoWidth === 0 || videoEl.videoHeight === 0) return
 
-    const logicalW = aspectRatio === '16:9' ? 1920 : 1080
-    const logicalH = aspectRatio === '16:9' ? 1080 : 1920
+    const logicalW = 1080
+    const logicalH = 1920
     const xScale = cr.width / logicalW; const yScale = cr.height / logicalH
     const drawX = cr.x + (videoClip.x ?? 0) * xScale
     const drawY = cr.y + (videoClip.y ?? 0) * yScale
@@ -567,8 +569,8 @@ export class VideoRenderingEngine {
       const lastEnded = mainTrackImages.filter(img => img.endTime <= currentTime).sort((a, b) => b.endTime - a.endTime)[0]
       if (lastEnded) visibleImages = [lastEnded]
     }
-    const logicalW = aspectRatio === '16:9' ? 1920 : 1080
-    const logicalH = aspectRatio === '16:9' ? 1080 : 1920
+    const logicalW = 1080
+    const logicalH = 1920
     const xScale = cr.width / logicalW; const yScale = cr.height / logicalH
     visibleImages.forEach((image) => {
       let bitmap = imageBitmaps.get(image.id)
@@ -605,8 +607,8 @@ export class VideoRenderingEngine {
     aspectRatio: string,
     isPlaying: boolean
   ) {
-    const logicalW = aspectRatio === '16:9' ? 1920 : 1080
-    const logicalH = aspectRatio === '16:9' ? 1080 : 1920
+    const logicalW = 1080
+    const logicalH = 1920
     const xScale = cr.width / logicalW; const yScale = cr.height / logicalH
     type OverlayEntry =
       | { kind: 'image'; row: number; t0: number; image: ImageClass }

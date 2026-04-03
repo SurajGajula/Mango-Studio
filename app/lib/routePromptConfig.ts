@@ -358,7 +358,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'add_effect',
-    description: 'Add one or more visual effects (e.g. "crt-dither", "flashing-black-vignette", or "black-and-white") to the timeline. Use this when the user asks to add, apply, or insert an effect over a specific time range — for example "add a crt dither from image 12 to 22" or "apply flashing vignette to the first 5 seconds". Compute startTime and endTime from the manifest data.',
+    description: 'Add one or more visual effects (e.g. "crt-dither", "flashing-black-vignette", "black-and-white", or "vivid-sharp") to the timeline. Use this when the user asks to add, apply, or insert an effect over a specific time range — for example "add a crt dither from image 12 to 22" or "apply flashing vignette to the first 5 seconds". Compute startTime and endTime from the manifest data.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -370,7 +370,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
             properties: {
               type: {
                 type: Type.STRING,
-                description: 'The type of effect: "crt-dither", "flashing-black-vignette", or "black-and-white".',
+                description: 'The type of effect: "crt-dither", "flashing-black-vignette", "black-and-white", or "vivid-sharp".',
               },
               startTime: {
                 type: Type.NUMBER,
@@ -382,7 +382,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
               },
               intensity: {
                 type: Type.NUMBER,
-                description: 'The intensity of the effect (0.0 to 1.0). For "flashing-black-vignette" and "black-and-white" (0 = none / full color, 1 = full effect). Default is 0.5.',
+                description: 'The intensity of the effect (0.0 to 1.0). For "flashing-black-vignette" and "black-and-white" (0 = none / full color, 1 = full effect). For "vivid-sharp", intensity controls sharpening only (0 = vivid color only, 1 = maximum sharpness). Default is 0.5.',
               },
             },
             required: ['type', 'startTime', 'endTime'],
@@ -407,7 +407,7 @@ export const systemInstruction =
     '- edit_manifest: when the user asks to change timing, duration, position, playback speed, or mute status of existing items. You MUST include all affected items as separate entries in the mutations array in a SINGLE call — never call edit_manifest multiple times. For audio mutations (type=updateAudio): ALWAYS use trimStart and trimEnd fields (not endTime). To restore an audio to its full original length set trimStart=0 and trimEnd=0. The active playing duration of an audio is: originalDuration - trimStart - trimEnd. Use playbackSpeed for constant video and audio playback speed changes (e.g. 0.5 for half speed). For speed ramps (e.g. "0.5x start to 0.1x end"), use both speedStart and speedEnd (and optionally speedEasing: "linear" or "ease"). If speedStart/speedEnd are used, they will override any constant playbackSpeed. Use muted for video mute status (true to mute, false to unmute). ALWAYS use the exact id strings from the manifest (e.g. "audio-1234-abc") — never make up or shorten ids.\n' +
   '- split_at_marks: when the user asks to split, cut, or divide images or videos at specific positions, or into equal parts (like halves or fourths). You must compute the absolute timeline split times yourself from the item\'s timing data (halves = 1 split at midpoint, fourths = 3 splits at 25%/50%/75%). Also use this for splitting at audio marks (use the marks listed in the audio data)\n' +
   '- add_text: when the user asks to add text overlays to the timeline at a computed time range\n' +
-  '- add_effect: when the user asks to add visual effects (like "crt-dither", "flashing-black-vignette", or "black-and-white") over a specific time range; include intensity (0.0–1.0) if specified for flashing-black-vignette or black-and-white\n' +
+  '- add_effect: when the user asks to add visual effects (like "crt-dither", "flashing-black-vignette", "black-and-white", or "vivid-sharp") over a specific time range; include intensity (0.0–1.0) if specified for flashing-black-vignette, black-and-white, or vivid-sharp\n' +
     '- replace_images: when the user has attached files and asks to replace, swap, or update existing timeline images or videos with them\n' +
   '- set_transitions: when the user asks to set, apply, add, or remove animations (none, pulse, shake, or jitter) or transitions (none, split, fade, slide-in, circle, rotate, or flash) on images or videos; include zoomIntensity (0.05–1.0) if specified, transitionDuration if specified, transitionColor if specified (for flash), transitionDirection if specified (for slide-in), or transitionAxis if specified (for split)\n' +
   '- set_crop: when the user asks to set or change the aspect ratio of images or videos (e.g. "make images 2-25 16:9"); cropAspect must be one of "16:9", "4:3", "1:1", "3:4", "9:16", or "none"\n' +

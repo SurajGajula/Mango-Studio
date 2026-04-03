@@ -5,6 +5,7 @@ import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { getSortedMainItems, findActiveAndNextItems, checkTransition, calculateSourceTime } from '@/app/lib/renderUtils'
 import { VideoRenderingEngine, RenderState, RenderResources } from '@/app/lib/videoRenderingEngine'
+import { setVideoCrossOriginForUrl } from '@/app/lib/mediaUtils'
 
 function audioDecodeLeadSeconds(ctx: AudioContext): number {
   let lead = typeof ctx.baseLatency === 'number' ? ctx.baseLatency : 0
@@ -50,7 +51,6 @@ export function useVideoPlayback(
   const images = useManifestStore((state) => state.images)
   const audios = useManifestStore((state) => state.audios)
   const playbackTime = useManifestStore((state) => state.playbackTime)
-  const aspectRatio = useManifestStore((state) => state.aspectRatio)
   const effects = useManifestStore((state) => state.effects)
 
   const getState = useManifestStore.getState
@@ -80,10 +80,12 @@ export function useVideoPlayback(
         
         if (video) {
           removedElements.delete(video.src)
+          setVideoCrossOriginForUrl(video, clip.url)
         } else {
           video = document.createElement('video')
           video.preload = 'auto'
           video.playsInline = true
+          setVideoCrossOriginForUrl(video, clip.url)
           video.src = clip.url
           video.onloadedmetadata = () => {
             const currentClip = useManifestStore.getState().videos.find((v) => v.id === clip.id)
@@ -97,6 +99,7 @@ export function useVideoPlayback(
         videoElementsRef.current.set(clip.id, video)
       } else if (video && clip.url && video.src !== clip.url && isNearPlayhead) {
         video.pause()
+        setVideoCrossOriginForUrl(video, clip.url)
         video.src = clip.url
         video.load()
       } else if (video && !isNearPlayhead) {
@@ -255,7 +258,7 @@ export function useVideoPlayback(
   }, [])
 
   const computeContentRect = useCallback((cw: number, ch: number) => {
-    const targetAspect = aspectRatio === '16:9' ? 16 / 9 : 9 / 16
+    const targetAspect = 9 / 16
     const canvasAspect = cw / ch
     let x: number, y: number, width: number, height: number
     if (Math.abs(canvasAspect - targetAspect) < 0.001) {
@@ -272,7 +275,7 @@ export function useVideoPlayback(
       y = Math.round((ch - height) / 2)
     }
     return { x, y, width, height }
-  }, [aspectRatio])
+  }, [])
 
   const applyCanvasSize = useCallback((canvas: HTMLCanvasElement, cw: number, ch: number) => {
     // Only resize if the difference is more than 2 pixels to avoid jitter

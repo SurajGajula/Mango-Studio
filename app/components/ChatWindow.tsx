@@ -1,9 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { useAuth } from './AuthProvider'
 import { useManifestStore } from '@/app/stores/manifestStore'
-import PaymentModal from './modals/PaymentModal'
 import type {
   ManifestMutation,
   SplitInstruction,
@@ -41,7 +39,6 @@ export default function ChatWindow() {
   const [inputValue, setInputValue] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
-  const [showPaymentModal, setShowPaymentModal] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -65,31 +62,6 @@ export default function ChatWindow() {
   const removeText = useManifestStore((state) => state.removeText)
   const removeAudio = useManifestStore((state) => state.removeAudio)
   const duplicateTimelineRange = useManifestStore((state) => state.duplicateTimelineRange)
-  const { user, supabase, profile } = useAuth()
-
-  const handleManageSubscription = async () => {
-    try {
-      const response = await fetch('/api/customer-portal', {
-        method: 'POST',
-      })
-      const data = await response.json()
-      if (data.url) {
-        window.location.href = data.url
-      } else {
-        throw new Error(data.error || 'Failed to open billing portal')
-      }
-    } catch (error) {
-      console.error('Portal error:', error)
-      alert('Failed to open subscription management.')
-    }
-  }
-
-  const handleSignOut = async () => {
-    if (supabase) {
-      await supabase.auth.signOut()
-    }
-  }
-
   useEffect(() => {
     if (pendingPrompt) {
       setInputValue(pendingPrompt)
@@ -404,7 +376,7 @@ export default function ChatWindow() {
     const textarea = textareaRef.current
     if (textarea) {
       textarea.style.height = '0px'
-      const newHeight = Math.max(70, Math.min(textarea.scrollHeight, 150))
+      const newHeight = Math.max(40, Math.min(textarea.scrollHeight, 140))
       textarea.style.height = `${newHeight}px`
     }
   }
@@ -450,36 +422,6 @@ export default function ChatWindow() {
 
   return (
     <div className={styles.container}>
-      {user && (
-        <div className={styles.header}>
-          <div className={styles.userInfo}>
-            <span className={styles.userEmail}>{user.email}</span>
-            {profile?.requests_remaining !== undefined && (
-              <span className={styles.requestCount}>{profile.requests_remaining} requests left</span>
-            )}
-          </div>
-          <div className={styles.headerButtons}>
-            {profile?.is_pro ? (
-              <button className={styles.manageButton} onClick={handleManageSubscription} title="Manage Subscription">
-                Pro
-              </button>
-            ) : (
-              <button className={styles.proButton} onClick={() => setShowPaymentModal(true)}>
-                Pro
-              </button>
-            )}
-            <button className={styles.signOutButton} onClick={handleSignOut} title="Sign Out">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <polyline points="16 17 21 12 16 7" />
-                <line x1="21" y1="12" x2="9" y2="12" />
-              </svg>
-              Sign Out
-            </button>
-          </div>
-        </div>
-      )}
-      {showPaymentModal && <PaymentModal onClose={() => setShowPaymentModal(false)} />}
       <div className={styles.messages}>
         {messages.map((message) => (
           <div
@@ -522,44 +464,52 @@ export default function ChatWindow() {
           onChange={handleFileSelect}
           style={{ display: 'none' }}
         />
-        <button
-          className={styles.attachButton}
-          onClick={() => fileInputRef.current?.click()}
-          title="Attach images"
-          disabled={isProcessing}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-            <circle cx="8.5" cy="8.5" r="1.5" />
-            <polyline points="21 15 16 10 5 21" />
-          </svg>
-        </button>
-        <textarea
-          ref={textareaRef}
-          placeholder="Edit the timeline..."
-          className={styles.input}
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          onKeyDown={handleKeyDown}
-          rows={2}
-        />
-        <button
-          className={styles.sendButton}
-          onClick={handleSend}
-          disabled={isProcessing || !inputValue.trim()}
-          title={isProcessing ? 'Processing...' : 'Send'}
-        >
-          {isProcessing ? (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={styles.spinnerIcon}>
-              <circle cx="12" cy="12" r="10" strokeDasharray="32" strokeDashoffset="12" />
-            </svg>
-          ) : (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="22" y1="2" x2="11" y2="13" />
-              <polygon points="22 2 15 22 11 13 2 9 22 2" />
-            </svg>
-          )}
-        </button>
+        <div className={styles.composer}>
+          <textarea
+            ref={textareaRef}
+            placeholder="Edit the timeline..."
+            className={styles.composerTextarea}
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            rows={1}
+          />
+          <div className={styles.composerFooter}>
+            <button
+              type="button"
+              className={styles.composerIconBtn}
+              onClick={() => fileInputRef.current?.click()}
+              title="Attach images"
+              disabled={isProcessing}
+              aria-label="Attach images"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <polyline points="21 15 16 10 5 21" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className={`${styles.composerIconBtn} ${styles.composerSendBtn}`}
+              onClick={handleSend}
+              disabled={isProcessing || !inputValue.trim()}
+              title={isProcessing ? 'Processing...' : 'Send'}
+              aria-label="Send"
+            >
+              {isProcessing ? (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={styles.spinnerIcon} aria-hidden>
+                  <circle cx="12" cy="12" r="10" strokeDasharray="32" strokeDashoffset="12" />
+                </svg>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <line x1="22" y1="2" x2="11" y2="13" />
+                  <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                </svg>
+              )}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )

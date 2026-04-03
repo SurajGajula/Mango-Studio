@@ -97,14 +97,12 @@ export default function PreviewArea() {
   const updateText = useManifestStore((state) => state.updateText)
   const pushHistory = useManifestStore((state) => state.pushHistory)
   const aspectRatio = useManifestStore((state) => state.aspectRatio)
-  const setAspectRatio = useManifestStore((state) => state.setAspectRatio)
 
   const mainVideos = videos.filter((v) => !v.isOverlay)
   const hasMainContent = mainVideos.length > 0 || images.length > 0
-  const canChangeAspectRatio = !hasMainContent
 
-  const logicalW = aspectRatio === '16:9' ? 1920 : 1080
-  const logicalH = aspectRatio === '16:9' ? 1080 : 1920
+  const logicalW = 1080
+  const logicalH = 1920
   const xScale = contentRect.width > 0 ? contentRect.width / logicalW : 1
   const yScale = contentRect.height > 0 ? contentRect.height / logicalH : 1
   const offsetX = contentRect.x
@@ -238,131 +236,113 @@ export default function PreviewArea() {
   return (
     <div className={styles.container}>
       <div className={styles.content}>
-        {hasMainContent ? (
-          <div ref={containerRef} className={styles.videoContainer}>
-            <div className={styles.canvasWrapper}>
-              <canvas
-                ref={canvasRef}
-                className={styles.video}
-                onClick={() => { setSelectedImageId(null); setSelectedVideoId(null); setSelectedTextId(null); setEditingTextId(null); if (cropEditId) exitCropEdit() }}
-                onDoubleClick={handleCanvasDoubleClick}
-              />
-              <div className={styles.overlayLayer}>
-                {sortedPreviewLayers.map((layer) => {
-                  if (layer.kind === 'image') {
-                    const image = layer.image
+        <div ref={containerRef} className={styles.videoContainer}>
+          <div className={styles.canvasWrapper}>
+            <canvas
+              ref={canvasRef}
+              className={styles.video}
+              onClick={() => { setSelectedImageId(null); setSelectedVideoId(null); setSelectedTextId(null); setEditingTextId(null); if (cropEditId) exitCropEdit() }}
+              onDoubleClick={handleCanvasDoubleClick}
+            />
+            {hasMainContent && (
+              <>
+                <div className={styles.overlayLayer}>
+                  {sortedPreviewLayers.map((layer) => {
+                    if (layer.kind === 'image') {
+                      const image = layer.image
+                      return (
+                        <OverlayItem
+                          key={image.id}
+                          itemId={image.id}
+                          itemType="image"
+                          x={image.x}
+                          y={image.y}
+                          w={image.width}
+                          h={image.height}
+                          isSelected={selectedImageId === image.id}
+                          offsetX={offsetX}
+                          offsetY={offsetY}
+                          xScale={xScale}
+                          yScale={yScale}
+                          handleOverlayMouseDown={handleOverlayMouseDown}
+                          hasCrop={!!image.cropAspect}
+                          cropEditId={cropEditId}
+                          enterCropEdit={enterCropEdit}
+                          exitCropEdit={exitCropEdit}
+                        />
+                      )
+                    }
+                    if (layer.kind === 'video') {
+                      const video = layer.video
+                      return (
+                        <OverlayItem
+                          key={video.id}
+                          itemId={video.id}
+                          itemType="video"
+                          x={video.x}
+                          y={video.y}
+                          w={video.width}
+                          h={video.height}
+                          isSelected={selectedVideoId === video.id}
+                          offsetX={offsetX}
+                          offsetY={offsetY}
+                          xScale={xScale}
+                          yScale={yScale}
+                          handleOverlayMouseDown={handleOverlayMouseDown}
+                          hasCrop={!!video.cropAspect}
+                          cropEditId={cropEditId}
+                          enterCropEdit={enterCropEdit}
+                          exitCropEdit={exitCropEdit}
+                        />
+                      )
+                    }
+                    const text = layer.text
                     return (
-                      <OverlayItem
-                        key={image.id}
-                        itemId={image.id}
-                        itemType="image"
-                        x={image.x}
-                        y={image.y}
-                        w={image.width}
-                        h={image.height}
-                        isSelected={selectedImageId === image.id}
-                        offsetX={offsetX}
-                        offsetY={offsetY}
+                      <TextOverlay
+                        key={text.id}
+                        text={text}
                         xScale={xScale}
                         yScale={yScale}
-                        handleOverlayMouseDown={handleOverlayMouseDown}
-                        hasCrop={!!image.cropAspect}
-                        cropEditId={cropEditId}
-                        enterCropEdit={enterCropEdit}
-                        exitCropEdit={exitCropEdit}
-                      />
-                    )
-                  }
-                  if (layer.kind === 'video') {
-                    const video = layer.video
-                    return (
-                      <OverlayItem
-                        key={video.id}
-                        itemId={video.id}
-                        itemType="video"
-                        x={video.x}
-                        y={video.y}
-                        w={video.width}
-                        h={video.height}
-                        isSelected={selectedVideoId === video.id}
                         offsetX={offsetX}
                         offsetY={offsetY}
-                        xScale={xScale}
-                        yScale={yScale}
-                        handleOverlayMouseDown={handleOverlayMouseDown}
-                        hasCrop={!!video.cropAspect}
-                        cropEditId={cropEditId}
-                        enterCropEdit={enterCropEdit}
-                        exitCropEdit={exitCropEdit}
+                        editingTextId={editingTextId}
+                        setEditingTextId={setEditingTextId}
+                        editingContent={editingContent}
+                        setEditingContent={setEditingContent}
+                        editingContentRef={editingContentRef}
+                        handleTextMouseDown={handleTextMouseDown}
+                        handleTextResizeStart={handleTextResizeStart}
+                        getMeasureCtx={getMeasureCtx}
+                        playbackTime={playbackTime}
+                        textRefs={textRefs}
                       />
                     )
-                  }
-                  const text = layer.text
-                  return (
-                    <TextOverlay
-                      key={text.id}
-                      text={text}
-                      xScale={xScale}
-                      yScale={yScale}
-                      offsetX={offsetX}
-                      offsetY={offsetY}
-                      editingTextId={editingTextId}
-                      setEditingTextId={setEditingTextId}
-                      editingContent={editingContent}
-                      setEditingContent={setEditingContent}
-                      editingContentRef={editingContentRef}
-                      handleTextMouseDown={handleTextMouseDown}
-                      handleTextResizeStart={handleTextResizeStart}
-                      getMeasureCtx={getMeasureCtx}
-                      playbackTime={playbackTime}
-                      textRefs={textRefs}
-                    />
-                  )
-                })}
-                {snapLines.vertical.map((x, i) => (
-                  <div key={`v-${i}`} className={styles.snapLineVertical} style={{ left: offsetX + x * xScale }} />
-                ))}
-                {snapLines.horizontal.map((y, i) => (
-                  <div key={`h-${i}`} className={styles.snapLineHorizontal} style={{ top: offsetY + y * yScale }} />
-                ))}
-              </div>
-              {cropEditId && (
-                <CropEditor
-                  cropEditId={cropEditId}
-                  xScale={xScale}
-                  yScale={yScale}
-                  offsetX={offsetX}
-                  offsetY={offsetY}
-                  contentRect={contentRect}
-                  playbackTime={playbackTime}
-                  cropPanState={cropPanState}
-                  handleCropPanStart={handleCropPanStart}
-                  exitCropEdit={exitCropEdit}
-                />
-              )}
-            </div>
+                  })}
+                  {snapLines.vertical.map((x, i) => (
+                    <div key={`v-${i}`} className={styles.snapLineVertical} style={{ left: offsetX + x * xScale }} />
+                  ))}
+                  {snapLines.horizontal.map((y, i) => (
+                    <div key={`h-${i}`} className={styles.snapLineHorizontal} style={{ top: offsetY + y * yScale }} />
+                  ))}
+                </div>
+                {cropEditId && (
+                  <CropEditor
+                    cropEditId={cropEditId}
+                    xScale={xScale}
+                    yScale={yScale}
+                    offsetX={offsetX}
+                    offsetY={offsetY}
+                    contentRect={contentRect}
+                    playbackTime={playbackTime}
+                    cropPanState={cropPanState}
+                    handleCropPanStart={handleCropPanStart}
+                    exitCropEdit={exitCropEdit}
+                  />
+                )}
+              </>
+            )}
           </div>
-        ) : (
-          <div className={styles.previewContent}>
-            <div className={styles.aspectSelector}>
-              <button
-                className={`${styles.aspectButton} ${aspectRatio === '9:16' ? styles.active : ''}`}
-                onClick={() => setAspectRatio('9:16')}
-                disabled={!canChangeAspectRatio}
-              >
-                9:16
-              </button>
-              <button
-                className={`${styles.aspectButton} ${aspectRatio === '16:9' ? styles.active : ''}`}
-                onClick={() => setAspectRatio('16:9')}
-                disabled={!canChangeAspectRatio}
-              >
-                16:9
-              </button>
-            </div>
-            <p>Generate a video in the chat</p>
-          </div>
-        )}
+        </div>
       </div>
     </div>
   )

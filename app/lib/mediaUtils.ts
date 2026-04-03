@@ -10,6 +10,19 @@ export const ASPECT_RATIOS: Record<string, [number, number]> = {
   '9:16': [9, 16],
 }
 
+export function setVideoCrossOriginForUrl(video: HTMLVideoElement, url: string) {
+  try {
+    const u = new URL(url, window.location.href)
+    if (u.origin !== window.location.origin) {
+      video.crossOrigin = 'anonymous'
+    } else {
+      video.removeAttribute('crossOrigin')
+    }
+  } catch {
+    video.removeAttribute('crossOrigin')
+  }
+}
+
 export function clampCropZoomDimensions(
   cropSw: number,
   cropSh: number,
@@ -42,16 +55,14 @@ export function minUniformScaleToCoverLogicalCanvas(
   canvasAspectRatio: AspectRatio
 ): number {
   if (!(w > 0) || !(h > 0)) return 1
-  const logicalW = canvasAspectRatio === '16:9' ? 1920 : 1080
-  const logicalH = canvasAspectRatio === '16:9' ? 1080 : 1920
+  const { logicalW, logicalH } = getLogicalCanvasDimensions(canvasAspectRatio)
   return Math.max(1, logicalW / w, logicalH / h)
 }
 
-export function getLogicalCanvasDimensions(canvasAspectRatio: AspectRatio): {
+export function getLogicalCanvasDimensions(_canvasAspect: AspectRatio): {
   logicalW: number
   logicalH: number
 } {
-  if (canvasAspectRatio === '16:9') return { logicalW: 1920, logicalH: 1080 }
   return { logicalW: 1080, logicalH: 1920 }
 }
 
@@ -276,8 +287,7 @@ export function computeMediaCropForAspect(
   targetH: number,
   cropAspectLabel: string
 ): Promise<Partial<ImageClass | VideoClass>> {
-  const canvasW = canvasAspectRatio === '16:9' ? 1920 : 1080
-  const canvasH = canvasAspectRatio === '16:9' ? 1080 : 1920
+  const { logicalW: canvasW, logicalH: canvasH } = getLogicalCanvasDimensions(canvasAspectRatio)
 
   return new Promise((resolve) => {
     const el = type === 'image' ? new Image() : document.createElement('video')
@@ -392,11 +402,7 @@ export function computeMediaDimensions(
   aspectRatio: AspectRatio,
   isMainTrack = false
 ): { x: number; y: number; width: number; height: number } {
-  const canvasW = aspectRatio === '16:9' ? 1920 : 1080
-  const canvasH = aspectRatio === '16:9' ? 1080 : 1920
-
-  // The container is always the full canvas now, for both main track and overlays.
-  // Previously overlays in 16:9 were restricted to a 9:16 column.
+  const { logicalW: canvasW, logicalH: canvasH } = getLogicalCanvasDimensions(aspectRatio)
   const containerPxW = canvasW
   const containerPxH = canvasH
   const containerPxX = 0
@@ -405,13 +411,8 @@ export function computeMediaDimensions(
   let fitPxW: number, fitPxH: number
 
   if (isMainTrack) {
-    if (aspectRatio === '16:9') {
-      fitPxH = containerPxH
-      fitPxW = Math.round(containerPxH * mediaAspect)
-    } else {
-      fitPxW = containerPxW
-      fitPxH = Math.round(containerPxW / mediaAspect)
-    }
+    fitPxW = containerPxW
+    fitPxH = Math.round(containerPxW / mediaAspect)
   } else {
     // For overlays, fit inside container while preserving aspect ratio
     const containerAspect = containerPxW / containerPxH

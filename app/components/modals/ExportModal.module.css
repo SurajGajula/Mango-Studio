@@ -89,10 +89,6 @@
   margin: 0 auto;
 }
 
-.videoFrame.ratio169 {
-  aspect-ratio: 16 / 9;
-}
-
 .previewVideo {
   width: 100%;
   height: 100%;

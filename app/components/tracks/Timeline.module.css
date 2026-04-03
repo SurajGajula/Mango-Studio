@@ -91,7 +91,6 @@
   border-radius: 4px;
   font-size: 0.75rem;
   font-weight: 600;
-  font-family: monospace;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -109,7 +108,6 @@
 .timeDisplay {
   font-size: 0.875rem;
   color: #ffffff;
-  font-family: monospace;
   flex: 1;
 }
 
@@ -213,7 +211,6 @@
   color: #cccccc;
   font-size: 0.75rem;
   font-weight: 500;
-  font-family: monospace;
   cursor: pointer;
   text-align: left;
   transition: background-color 0.12s ease, color 0.12s ease;
@@ -371,6 +368,8 @@
   position: relative;
   scrollbar-width: none;
   -ms-overflow-style: none;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: contain;
 }
 
 .scrollContainer::-webkit-scrollbar {
@@ -912,17 +911,17 @@
   top: 0;
   bottom: 0;
   width: 2px;
-  background-color: #facc15;
+  background-color: #ffffff;
   pointer-events: auto;
   cursor: pointer;
   z-index: 11;
-  box-shadow: 0 0 4px rgba(250, 204, 21, 0.6);
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.55);
 }
 
 .userMarkMarkerSelected {
   width: 3px;
-  background-color: #fde047;
-  box-shadow: 0 0 6px rgba(253, 224, 71, 0.95);
+  background-color: #ffffff;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.9);
 }
 
 .keyframeMarker {
@@ -932,38 +931,17 @@
   height: 8px;
   margin-top: -4px;
   margin-left: -4px;
-  background-color: #38bdf8;
+  background-color: #ffffff;
   transform: rotate(45deg);
   pointer-events: auto;
   cursor: pointer;
   z-index: 12;
-  box-shadow: 0 0 4px rgba(56, 189, 248, 0.7);
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.65);
 }
 
 .keyframeMarkerSelected {
-  background-color: #7dd3fc;
-  box-shadow: 0 0 8px rgba(125, 211, 252, 0.95);
-}
-
-.clearMarksButton {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 0.5rem;
-  height: 2rem;
-  background: rgba(250, 204, 21, 0.12);
-  border: 1px solid rgba(250, 204, 21, 0.4);
-  border-radius: 4px;
-  color: #facc15;
-  font-size: 0.75rem;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background-color 0.15s ease;
-  flex-shrink: 0;
-}
-
-.clearMarksButton:hover {
-  background: rgba(250, 204, 21, 0.22);
+  background-color: #ffffff;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.95);
 }
 
 .chorusRegion {

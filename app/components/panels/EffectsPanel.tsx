@@ -50,6 +50,17 @@ const EFFECT_OPTIONS: { value: EffectType; label: string; desc: string; icon: Re
       </svg>
     ),
   },
+  {
+    value: 'vivid-sharp',
+    label: 'Vivid Sharp',
+    desc: 'Vivid saturation with adjustable edge sharpening',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    ),
+  },
 ]
 
 export default function EffectsPanel({ onClose }: Props) {
@@ -121,11 +132,11 @@ export default function EffectsPanel({ onClose }: Props) {
           ))}
         </div>
 
-        {(activeEffect?.type === 'flashing-black-vignette' || activeEffect?.type === 'black-and-white') && (
+        {(activeEffect?.type === 'flashing-black-vignette' || activeEffect?.type === 'black-and-white' || activeEffect?.type === 'vivid-sharp') && (
           <div className={styles.durationControl} style={{ marginTop: '2rem' }}>
             <div className={styles.durationHeader}>
               <span className={styles.durationLabel}>
-                {activeEffect.type === 'black-and-white' ? 'Desaturation' : 'Vignette Intensity'}
+                {activeEffect.type === 'black-and-white' ? 'Desaturation' : activeEffect.type === 'vivid-sharp' ? 'Sharpness' : 'Vignette Intensity'}
               </span>
               <span className={styles.durationValue}>{((activeEffect.intensity ?? 0.5) * 100).toFixed(0)}%</span>
             </div>

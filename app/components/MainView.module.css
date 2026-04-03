@@ -1,50 +1,49 @@
 .container {
   display: flex;
+  flex-direction: column;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
 }
 
-.leftSection {
-  width: 75%;
-  height: 100%;
+.topRow {
   display: flex;
-  flex-direction: column;
-}
-
-.previewContainer {
   flex: 1;
-  width: 100%;
-  overflow: hidden;
   min-height: 0;
+  overflow: hidden;
+  width: 100%;
 }
 
-.timelineContainer {
-  height: 212px;
-  width: 100%;
+.accountSection {
+  width: 25%;
+  min-width: 0;
+  height: 100%;
   overflow: hidden;
   flex-shrink: 0;
 }
 
-.rightSection {
-  width: 25%;
+.previewContainer {
+  flex: 1;
+  min-width: 0;
   height: 100%;
   overflow: hidden;
 }
 
-.blurredContent {
-  filter: blur(8px);
-  pointer-events: none;
-  user-select: none;
-  transition: filter 0.3s ease;
-  width: 75%;
+.rightSection {
+  width: 25%;
+  min-width: 0;
   height: 100%;
-  display: flex;
-  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
 }
 
-.rightSection.blurredContent {
-  width: 25%;
+.timelineContainer {
+  flex-shrink: 0;
+  width: 100%;
+  min-height: 176px;
+  max-height: 34vh;
+  height: max(176px, min(34vh, 260px));
+  overflow: hidden;
 }
 
 .loadingOverlay {

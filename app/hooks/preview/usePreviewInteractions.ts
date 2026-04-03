@@ -5,6 +5,7 @@ import { getEffectiveCropForEdit, patchCropForItemOrKeyframe } from '@/app/lib/c
 import { ImageClass } from '@/app/models/ImageClass'
 import { VideoClass } from '@/app/models/VideoClass'
 import { TextClass } from '@/app/models/TextClass'
+import type { AspectRatio } from '@/app/stores/manifest/types'
 import {
   ASPECT_RATIOS,
   clampCropZoomToFrameAspect,
@@ -64,7 +65,7 @@ interface CropPanState {
 const SNAP_THRESHOLD = 10
 
 export function usePreviewInteractions(
-  aspectRatio: '16:9' | '9:16',
+  aspectRatio: AspectRatio,
   xScale: number,
   yScale: number,
   offsetX: number,
@@ -291,8 +292,7 @@ export function usePreviewInteractions(
       const deltaX = (e.clientX - dragState.startX) / xScale
       const deltaY = (e.clientY - dragState.startY) / yScale
 
-      const logicalW = aspectRatio === '16:9' ? 1920 : 1080
-      const logicalH = aspectRatio === '16:9' ? 1080 : 1920
+      const { logicalW, logicalH } = getLogicalCanvasDimensions(aspectRatio)
       const snapTargetsX = [0, logicalW / 2, logicalW]
       const snapTargetsY = [0, logicalH / 2, logicalH]
 
@@ -368,8 +368,7 @@ export function usePreviewInteractions(
       return
     }
 
-    const logicalW = aspectRatio === '16:9' ? 1920 : 1080
-    const logicalH = aspectRatio === '16:9' ? 1080 : 1920
+    const { logicalW, logicalH } = getLogicalCanvasDimensions(aspectRatio)
     const snapTargetsX = [0, logicalW / 2, logicalW]
     const snapTargetsY = [0, logicalH / 2, logicalH]
 

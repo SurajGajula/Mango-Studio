@@ -8,6 +8,7 @@ import { fetchFile, toBlobURL } from '@ffmpeg/util'
 import { wrapTextToLines } from '@/app/lib/textUtils'
 import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
 import { applyEffect } from '@/app/lib/applyEffect'
+import { setVideoCrossOriginForUrl } from '@/app/lib/mediaUtils'
 import { getSortedMainItems, findActiveAndNextItems, checkTransition, calculateAnimationProgress, calculateSourceTime, clipTimelineSpanForSourceMap } from '@/app/lib/renderUtils'
 import { resolveMediaKeyframeTransform } from '@/app/lib/resolveMediaKeyframeTransform'
 import { calculateTotalDuration } from '@/app/lib/timeUtils'
@@ -54,7 +55,7 @@ function resolveCanvasFont(fontFamily: string): string {
 
 export async function exportVideo(
   videos: VideoClass[],
-  aspectRatio: '16:9' | '9:16',
+  aspectRatio: '9:16',
   onProgress?: ProgressCallback,
   images?: ImageClass[],
   audioUrl?: string | null,
@@ -94,8 +95,8 @@ export async function exportVideo(
       await Promise.all([...fontSpecs].map((spec) => document.fonts.load(spec).catch(() => {})))
     }
 
-    const width = aspectRatio === '16:9' ? 1920 : 1080
-    const height = aspectRatio === '16:9' ? 1080 : 1920
+    const width = 1080
+    const height = 1920
     const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height
     const ctx = canvas.getContext('2d', { alpha: false })!
 
@@ -105,7 +106,9 @@ export async function exportVideo(
     if (allVideos.length > 0) {
       await Promise.all(allVideos.map((clip) =>
         new Promise<void>((resolve, reject) => {
-          const video = document.createElement('video'); video.preload = 'auto'; video.playsInline = true; video.muted = true; video.src = clip.url || ''
+          const video = document.createElement('video'); video.preload = 'auto'; video.playsInline = true; video.muted = true
+          if (clip.url) setVideoCrossOriginForUrl(video, clip.url)
+          video.src = clip.url || ''
           video.onloadeddata = () => { videoElements.set(clip.id, video); resolve() }
           video.onerror = () => reject(new Error(`Failed to load video: ${clip.title}`))
           video.load()
@@ -206,8 +209,8 @@ export async function exportVideo(
 
     onProgress?.({ phase: 'preparing', progress: 10, message: 'Setting up render...' })
 
-    const logicalW = aspectRatio === '16:9' ? 1920 : 1080
-    const logicalH = aspectRatio === '16:9' ? 1080 : 1920
+    const logicalW = 1080
+    const logicalH = 1920
     const xScale = width / logicalW
     const yScale = height / logicalH
 

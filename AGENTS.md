@@ -14,12 +14,11 @@ Mango Studio is a Next.js 16 (App Router, Turbopack) web-based video editor with
 
 ### Signing in
 
-When you are not signed in, the auth modal appears over the editor. Use **Sign in with Google** and complete the flow with a **personal Gmail account** (the same Google account you use for Gmail). Email/password sign-in is also available in the modal if you have an account set up that way.
+Use the **account panel** in the top row for **Sign in with Google** (personal Gmail) or email/password. AI chat stays disabled until you are signed in.
 
 ### Lint
 
 - `npm run lint` runs ESLint (`eslint . --ext .ts,.tsx`); `next lint` was removed in Next.js 16.
-- Pre-existing: 2 ESLint errors (unescaped apostrophes in `AuthModal.tsx`) and ~29 warnings.
 
 ### Tests
 
