@@ -19,7 +19,8 @@ export function useTimelineScroll({
   setPlaybackTime,
 }: UseTimelineScrollProps) {
   const isScrollingProgrammatically = useRef(false)
-  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const playbackFromUserScrollRef = useRef(false)
 
   const handleScroll = useCallback(() => {
     if (isScrollingProgrammatically.current || isPlaying) return
@@ -36,10 +37,15 @@ export function useTimelineScroll({
     const timeWithPadding = scrollPercent * totalWithPadding
     let newTime = Math.max(0, Math.min(totalDuration, timeWithPadding - effectivePadding))
 
+    playbackFromUserScrollRef.current = true
     setPlaybackTime(newTime)
   }, [isPlaying, totalDuration, effectivePadding, setPlaybackTime, scrollContainerRef])
 
   useEffect(() => {
+    if (playbackFromUserScrollRef.current) {
+      playbackFromUserScrollRef.current = false
+      return
+    }
     if (!scrollContainerRef.current) return
 
     isScrollingProgrammatically.current = true

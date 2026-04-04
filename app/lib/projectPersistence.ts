@@ -5,7 +5,7 @@ import { ImageClass } from '@/app/models/ImageClass'
 import { TextClass } from '@/app/models/TextClass'
 import { AudioClass } from '@/app/models/AudioClass'
 import { EffectClass, type EffectType } from '@/app/models/EffectClass'
-import type { HistoryEntry } from '@/app/stores/manifest/types'
+import type { AspectRatio, HistoryEntry } from '@/app/stores/manifest/types'
 
 const DB_NAME_GUEST = 'mango-guest-project'
 const DB_VERSION = 1
@@ -94,19 +94,26 @@ function idbDeleteDatabase(dbName: string): Promise<void> {
 
 async function replaceBlobUrlsInValue(
   value: unknown,
-  mapTokenToBlob: Map<string, Blob>
+  mapTokenToBlob: Map<string, Blob>,
+  tokenToObjectUrl: Map<string, string>
 ): Promise<unknown> {
   if (typeof value === 'string') {
     if (value.startsWith(BLOB_TOKEN_PREFIX)) {
+      const reused = tokenToObjectUrl.get(value)
+      if (reused) return reused
       const blob = mapTokenToBlob.get(value)
-      if (blob) return URL.createObjectURL(blob)
+      if (blob) {
+        const url = URL.createObjectURL(blob)
+        tokenToObjectUrl.set(value, url)
+        return url
+      }
     }
     return value
   }
   if (Array.isArray(value)) {
     const out: unknown[] = []
     for (const item of value) {
-      out.push(await replaceBlobUrlsInValue(item, mapTokenToBlob))
+      out.push(await replaceBlobUrlsInValue(item, mapTokenToBlob, tokenToObjectUrl))
     }
     return out
   }
@@ -114,20 +121,27 @@ async function replaceBlobUrlsInValue(
     const o = value as Record<string, unknown>
     const next: Record<string, unknown> = {}
     for (const k of Object.keys(o)) {
-      next[k] = await replaceBlobUrlsInValue(o[k], mapTokenToBlob)
+      next[k] = await replaceBlobUrlsInValue(o[k], mapTokenToBlob, tokenToObjectUrl)
     }
     return next
   }
   return value
 }
 
-async function tokenizeBlobUrls(value: unknown, blobWrites: Map<string, Blob>): Promise<unknown> {
+async function tokenizeBlobUrls(
+  value: unknown,
+  blobWrites: Map<string, Blob>,
+  blobUrlToToken: Map<string, string>
+): Promise<unknown> {
   if (typeof value === 'string' && value.startsWith('blob:')) {
+    const mapped = blobUrlToToken.get(value)
+    if (mapped) return mapped
     const token = `${BLOB_TOKEN_PREFIX}${blobWrites.size}`
     try {
       const res = await fetch(value)
       const blob = await res.blob()
       blobWrites.set(token, blob)
+      blobUrlToToken.set(value, token)
     } catch {
       return value
     }
@@ -136,7 +150,7 @@ async function tokenizeBlobUrls(value: unknown, blobWrites: Map<string, Blob>): 
   if (Array.isArray(value)) {
     const out: unknown[] = []
     for (const item of value) {
-      out.push(await tokenizeBlobUrls(item, blobWrites))
+      out.push(await tokenizeBlobUrls(item, blobWrites, blobUrlToToken))
     }
     return out
   }
@@ -144,14 +158,22 @@ async function tokenizeBlobUrls(value: unknown, blobWrites: Map<string, Blob>): 
     const o = value as Record<string, unknown>
     const next: Record<string, unknown> = {}
     for (const k of Object.keys(o)) {
-      next[k] = await tokenizeBlobUrls(o[k], blobWrites)
+      next[k] = await tokenizeBlobUrls(o[k], blobWrites, blobUrlToToken)
     }
     return next
   }
   return value
 }
 
+function snapshotRow(o: Record<string, unknown>): number {
+  const r = o.row
+  if (typeof r === 'number' && Number.isFinite(r)) return r
+  return 0
+}
+
 function reviveVideo(o: Record<string, unknown>): VideoClass {
+  const row = snapshotRow(o)
+  const isOverlay = row !== 0
   return new VideoClass(
     String(o.id),
     String(o.title),
@@ -164,7 +186,7 @@ function reviveVideo(o: Record<string, unknown>): VideoClass {
     o.trimStart as number | undefined,
     o.trimEnd as number | undefined,
     o.prompt as string | undefined,
-    o.isOverlay as boolean | undefined,
+    isOverlay,
     o.x as number | undefined,
     o.y as number | undefined,
     o.width as number | undefined,
@@ -178,7 +200,7 @@ function reviveVideo(o: Record<string, unknown>): VideoClass {
     o.transitionColor as string | undefined,
     o.transitionDirection as VideoClass['transitionDirection'],
     o.transitionAxis as VideoClass['transitionAxis'],
-    o.row as number | undefined,
+    row,
     o.muted as boolean | undefined,
     o.cropAspect as string | undefined,
     o.cropSx as number | undefined,
@@ -197,6 +219,8 @@ function reviveVideo(o: Record<string, unknown>): VideoClass {
 }
 
 function reviveImage(o: Record<string, unknown>): ImageClass {
+  const row = snapshotRow(o)
+  const isMainTrack = row === 0
   return new ImageClass(
     String(o.id),
     String(o.name),
@@ -209,7 +233,7 @@ function reviveImage(o: Record<string, unknown>): ImageClass {
     o.height as number | undefined,
     o.opacity as number | undefined,
     o.createdAt ? new Date(String(o.createdAt)) : undefined,
-    o.isMainTrack as boolean | undefined,
+    isMainTrack,
     o.animation as ImageClass['animation'],
     o.transition as ImageClass['transition'],
     o.cropAspect as string | undefined,
@@ -223,7 +247,7 @@ function reviveImage(o: Record<string, unknown>): ImageClass {
     o.transitionColor as string | undefined,
     o.transitionDirection as ImageClass['transitionDirection'],
     o.transitionAxis as ImageClass['transitionAxis'],
-    o.row as number | undefined,
+    row,
     o.keyframes as ImageClass['keyframes']
   )
 }
@@ -252,6 +276,8 @@ function reviveText(o: Record<string, unknown>): TextClass {
 }
 
 function reviveAudio(o: Record<string, unknown>): AudioClass {
+  const row = snapshotRow(o)
+  const isOverlay = row >= 1
   return new AudioClass(
     String(o.id),
     String(o.name),
@@ -264,8 +290,8 @@ function reviveAudio(o: Record<string, unknown>): AudioClass {
     o.trimEnd as number | undefined,
     o.originalDuration as number | undefined,
     o.playbackSpeed as number | undefined,
-    o.isOverlay as boolean | undefined,
-    o.row as number | undefined,
+    isOverlay,
+    row,
     o.volume as number | undefined,
     o.speedStart as number | undefined,
     o.speedEnd as number | undefined,
@@ -309,6 +335,7 @@ export function isManifestVisuallyEmpty(): boolean {
 async function saveProjectSnapshot(dbName: string, metaKey: string): Promise<void> {
   const s = useManifestStore.getState()
   const blobWrites = new Map<string, Blob>()
+  const blobUrlToToken = new Map<string, string>()
 
   const raw = {
     videos: s.videos.map((v) => JSON.parse(JSON.stringify(v))),
@@ -327,12 +354,12 @@ async function saveProjectSnapshot(dbName: string, metaKey: string): Promise<voi
 
   const payload: ProjectSnapshotPayload = {
     version: 1,
-    videos: (await tokenizeBlobUrls(raw.videos, blobWrites)) as unknown[],
-    images: (await tokenizeBlobUrls(raw.images, blobWrites)) as unknown[],
-    texts: (await tokenizeBlobUrls(raw.texts, blobWrites)) as unknown[],
-    audios: (await tokenizeBlobUrls(raw.audios, blobWrites)) as unknown[],
-    effects: (await tokenizeBlobUrls(raw.effects, blobWrites)) as unknown[],
-    history: (await tokenizeBlobUrls(raw.history, blobWrites)) as unknown[],
+    videos: (await tokenizeBlobUrls(raw.videos, blobWrites, blobUrlToToken)) as unknown[],
+    images: (await tokenizeBlobUrls(raw.images, blobWrites, blobUrlToToken)) as unknown[],
+    texts: (await tokenizeBlobUrls(raw.texts, blobWrites, blobUrlToToken)) as unknown[],
+    audios: (await tokenizeBlobUrls(raw.audios, blobWrites, blobUrlToToken)) as unknown[],
+    effects: (await tokenizeBlobUrls(raw.effects, blobWrites, blobUrlToToken)) as unknown[],
+    history: (await tokenizeBlobUrls(raw.history, blobWrites, blobUrlToToken)) as unknown[],
     historyIndex: s.historyIndex,
     playbackTime: s.playbackTime,
     isPlaying: false,
@@ -376,12 +403,13 @@ async function hydrateSnapshotIntoStore(snap: ProjectSnapshotPayload, dbName: st
     if (blob) mapTokenToBlob.set(token, blob)
   }
 
-  const videos = (await replaceBlobUrlsInValue(snap.videos, mapTokenToBlob)) as unknown[]
-  const images = (await replaceBlobUrlsInValue(snap.images, mapTokenToBlob)) as unknown[]
-  const texts = (await replaceBlobUrlsInValue(snap.texts, mapTokenToBlob)) as unknown[]
-  const audios = (await replaceBlobUrlsInValue(snap.audios, mapTokenToBlob)) as unknown[]
-  const effects = (await replaceBlobUrlsInValue(snap.effects, mapTokenToBlob)) as unknown[]
-  const historyRaw = (await replaceBlobUrlsInValue(snap.history, mapTokenToBlob)) as unknown[]
+  const tokenToObjectUrl = new Map<string, string>()
+  const videos = (await replaceBlobUrlsInValue(snap.videos, mapTokenToBlob, tokenToObjectUrl)) as unknown[]
+  const images = (await replaceBlobUrlsInValue(snap.images, mapTokenToBlob, tokenToObjectUrl)) as unknown[]
+  const texts = (await replaceBlobUrlsInValue(snap.texts, mapTokenToBlob, tokenToObjectUrl)) as unknown[]
+  const audios = (await replaceBlobUrlsInValue(snap.audios, mapTokenToBlob, tokenToObjectUrl)) as unknown[]
+  const effects = (await replaceBlobUrlsInValue(snap.effects, mapTokenToBlob, tokenToObjectUrl)) as unknown[]
+  const historyRaw = (await replaceBlobUrlsInValue(snap.history, mapTokenToBlob, tokenToObjectUrl)) as unknown[]
 
   const revivedVideos = videos.map((v) => reviveVideo(v as Record<string, unknown>))
   const revivedImages = images.map((i) => reviveImage(i as Record<string, unknown>))
@@ -415,7 +443,7 @@ async function hydrateSnapshotIntoStore(snap: ProjectSnapshotPayload, dbName: st
     playbackTime: snap.playbackTime,
     isPlaying: false,
     playbackRate: snap.playbackRate,
-    aspectRatio: '9:16',
+    aspectRatio: (snap.aspectRatio as AspectRatio) ?? '9:16',
     pendingPrompt: snap.pendingPrompt,
   })
 }

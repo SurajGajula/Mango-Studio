@@ -75,6 +75,11 @@ export interface ReplaceInstruction {
   fileIndex: number
 }
 
+export interface SolidColorReplaceInstruction {
+  targetId: string
+  color: string
+}
+
 export interface AddTextInstruction {
   content: string
   startTime: number
@@ -117,6 +122,7 @@ type RoutedAction =
   | 'edit_manifest'
   | 'split_at_marks'
   | 'replace_images'
+  | 'replace_with_solid'
   | 'add_text'
   | 'set_transitions'
   | 'set_crop'
@@ -129,6 +135,7 @@ interface RoutePromptResponse {
   mutations?: ManifestMutation[]
   splits?: SplitInstruction[]
   replacements?: ReplaceInstruction[]
+  solidReplacements?: SolidColorReplaceInstruction[]
   newTexts?: AddTextInstruction[]
   newEffects?: AddEffectInstruction[]
   transitions?: TransitionInstruction[]
@@ -257,6 +264,7 @@ export async function POST(request: NextRequest) {
               'duplicate_timeline_range',
               'split_at_marks',
               'replace_images',
+              'replace_with_solid',
               'add_text',
               'set_transitions',
               'set_crop',
@@ -328,6 +336,12 @@ export async function POST(request: NextRequest) {
         action: 'replace_images',
         replacements: (args?.replacements as ReplaceInstruction[]) || [],
         message: (args?.message as string) || 'Images replaced.',
+      }
+    } else if (action === 'replace_with_solid') {
+      result = {
+        action: 'replace_with_solid',
+        solidReplacements: (args?.replacements as SolidColorReplaceInstruction[]) || [],
+        message: (args?.message as string) || 'Replaced with solid color.',
       }
     } else if (action === 'set_transitions') {
       result = {

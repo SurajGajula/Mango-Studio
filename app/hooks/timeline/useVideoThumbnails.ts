@@ -1,48 +1,51 @@
 import { useState, useEffect, useRef } from 'react'
 import { generateVideoThumbnails } from '@/app/lib/mediaUtils'
 import { VideoClass } from '@/app/models/VideoClass'
+import { videoThumbnailCacheKey, videoThumbnailSecondIndices } from '@/app/lib/videoThumbnailKey'
 
 export function useVideoThumbnails(videos: VideoClass[]) {
   const [videoThumbnails, setVideoThumbnails] = useState<Map<string, Map<number, string>>>(new Map())
-  const processingUrlsRef = useRef<Set<string>>(new Set())
+  const processingKeysRef = useRef<Set<string>>(new Set())
+  const videoThumbnailsRef = useRef(videoThumbnails)
+  videoThumbnailsRef.current = videoThumbnails
 
   useEffect(() => {
-    const neededByUrl = new Map<string, Set<number>>()
+    const neededByKey = new Map<string, Set<number>>()
     videos.forEach((v) => {
-      if (!v.url) return
-      if (!neededByUrl.has(v.url)) neededByUrl.set(v.url, new Set())
-      const set = neededByUrl.get(v.url)!
-      const start = Math.floor(v.trimStart)
-      const duration = v.duration ?? 0
-      const end = Math.ceil(v.trimStart + duration)
-      for (let s = start; s <= end; s++) {
+      const key = videoThumbnailCacheKey(v)
+      if (!key) return
+      const seconds = videoThumbnailSecondIndices(v)
+      if (seconds.length === 0) return
+      if (!neededByKey.has(key)) neededByKey.set(key, new Set())
+      const set = neededByKey.get(key)!
+      for (const s of seconds) {
         set.add(s)
       }
     })
 
-    neededByUrl.forEach(async (neededSeconds, url) => {
-      const existing = videoThumbnails.get(url)
+    neededByKey.forEach(async (neededSeconds, cacheKey) => {
+      const existing = videoThumbnailsRef.current.get(cacheKey)
       const missing = Array.from(neededSeconds).filter((s) => !existing || !existing.has(s))
-      
+
       if (missing.length === 0) return
-      if (processingUrlsRef.current.has(url)) return
-      processingUrlsRef.current.add(url)
+      if (processingKeysRef.current.has(cacheKey)) return
+      processingKeysRef.current.add(cacheKey)
 
       try {
-        await generateVideoThumbnails(url, missing, (time, data) => {
+        await generateVideoThumbnails(cacheKey, missing, (time, data) => {
           setVideoThumbnails((prev) => {
             const next = new Map(prev)
-            const urlMap = new Map(next.get(url) || [])
+            const urlMap = new Map(next.get(cacheKey) || [])
             urlMap.set(time, data)
-            next.set(url, urlMap)
+            next.set(cacheKey, urlMap)
             return next
           })
         })
       } finally {
-        processingUrlsRef.current.delete(url)
+        processingKeysRef.current.delete(cacheKey)
       }
     })
-  }, [videos, videoThumbnails])
+  }, [videos])
 
   return { videoThumbnails, setVideoThumbnails }
 }

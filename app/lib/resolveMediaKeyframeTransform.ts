@@ -43,10 +43,12 @@ export function resolveMediaKeyframeTransform(
   }
 
   const kfs = [...(item.keyframes ?? [])].sort((a, b) => a.t - b.t)
-  if (kfs.length < 2) return base
+  if (kfs.length === 0) return base
 
   const maxT = Math.max(0, clipDuration)
   const u = Math.max(0, Math.min(maxT, localTime))
+
+  if (kfs.length === 1) return keyframeToCrop(kfs[0])
 
   if (u <= kfs[0].t) return keyframeToCrop(kfs[0])
   const last = kfs[kfs.length - 1]

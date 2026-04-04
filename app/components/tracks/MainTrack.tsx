@@ -6,6 +6,7 @@ import { useSelectionStore } from '@/app/stores/selectionStore'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { keyframeTimelineEntries } from '@/app/lib/mediaKeyframeTimeline'
+import { videoThumbnailCacheKey, videoThumbnailSecondIndices } from '@/app/lib/videoThumbnailKey'
 import styles from './Timeline.module.css'
 
 interface MainTrackProps {
@@ -21,6 +22,7 @@ interface MainTrackProps {
   replaceInputRef: React.RefObject<HTMLInputElement>
   videoThumbnails: Map<string, Map<number, string>>
   scrollContainerRef: React.RefObject<HTMLDivElement>
+  timelineInnerWidthPx: number
   handleImageDragStart: (imageId: string, handle: 'move' | 'start' | 'end', e: React.MouseEvent) => void
   onOpenTransitions?: (id: string) => void
   onCloseTransitions?: () => void
@@ -39,6 +41,7 @@ const MainTrackComponent = ({
   replaceInputRef,
   videoThumbnails,
   scrollContainerRef,
+  timelineInnerWidthPx,
   handleImageDragStart,
   onOpenTransitions,
   onCloseTransitions,
@@ -172,16 +175,14 @@ const MainTrackComponent = ({
                   <div className={styles.videoBox}>
                     <div className={styles.thumbnailStrip}>
                       {(() => {
-                        if (!v.url) return null
-                        const allThumbs = videoThumbnails.get(v.url)
+                        const tKey = videoThumbnailCacheKey(v)
+                        if (!tKey) return null
+                        const allThumbs = videoThumbnails.get(tKey)
                         if (!allThumbs || allThumbs.size === 0) return null
-                        
-                        const startIdx = Math.floor(v.trimStart)
-                        const duration = v.duration ?? 0
-                        const endIdx = Math.ceil(v.trimStart + duration)
-                        
+
+                        const seconds = videoThumbnailSecondIndices(v)
                         const thumbs: string[] = []
-                        for (let s = startIdx; s < endIdx; s++) {
+                        for (const s of seconds) {
                           const data = allThumbs.get(s)
                           if (data) thumbs.push(data)
                         }
@@ -189,9 +190,11 @@ const MainTrackComponent = ({
                         if (thumbs.length === 0) return null
                         
                         const thumbWidth = 85
-                        // Use a fixed width or a safer calculation to avoid layout thrashing during scroll
-                        const containerWidth = scrollContainerRef.current?.clientWidth || 1000
-                        const itemWidthPx = (widthPercent / 100) * (scrollContainerRef.current?.scrollWidth || containerWidth * (totalDuration / 8)) // Fallback calculation
+                        const innerPx =
+                          timelineInnerWidthPx > 0
+                            ? timelineInnerWidthPx
+                            : (scrollContainerRef.current?.clientWidth ?? 800) * Math.max(1, totalDuration / 8)
+                        const itemWidthPx = (widthPercent / 100) * innerPx
                         const totalThumbsWidth = thumbs.length * thumbWidth
                         const repeatCount = Math.max(1, Math.ceil(itemWidthPx / totalThumbsWidth))
                         const repeatedThumbs: string[] = []

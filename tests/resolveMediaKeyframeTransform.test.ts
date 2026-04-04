@@ -23,7 +23,7 @@ describe('resolveMediaKeyframeTransform', () => {
     expect(r.zoomIntensity).toBe(0.7)
   })
 
-  it('returns base crop when there is only one keyframe', () => {
+  it('uses the sole keyframe crop for the whole clip', () => {
     const kf: MediaKeyframe = {
       id: 'k1',
       t: 1,
@@ -34,8 +34,9 @@ describe('resolveMediaKeyframeTransform', () => {
       zoomIntensity: 1,
     }
     const r = resolveMediaKeyframeTransform(clip({ cropSx: 0 }, [kf]), 5, 10)
-    expect(r.cropSx).toBe(0)
-    expect(r.zoomIntensity).toBe(0.5)
+    expect(r.cropSx).toBe(0.5)
+    expect(r.cropSw).toBe(0.5)
+    expect(r.zoomIntensity).toBe(1)
   })
 
   it('uses first keyframe values before first keyframe time', () => {

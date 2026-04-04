@@ -1,7 +1,8 @@
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { AudioClass } from '@/app/models/AudioClass'
-import { ManifestStore, HistoryEntry, BlobEntry } from './types'
+import { ManifestStore, HistoryEntry } from './types'
+import { forgetFileObjectUrlIfRevoked } from '@/app/lib/fileObjectUrlCache'
 
 let historyPaused = false
 
@@ -39,6 +40,7 @@ function pruneUrls(
   
   for (const url of candidates) {
     if (!kept.has(url) && url.startsWith('blob:')) {
+      forgetFileObjectUrlIfRevoked(url)
       URL.revokeObjectURL(url)
     }
   }

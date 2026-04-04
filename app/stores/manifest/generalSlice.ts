@@ -143,10 +143,22 @@ export const createGeneralSlice = (set: any, get: any) => ({
   insertRow: (atIndex: number) => {
     if (atIndex <= 0) return
     set((s: ManifestStore) => ({
-      videos: s.videos.map(v => v.row >= atIndex ? v.copy({ row: v.row + 1 }) : v),
-      images: s.images.map(img => img.row >= atIndex ? img.copy({ row: img.row + 1 }) : img),
+      videos: s.videos.map((v) => {
+        if (v.row < atIndex) return v
+        const row = v.row + 1
+        return v.copy({ row, isOverlay: row !== 0 })
+      }),
+      images: s.images.map((img) => {
+        if (img.row < atIndex) return img
+        const row = img.row + 1
+        return img.copy({ row, isMainTrack: row === 0 })
+      }),
       texts: s.texts.map(t => t.row >= atIndex ? t.copy({ row: t.row + 1 }) : t),
-      audios: s.audios.map(a => a.row >= atIndex ? a.copy({ row: a.row + 1 }) : a),
+      audios: s.audios.map((a) => {
+        if (a.row < atIndex) return a
+        const row = a.row + 1
+        return a.copy({ row, isOverlay: row >= 1 })
+      }),
       effects: s.effects.map(e => e.row >= atIndex ? e.copy({ row: e.row + 1 }) : e),
     }))
     get().pushHistory()
@@ -156,10 +168,22 @@ export const createGeneralSlice = (set: any, get: any) => ({
     if (atIndex <= 0) return
     set((s: ManifestStore) => {
       return {
-        videos: s.videos.map(v => v.row === atIndex ? v.copy({ row: v.row - 1 }) : (v.row > atIndex ? v.copy({ row: v.row - 1 }) : v)),
-        images: s.images.map(img => img.row === atIndex ? img.copy({ row: img.row - 1 }) : (img.row > atIndex ? img.copy({ row: img.row - 1 }) : img)),
+        videos: s.videos.map((v) => {
+          if (v.row < atIndex) return v
+          const row = v.row - 1
+          return v.copy({ row, isOverlay: row !== 0 })
+        }),
+        images: s.images.map((img) => {
+          if (img.row < atIndex) return img
+          const row = img.row - 1
+          return img.copy({ row, isMainTrack: row === 0 })
+        }),
         texts: s.texts.map(t => t.row === atIndex ? t.copy({ row: t.row - 1 }) : (t.row > atIndex ? t.copy({ row: t.row - 1 }) : t)),
-        audios: s.audios.map(a => a.row === atIndex ? a.copy({ row: a.row - 1 }) : (a.row > atIndex ? a.copy({ row: a.row - 1 }) : a)),
+        audios: s.audios.map((a) => {
+          if (a.row < atIndex) return a
+          const row = a.row - 1
+          return a.copy({ row, isOverlay: row >= 1 })
+        }),
         effects: s.effects.map(e => e.row === atIndex ? e.copy({ row: e.row - 1 }) : (e.row > atIndex ? e.copy({ row: e.row - 1 }) : e)),
       }
     })

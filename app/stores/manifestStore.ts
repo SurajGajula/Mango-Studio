@@ -8,6 +8,7 @@ import { createAudioSlice } from './manifest/audioSlice'
 import { createEffectSlice } from './manifest/effectSlice'
 import { createHistorySlice } from './manifest/historySlice'
 import { createGeneralSlice } from './manifest/generalSlice'
+import { clearFileObjectUrlCache } from '@/app/lib/fileObjectUrlCache'
 
 export const useManifestStore = create<ManifestStore>((set, get) => ({
   videos: [],
@@ -21,7 +22,8 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
   ...createAudioSlice(set, get),
   ...createEffectSlice(set, get),
   ...createHistorySlice(set, get),
-  resetStore: () =>
+  resetStore: () => {
+    clearFileObjectUrlCache()
     set({
       videos: [],
       images: [],
@@ -35,5 +37,6 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
       pendingPrompt: null,
       history: [{ videos: [], images: [], texts: [], audios: [], effects: [] }],
       historyIndex: 0,
-    }),
+    })
+  },
 }))

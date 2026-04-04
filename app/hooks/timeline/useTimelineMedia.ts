@@ -3,7 +3,9 @@ import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { AudioClass } from '@/app/models/AudioClass'
 import { ASPECT_RATIOS, computeMediaCropForAspect, resolveVideoMetadata } from '@/app/lib/mediaUtils'
+import { addImageAtCurrentPlayhead } from '@/app/lib/addImageAtPlayhead'
 import { findFreeAudioOverlayRow, findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
+import { getOrCreateObjectURLForFile } from '@/app/lib/fileObjectUrlCache'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { AspectRatio } from '@/app/stores/manifest/types'
@@ -14,7 +16,6 @@ interface UseTimelineMediaProps {
   playbackTime: number
   aspectRatio: AspectRatio
   addVideo: (video: VideoClass) => void
-  addImage: (image: ImageClass) => void
   addAudioToManifest: (audio: AudioClass) => void
   setAudio: (audio: AudioClass) => void
   updateAudio: (id: string, updates: Partial<AudioClass>) => void
@@ -27,7 +28,6 @@ export function useTimelineMedia({
   playbackTime,
   aspectRatio,
   addVideo,
-  addImage,
   addAudioToManifest,
   setAudio,
   updateAudio,
@@ -58,7 +58,7 @@ export function useTimelineMedia({
 
     for (const file of Array.from(files)) {
       if (file.type.startsWith('video/')) {
-        const blobUrl = URL.createObjectURL(file)
+        const blobUrl = getOrCreateObjectURLForFile(file)
         const { duration } = await resolveVideoMetadata(blobUrl)
         const id = `video-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
         const title = file.name.replace(/\.[^.]+$/, '').substring(0, 50)
@@ -114,55 +114,10 @@ export function useTimelineMedia({
           1
         ))
       } else if (file.type.startsWith('image/')) {
-        const url = URL.createObjectURL(file)
-        const start = playbackTime
-        const end = start + 5
-        
-        const currentVideos = useManifestStore.getState().videos
-        const currentImages = useManifestStore.getState().images
-        
-        const mediaItems = [
-          ...currentImages.map((img) => ({ startTime: img.startTime, endTime: img.endTime, row: img.row })),
-          ...currentVideos.map((v) => ({ startTime: v.timestamp, endTime: v.timestamp + (v.duration ?? 0), row: v.row })),
-        ]
-        let row = findFreeRow(mediaItems, start, end)
-        if (row > 0) {
-          row = findFreeVisualOverlayRow(start, end)
-        }
-        const isMainTrack = row === 0
-        const [rw, rh] = ASPECT_RATIOS[aspectRatio]
-        const crop = await computeMediaCropForAspect(url, 'image', aspectRatio, rw, rh, aspectRatio)
-        const x = crop.x
-        const y = crop.y
-        const width = crop.width
-        const height = crop.height
-        const cropAspect = crop.cropAspect
-        const cropSx = crop.cropSx
-        const cropSy = crop.cropSy
-        const cropSw = crop.cropSw
-        const cropSh = crop.cropSh
-        addImage(new ImageClass(
-          `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          file.name,
-          url,
-          start,
-          end,
-          x, y, width, height,
-          1,
-          new Date(),
-          isMainTrack,
-          'none',
-          'none',
-          cropAspect,
-          cropSx, cropSy, cropSw, cropSh,
-          0.5,
-          1.0, // transitionDuration
-          1.0, // animationDuration
-          undefined, undefined, undefined,
-          row
-        ))
+        const url = getOrCreateObjectURLForFile(file)
+        await addImageAtCurrentPlayhead(url, file.name)
       } else if (file.type.startsWith('audio/')) {
-        const blobUrl = URL.createObjectURL(file)
+        const blobUrl = getOrCreateObjectURLForFile(file)
         const audioId = `audio-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
         try {
           const arrayBuffer = await file.arrayBuffer()
@@ -224,7 +179,19 @@ export function useTimelineMedia({
     }
 
     e.target.value = ''
-  }, [playbackTime, aspectRatio, addVideo, addImage, addAudioToManifest, setAudio, updateAudio, setSelectedAudioId, setSelectedVideoId, setSelectedImageId, setSelectedTextId, findFreeRow])
+  }, [
+    playbackTime,
+    aspectRatio,
+    addVideo,
+    addAudioToManifest,
+    setAudio,
+    updateAudio,
+    setSelectedAudioId,
+    setSelectedVideoId,
+    setSelectedImageId,
+    setSelectedTextId,
+    findFreeRow,
+  ])
 
-  return { handleFileSelect, findFreeRow }
+  return { handleFileSelect }
 }

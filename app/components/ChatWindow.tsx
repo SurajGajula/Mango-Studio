@@ -6,6 +6,7 @@ import type {
   ManifestMutation,
   SplitInstruction,
   ReplaceInstruction,
+  SolidColorReplaceInstruction,
   AddTextInstruction,
   AddEffectInstruction,
   TransitionInstruction,
@@ -15,8 +16,9 @@ import type {
 import { TextClass } from '@/app/models/TextClass'
 import { EffectClass } from '@/app/models/EffectClass'
 import { ImageClass, AnimationMode, TransitionMode } from '@/app/models/ImageClass'
-import { computeCropForAspect, computeCanvasCropPlacement, ASPECT_RATIOS, computeVideoCropForAspect, computeMediaCropForAspect } from '@/app/lib/mediaUtils'
+import { computeCropForAspect, computeCanvasCropPlacement, ASPECT_RATIOS, computeVideoCropForAspect, computeMediaCropForAspect, withoutCanvasPlacement } from '@/app/lib/mediaUtils'
 import { findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
+import { createSolidColorDataUrl } from '@/app/lib/solidColorImage'
 import styles from './ChatWindow.module.css'
 
 interface Message {
@@ -208,8 +210,107 @@ export default function ChatWindow() {
     }
   }
 
-  const applyReplacements = async (replacements: ReplaceInstruction[], files: UploadedFile[]) => {
+  const applyReplacementWithUrl = async (targetId: string, url: string, name: string) => {
     const { images, videos, aspectRatio } = useManifestStore.getState()
+    const originalImage = images.find((i) => i.id === targetId)
+    const originalVideo = videos.find((v) => v.id === targetId)
+
+    if (originalImage) {
+      if (originalImage.cropAspect) {
+        const ratio = ASPECT_RATIOS[originalImage.cropAspect]
+        if (ratio) {
+          const tempImage = new ImageClass('tmp', '', url, 0, 1)
+          const patch = await computeCropForAspect(tempImage, aspectRatio, ratio[0], ratio[1], originalImage.cropAspect)
+          updateImage(targetId, {
+            ...withoutCanvasPlacement(patch),
+            url,
+            name,
+            x: originalImage.x,
+            y: originalImage.y,
+            width: originalImage.width,
+            height: originalImage.height,
+          })
+        } else {
+          const patch = await computeCanvasCropPlacement(url, 'image', aspectRatio)
+          updateImage(targetId, {
+            ...withoutCanvasPlacement(patch),
+            url,
+            name,
+            x: originalImage.x,
+            y: originalImage.y,
+            width: originalImage.width,
+            height: originalImage.height,
+          })
+        }
+      } else {
+        const patch = await computeCanvasCropPlacement(url, 'image', aspectRatio)
+        updateImage(targetId, {
+          ...withoutCanvasPlacement(patch),
+          url,
+          name,
+          x: originalImage.x,
+          y: originalImage.y,
+          width: originalImage.width,
+          height: originalImage.height,
+        })
+      }
+    } else if (originalVideo) {
+      const imageId = `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      const startTime = originalVideo.timestamp
+      const endTime = startTime + (originalVideo.duration ?? 0)
+
+      let patch: {
+        x?: number
+        y?: number
+        width?: number
+        height?: number
+        cropAspect?: string
+        cropSx?: number
+        cropSy?: number
+        cropSw?: number
+        cropSh?: number
+      }
+      if (originalVideo.cropAspect && ASPECT_RATIOS[originalVideo.cropAspect]) {
+        const ratio = ASPECT_RATIOS[originalVideo.cropAspect]
+        patch = await computeMediaCropForAspect(url, 'image', aspectRatio, ratio[0], ratio[1], originalVideo.cropAspect)
+      } else {
+        patch = await computeCanvasCropPlacement(url, 'image', aspectRatio)
+      }
+
+      const image = new ImageClass(
+        imageId,
+        name,
+        url,
+        startTime,
+        endTime,
+        originalVideo.x,
+        originalVideo.y,
+        originalVideo.width,
+        originalVideo.height,
+        1,
+        new Date(),
+        originalVideo.row === 0,
+        originalVideo.animation as AnimationMode,
+        originalVideo.transition as TransitionMode,
+        originalVideo.cropAspect || patch.cropAspect,
+        patch.cropSx,
+        patch.cropSy,
+        patch.cropSw,
+        patch.cropSh,
+        originalVideo.zoomIntensity,
+        originalVideo.transitionDuration,
+        originalVideo.animationDuration,
+        undefined,
+        undefined,
+        undefined,
+        originalVideo.row
+      )
+
+      replaceVideoWithImage(originalVideo.id, image)
+    }
+  }
+
+  const applyReplacements = async (replacements: ReplaceInstruction[], files: UploadedFile[]) => {
     for (const r of replacements) {
       const file = files[r.fileIndex]
       if (!file) continue
@@ -218,67 +319,14 @@ export default function ChatWindow() {
         { type: file.mimeType }
       )
       const url = URL.createObjectURL(blob)
-      
-      const originalImage = images.find((i) => i.id === r.targetId)
-      const originalVideo = videos.find((v) => v.id === r.targetId)
+      await applyReplacementWithUrl(r.targetId, url, file.name)
+    }
+  }
 
-      if (originalImage) {
-        if (originalImage.cropAspect) {
-          const ratio = ASPECT_RATIOS[originalImage.cropAspect]
-          if (ratio) {
-            const tempImage = new ImageClass('tmp', '', url, 0, 1)
-            const patch = await computeCropForAspect(tempImage, aspectRatio, ratio[0], ratio[1], originalImage.cropAspect)
-            updateImage(r.targetId, { ...patch, url, name: file.name })
-          } else {
-            const patch = await computeCanvasCropPlacement(url, 'image', aspectRatio)
-            updateImage(r.targetId, { ...patch, url, name: file.name })
-          }
-        } else {
-          const patch = await computeCanvasCropPlacement(url, 'image', aspectRatio)
-          updateImage(r.targetId, { ...patch, url, name: file.name })
-        }
-      } else if (originalVideo) {
-        const imageId = `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-        const startTime = originalVideo.timestamp
-        const endTime = startTime + (originalVideo.duration ?? 0)
-        
-        let patch: any
-        if (originalVideo.cropAspect && ASPECT_RATIOS[originalVideo.cropAspect]) {
-          const ratio = ASPECT_RATIOS[originalVideo.cropAspect]
-          patch = await computeMediaCropForAspect(url, 'image', aspectRatio, ratio[0], ratio[1], originalVideo.cropAspect)
-        } else {
-          patch = await computeCanvasCropPlacement(url, 'image', aspectRatio)
-        }
-
-        const image = new ImageClass(
-          imageId,
-          file.name,
-          url,
-          startTime,
-          endTime,
-          patch.x,
-          patch.y,
-          patch.width,
-          patch.height,
-          1,
-          new Date(),
-          originalVideo.row === 0,
-          originalVideo.animation as AnimationMode,
-          originalVideo.transition as TransitionMode,
-          originalVideo.cropAspect || patch.cropAspect,
-          patch.cropSx,
-          patch.cropSy,
-          patch.cropSw,
-          patch.cropSh,
-          originalVideo.zoomIntensity,
-          originalVideo.transitionDuration,
-          originalVideo.animationDuration,
-          undefined, undefined, undefined,
-          originalVideo.row
-        )
-        
-        replaceVideoWithImage(originalVideo.id, image)
-      }
+  const applySolidReplacements = async (replacements: SolidColorReplaceInstruction[]) => {
+    for (const r of replacements) {
+      const url = createSolidColorDataUrl(r.color)
+      await applyReplacementWithUrl(r.targetId, url, `Solid (${r.color})`)
     }
   }
 
@@ -352,6 +400,8 @@ export default function ChatWindow() {
         } else if (data.action === 'replace_images') {
           await applyReplacements(data.replacements || [], filesSnapshot)
           setUploadedFiles([])
+        } else if (data.action === 'replace_with_solid') {
+          await applySolidReplacements(data.solidReplacements || [])
         } else if (data.action === 'set_transitions') {
           applyTransitions(data.transitions || [])
         } else if (data.action === 'set_crop') {

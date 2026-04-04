@@ -24,6 +24,13 @@ export interface RenderResources {
   persistenceCanvases: Map<string, { current: HTMLCanvasElement; accumulation: HTMLCanvasElement }>
 }
 
+const PAUSED_SCRUB_SEEK_THRESHOLD = 0.16
+
+function videoElementHasDrawableFrame(el: HTMLVideoElement): boolean {
+  if (el.videoWidth <= 0 || el.videoHeight <= 0) return false
+  return el.readyState >= 1
+}
+
 export class VideoRenderingEngine {
   private lastRenderedTime: number = -1
   private lastStateKey: string = ''
@@ -66,15 +73,17 @@ export class VideoRenderingEngine {
         ? imageBitmaps.get(activeClip.id) 
         : null
 
-    // Readiness check
     const isActiveReady = activeClip?.type === 'video'
-      ? (activeEl instanceof HTMLVideoElement && activeEl.readyState >= 2)
+      ? (activeEl instanceof HTMLVideoElement && videoElementHasDrawableFrame(activeEl))
       : !!activeEl
 
     let isNextReady = true
     if (transitionActive && nextClip) {
       const nextEl = nextClip.type === 'video' ? videoElements.get(nextClip.id) : imageBitmaps.get(nextClip.id)
-      isNextReady = nextClip.type === 'video' ? (nextEl instanceof HTMLVideoElement && nextEl.readyState >= 2) : !!nextEl
+      isNextReady =
+        nextClip.type === 'video'
+          ? (nextEl instanceof HTMLVideoElement && videoElementHasDrawableFrame(nextEl))
+          : !!nextEl
     }
 
     const stateKey = activeClip ? `${activeClip.id}-${cr.width}-${cr.height}-${state.videos.length}-${state.images.length}-${effects.length}` : `none-${effects.length}`
@@ -105,6 +114,14 @@ export class VideoRenderingEngine {
           if (this.currentVideoId !== activeClip.id) {
             videoElements.forEach((el, id) => {
               if (id !== activeClip.id && (!nextClip || id !== nextClip.id) && !el.paused) {
+                const maybeOv = state.videos.find((v) => v.id === id)
+                if (
+                  maybeOv?.isOverlay &&
+                  newTime >= maybeOv.timestamp &&
+                  newTime < maybeOv.timestamp + (maybeOv.duration ?? 0)
+                ) {
+                  return
+                }
                 onVideoPlayState(id, false, 1)
               }
             })
@@ -120,12 +137,12 @@ export class VideoRenderingEngine {
 
           if (isPlaying) {
             const drift = Math.abs(vEl.currentTime - target)
-            
-            if (drift > 0.05) {
+            const playSeekThreshold = 0.22
+            if (drift > playSeekThreshold) {
               vEl.currentTime = target
               onVideoTimeUpdate(activeClip.id, target)
             }
-            
+
             const x = elapsed / Math.max(0.1, clipTimelineSpanForSourceMap(v.duration))
             let f = x
             if (v.speedEasing === 'ease') {
@@ -133,17 +150,16 @@ export class VideoRenderingEngine {
             }
             const instantaneousSpeed = (v.speedStart ?? v.playbackSpeed ?? 1) + 
               f * ((v.speedEnd ?? v.playbackSpeed ?? 1) - (v.speedStart ?? v.playbackSpeed ?? 1))
-            
+
             const targetRate = rate * instantaneousSpeed
-            // Only update play state/rate if there's a significant change
             if (vEl.paused || Math.abs(vEl.playbackRate - targetRate) > 0.01) {
-            onVideoPlayState(activeClip.id, true, targetRate)
-          }
-        } else {
-          if (!vEl.paused) {
-            onVideoPlayState(activeClip.id, false, 1)
-          }
-          if (Math.abs(vEl.currentTime - target) > 0.05) {
+              onVideoPlayState(activeClip.id, true, targetRate)
+            }
+          } else {
+            if (!vEl.paused) {
+              onVideoPlayState(activeClip.id, false, 1)
+            }
+            if (Math.abs(vEl.currentTime - target) > PAUSED_SCRUB_SEEK_THRESHOLD) {
               vEl.currentTime = target
               onVideoTimeUpdate(activeClip.id, target)
             }
@@ -202,7 +218,7 @@ export class VideoRenderingEngine {
                 }
               }
             } else {
-              if (Math.abs(nvEl.currentTime - targetB) > 0.05) {
+              if (Math.abs(nvEl.currentTime - targetB) > PAUSED_SCRUB_SEEK_THRESHOLD) {
                 nvEl.currentTime = targetB
                 onVideoTimeUpdate(nextClip.id, targetB)
               }
@@ -219,20 +235,41 @@ export class VideoRenderingEngine {
         const ovEl = videoElements.get(ov.id)
         if (!ovEl) continue
         const elapsedOv = Math.max(0, newTime - ov.timestamp)
+        const ovTimelineDur = clipTimelineSpanForSourceMap(ov.duration)
         const sourceElapsedOv = calculateSourceTime(
           elapsedOv,
-          clipTimelineSpanForSourceMap(ov.duration),
+          ovTimelineDur,
           ov.speedStart ?? ov.playbackSpeed ?? 1,
           ov.speedEnd ?? ov.playbackSpeed ?? 1,
           ov.playbackSpeed ?? 1,
           ov.speedEasing
         )
         const targetOv = (ov.trimStart ?? 0) + sourceElapsedOv
-        if (Math.abs(ovEl.currentTime - targetOv) > 0.03) {
-          ovEl.currentTime = targetOv
-          onVideoTimeUpdate(ov.id, targetOv)
+        if (isPlaying) {
+          const driftOv = Math.abs(ovEl.currentTime - targetOv)
+          if (driftOv > 0.22) {
+            ovEl.currentTime = targetOv
+            onVideoTimeUpdate(ov.id, targetOv)
+          }
+          const xOv = elapsedOv / Math.max(0.1, ovTimelineDur)
+          let fOv = xOv
+          if (ov.speedEasing === 'ease') {
+            fOv = 3 * Math.pow(xOv, 2) - 2 * Math.pow(xOv, 3)
+          }
+          const instSpeedOv =
+            (ov.speedStart ?? ov.playbackSpeed ?? 1) +
+            fOv * ((ov.speedEnd ?? ov.playbackSpeed ?? 1) - (ov.speedStart ?? ov.playbackSpeed ?? 1))
+          const targetRateOv = rate * instSpeedOv
+          if (ovEl.paused || Math.abs(ovEl.playbackRate - targetRateOv) > 0.01) {
+            onVideoPlayState(ov.id, true, targetRateOv)
+          }
+        } else {
+          if (Math.abs(ovEl.currentTime - targetOv) > PAUSED_SCRUB_SEEK_THRESHOLD) {
+            ovEl.currentTime = targetOv
+            onVideoTimeUpdate(ov.id, targetOv)
+          }
+          if (!ovEl.paused) onVideoPlayState(ov.id, false, 1)
         }
-        if (!ovEl.paused) onVideoPlayState(ov.id, false, 1)
       }
 
       // Cleanup: pause any video that is not the active or next one
@@ -256,13 +293,15 @@ export class VideoRenderingEngine {
       if (!activeVideoId) this.currentVideoId = null
 
       // 3. Render to Buffer
-      if (shouldSwap) {
+      if (shouldSwap || timeChanged) {
         let backgroundDrawn = false
         
-        // We clear and draw background if readyState is sufficient
-        const canDrawBackground = !isVideo || isReady || (isPlaying && activeEl instanceof HTMLVideoElement && activeEl.readyState >= 2)
+        const canDrawBackground =
+          !isVideo ||
+          isReady ||
+          (isPlaying && activeEl instanceof HTMLVideoElement && videoElementHasDrawableFrame(activeEl))
         
-        if (canDrawBackground) {
+        if (canDrawBackground || timeChanged) {
           bufferCtx.fillStyle = '#0f0f0f'
           bufferCtx.fillRect(0, 0, bufferCanvas.width, bufferCanvas.height)
           bufferCtx.fillStyle = '#000000'
@@ -276,10 +315,7 @@ export class VideoRenderingEngine {
         const xScale = cr.width / logicalW
         const yScale = cr.height / logicalH
 
-        // We only use the dedicated transition path if we haven't reached the next clip's start time yet.
-        // Once transProgress hit 1.0, we want to use the standard drawVideo path for consistency.
         if (transitionActive && nextClip && backgroundDrawn && transProgress < 1.0) {
-          transActive = true
           const elapsedB = Math.max(0, newTime - nextClip.startTime)
           const elapsedA = activeClip ? Math.max(0, newTime - activeClip.startTime) : 0
           let nextEl: HTMLVideoElement | ImageBitmap | null = null
@@ -287,7 +323,7 @@ export class VideoRenderingEngine {
           if (nextClip.type === 'video') {
             const nv = nextClip.item as VideoClass
             nextEl = videoElements.get(nextClip.id) || null
-            if (nextEl instanceof HTMLVideoElement && nextEl.readyState >= 2) {
+            if (nextEl instanceof HTMLVideoElement && videoElementHasDrawableFrame(nextEl)) {
               const kn = resolveMediaKeyframeTransform(nv, elapsedB, nv.duration ?? 0)
               nextParams = {
                 x: cr.x + (nv.x ?? 0) * xScale,
@@ -324,7 +360,7 @@ export class VideoRenderingEngine {
             if (activeClip.type === 'video') {
               const av = activeClip.item as VideoClass
               curEl = videoElements.get(activeClip.id) || null
-              if (curEl instanceof HTMLVideoElement && curEl.readyState >= 2) {
+              if (curEl instanceof HTMLVideoElement && videoElementHasDrawableFrame(curEl)) {
                 const ka = resolveMediaKeyframeTransform(av, elapsedA, av.duration ?? 0)
                 curParams = {
                   x: cr.x + (av.x ?? 0) * xScale,
@@ -390,6 +426,7 @@ export class VideoRenderingEngine {
               nextItem.transitionDirection,
               nextItem.transitionAxis
             )
+              transActive = true
             }
           }
         }
@@ -398,10 +435,10 @@ export class VideoRenderingEngine {
           if (activeClip) {
             if (activeClip.type === 'video') {
               const vEl = videoElements.get(activeClip.id)
-              if (vEl && vEl.readyState >= 2) {
+              if (vEl && videoElementHasDrawableFrame(vEl)) {
                 this.drawVideo(bufferCtx, cr, vEl, activeClip.item as VideoClass, newTime, isPlaying, persistenceCanvases, aspectRatio, canvas)
               } else {
-                backgroundDrawn = false
+                this.drawMainImages(bufferCtx, cr, newTime, state.images, imageBitmaps, aspectRatio)
               }
             } else {
               this.drawMainImages(bufferCtx, cr, newTime, state.images, imageBitmaps, aspectRatio)
@@ -449,7 +486,7 @@ export class VideoRenderingEngine {
     aspectRatio: string,
     mainCanvas: HTMLCanvasElement
   ) {
-    if (videoEl.readyState < 2 || videoEl.videoWidth === 0 || videoEl.videoHeight === 0) return
+    if (!videoElementHasDrawableFrame(videoEl)) return
 
     const logicalW = 1080
     const logicalH = 1920
@@ -622,8 +659,8 @@ export class VideoRenderingEngine {
     for (let i = 0; i < videos.length; i++) {
       const video = videos[i]
       if (!video.isOverlay) continue
-      const elapsed = Math.max(0, currentTime - video.timestamp)
-      if (elapsed < 0 || elapsed >= (video.duration ?? 0)) continue
+      const dur = video.duration ?? 0
+      if (dur <= 0 || currentTime < video.timestamp || currentTime >= video.timestamp + dur) continue
       entries.push({ kind: 'video', row: video.row, t0: video.timestamp, video })
     }
     entries.sort((a, b) => a.row - b.row || a.t0 - b.t0)
@@ -640,9 +677,9 @@ export class VideoRenderingEngine {
         ctx.restore()
       } else {
         const video = e.video
-        const elapsed = Math.max(0, currentTime - video.timestamp)
+        const elapsed = currentTime - video.timestamp
         const vEl = videoElements.get(video.id)
-        if (!vEl || vEl.readyState < 2) continue
+        if (!vEl || !videoElementHasDrawableFrame(vEl)) continue
         const progress = calculateAnimationProgress(video, currentTime, video.timestamp)
         const kOvVid = resolveMediaKeyframeTransform(video, elapsed, video.duration ?? 0)
         ctx.save(); ctx.globalAlpha = video.opacity

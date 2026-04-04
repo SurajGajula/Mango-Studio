@@ -73,6 +73,7 @@ export function usePreviewInteractions(
   images: ImageClass[],
   videos: VideoClass[],
   texts: TextClass[],
+  playbackTime: number,
   updateImage: (id: string, updates: Partial<ImageClass>) => void,
   updateVideo: (id: string, updates: Partial<VideoClass>) => void,
   updateText: (id: string, updates: Partial<TextClass>) => void,
@@ -97,6 +98,33 @@ export function usePreviewInteractions(
   const selectedKeyframeId = useSelectionStore((state) => state.selectedKeyframeId)
   const yScaleRef = useRef(yScale)
   yScaleRef.current = yScale
+
+  const naturalSizeCacheRef = useRef<Map<string, { nw: number; nh: number }>>(new Map())
+  const wheelResizeGenRef = useRef(0)
+
+  useEffect(() => {
+    if (cropEditId || !selectedImageId) return
+    const img = images.find((i) => i.id === selectedImageId)
+    const url = img?.url
+    if (!url || naturalSizeCacheRef.current.has(url)) return
+    void loadNaturalMediaSize(url, 'image')
+      .then(({ nw, nh }) => {
+        naturalSizeCacheRef.current.set(url, { nw, nh })
+      })
+      .catch(() => {})
+  }, [selectedImageId, images, cropEditId])
+
+  useEffect(() => {
+    if (cropEditId || !selectedVideoId) return
+    const vid = videos.find((v) => v.id === selectedVideoId)
+    const url = vid?.url
+    if (!url || naturalSizeCacheRef.current.has(url)) return
+    void loadNaturalMediaSize(url, 'video')
+      .then(({ nw, nh }) => {
+        naturalSizeCacheRef.current.set(url, { nw, nh })
+      })
+      .catch(() => {})
+  }, [selectedVideoId, videos, cropEditId])
 
   const cropTargetUrl = useMemo(() => {
     if (!cropEditId) return null
@@ -123,7 +151,8 @@ export function usePreviewInteractions(
         const cur = s.images.find((i) => i.id === cropEditId) || s.videos.find((v) => v.id === cropEditId)
         if (!cur) return
         const kfId = useSelectionStore.getState().selectedKeyframeId
-        const eff = getEffectiveCropForEdit(cur as ImageClass, kfId)
+        const pt = useManifestStore.getState().playbackTime
+        const eff = getEffectiveCropForEdit(cur as ImageClass, kfId, pt)
         const { fw, fh } = frameDimensionsForCropClamp(cur, aspectRatio)
         const n = normalizeCropToFrameAspect(
           fw,
@@ -143,7 +172,7 @@ export function usePreviewInteractions(
           Math.abs(n.cropSx - eff.cropSx) > 1e-4 ||
           Math.abs(n.cropSy - eff.cropSy) > 1e-4
         if (!changed) return
-        const patch = patchCropForItemOrKeyframe(cur as ImageClass, kfId, n)
+        const patch = patchCropForItemOrKeyframe(cur as ImageClass, kfId, n, pt)
         if (s.images.some((i) => i.id === cropEditId)) s.updateImage(cropEditId, patch as Partial<ImageClass>)
         else s.updateVideo(cropEditId, patch as Partial<VideoClass>)
       }
@@ -165,7 +194,8 @@ export function usePreviewInteractions(
         const cur = s.images.find((i) => i.id === cropEditId) || s.videos.find((v) => v.id === cropEditId)
         if (!cur) return
         const kfId = useSelectionStore.getState().selectedKeyframeId
-        const eff = getEffectiveCropForEdit(cur as ImageClass, kfId)
+        const pt = useManifestStore.getState().playbackTime
+        const eff = getEffectiveCropForEdit(cur as ImageClass, kfId, pt)
         const { fw, fh } = frameDimensionsForCropClamp(cur, aspectRatio)
         const n = normalizeCropToFrameAspect(
           fw,
@@ -185,7 +215,7 @@ export function usePreviewInteractions(
           Math.abs(n.cropSx - eff.cropSx) > 1e-4 ||
           Math.abs(n.cropSy - eff.cropSy) > 1e-4
         if (!changed) return
-        const patch = patchCropForItemOrKeyframe(cur as ImageClass, kfId, n)
+        const patch = patchCropForItemOrKeyframe(cur as ImageClass, kfId, n, pt)
         if (s.images.some((i) => i.id === cropEditId)) s.updateImage(cropEditId, patch as Partial<ImageClass>)
         else s.updateVideo(cropEditId, patch as Partial<VideoClass>)
       }
@@ -194,7 +224,7 @@ export function usePreviewInteractions(
     return () => {
       cancelled = true
     }
-  }, [cropEditId, cropTargetUrl, aspectRatio, selectedKeyframeId])
+  }, [cropEditId, cropTargetUrl, aspectRatio, selectedKeyframeId, playbackTime])
 
   const enterCropEdit = useCallback(async (id: string, type: 'image' | 'video') => {
     let targetItem = type === 'image' ? images.find(i => i.id === id) : videos.find(v => v.id === id)
@@ -499,14 +529,15 @@ export function usePreviewInteractions(
       const item = state.images.find(i => i.id === cropEditId) || state.videos.find(v => v.id === cropEditId)
       if (!item) return
       const kfId = useSelectionStore.getState().selectedKeyframeId
-      const eff = getEffectiveCropForEdit(item as ImageClass, kfId)
+      const pt = useManifestStore.getState().playbackTime
+      const eff = getEffectiveCropForEdit(item as ImageClass, kfId, pt)
 
       const updates = {
         cropSx: Math.max(0, Math.min(Math.max(0, 1 - eff.cropSw), eff.cropSx + dx)),
         cropSy: Math.max(0, Math.min(Math.max(0, 1 - eff.cropSh), eff.cropSy + dy))
       }
 
-      const patch = patchCropForItemOrKeyframe(item as ImageClass, kfId, updates)
+      const patch = patchCropForItemOrKeyframe(item as ImageClass, kfId, updates, pt)
       if (state.images.some(i => i.id === cropEditId)) {
         state.updateImage(cropEditId, patch as Partial<ImageClass>)
       } else {
@@ -534,7 +565,7 @@ export function usePreviewInteractions(
         isKeyboardPanningRef.current = false
       }
     }
-  }, [cropEditId, pushHistory, selectedKeyframeId])
+  }, [cropEditId, pushHistory, selectedKeyframeId, playbackTime])
 
   useEffect(() => {
     if (!cropPanState || !cropEditId) return
@@ -570,7 +601,8 @@ export function usePreviewInteractions(
       const item = state.images.find(i => i.id === imgId) || state.videos.find(v => v.id === imgId)
       if (!item) return
       const kfId = useSelectionStore.getState().selectedKeyframeId
-      const patch = patchCropForItemOrKeyframe(item as ImageClass, kfId, updates)
+      const pt = useManifestStore.getState().playbackTime
+      const patch = patchCropForItemOrKeyframe(item as ImageClass, kfId, updates, pt)
       const isImage = state.images.some(i => i.id === imgId)
       if (isImage) {
         state.updateImage(imgId, patch as Partial<ImageClass>)
@@ -596,7 +628,7 @@ export function usePreviewInteractions(
       // Make sure we resume history if the effect is cleaned up mid-drag
       useManifestStore.getState().resumeHistory()
     }
-  }, [cropPanState, cropEditId, updateImage, updateVideo, pushHistory, selectedKeyframeId])
+  }, [cropPanState, cropEditId, updateImage, updateVideo, pushHistory, selectedKeyframeId, playbackTime])
 
   useEffect(() => {
     if (!cropEditId) return
@@ -611,7 +643,8 @@ export function usePreviewInteractions(
       if (!item) return
       if (!cropNaturalSize) return
       const kfId = useSelectionStore.getState().selectedKeyframeId
-      const eff = getEffectiveCropForEdit(item as ImageClass, kfId)
+      const pt = useManifestStore.getState().playbackTime
+      const eff = getEffectiveCropForEdit(item as ImageClass, kfId, pt)
       const factor = Math.exp(e.deltaY * 0.002)
       const { fw, fh } = frameDimensionsForCropClamp(item, aspectRatio)
       const { cropSw: newCropSw, cropSh: newCropSh } = clampCropZoomToFrameAspect(
@@ -632,7 +665,7 @@ export function usePreviewInteractions(
         cropSx: Math.max(0, Math.min(1 - newCropSw, centerSx - newCropSw / 2)),
         cropSy: Math.max(0, Math.min(1 - newCropSh, centerSy - newCropSh / 2)),
       }
-      const patch = patchCropForItemOrKeyframe(item as ImageClass, kfId, updates)
+      const patch = patchCropForItemOrKeyframe(item as ImageClass, kfId, updates, pt)
       const isImage = images.some(i => i.id === cropEditId)
       if (isImage) {
         updateImage(item.id, patch as Partial<ImageClass>)
@@ -642,7 +675,7 @@ export function usePreviewInteractions(
     }
     document.addEventListener('wheel', handleWheel, { passive: false })
     return () => document.removeEventListener('wheel', handleWheel)
-  }, [cropEditId, images, videos, updateImage, updateVideo, canvasRef, cropNaturalSize, aspectRatio, selectedKeyframeId])
+  }, [cropEditId, images, videos, updateImage, updateVideo, canvasRef, cropNaturalSize, aspectRatio, selectedKeyframeId, playbackTime])
 
   useEffect(() => {
     if (!selectedTextId || cropEditId) return
@@ -685,6 +718,8 @@ export function usePreviewInteractions(
       
       e.preventDefault()
       const factor = Math.exp(-e.deltaY * 0.002)
+      wheelResizeGenRef.current += 1
+      const resizeGen = wheelResizeGenRef.current
 
       if (selectedImageId) {
         const img = images.find((i) => i.id === selectedImageId)
@@ -707,24 +742,36 @@ export function usePreviewInteractions(
         const nextX = c.x
         const nextY = c.y
         const imageId = selectedImageId
-        void loadNaturalMediaSize(img.url, 'image')
-          .then(({ nw, nh }) => {
-            const cur = useManifestStore.getState().images.find((i) => i.id === imageId)
-            if (!cur) return
-            const n = normalizeCropToFrameAspect(
-              newW,
-              newH,
-              nw,
-              nh,
-              cur.cropSx,
-              cur.cropSy,
-              cur.cropSw,
-              cur.cropSh,
-              0.05
-            )
-            const base = { width: newW, height: newH, x: nextX, y: nextY }
-            updateImage(imageId, n ? { ...base, ...n } : base)
-          })
+        const url = img.url
+        const applyImageResize = (nw: number, nh: number) => {
+          if (resizeGen !== wheelResizeGenRef.current) return
+          const cur = useManifestStore.getState().images.find((i) => i.id === imageId)
+          if (!cur || cur.url !== url) return
+          const n = normalizeCropToFrameAspect(
+            newW,
+            newH,
+            nw,
+            nh,
+            cur.cropSx,
+            cur.cropSy,
+            cur.cropSw,
+            cur.cropSh,
+            0.05
+          )
+          const base = { width: newW, height: newH, x: nextX, y: nextY }
+          updateImage(imageId, n ? { ...base, ...n } : base)
+        }
+        const cachedImg = naturalSizeCacheRef.current.get(url)
+        if (cachedImg) {
+          applyImageResize(cachedImg.nw, cachedImg.nh)
+        } else {
+          void loadNaturalMediaSize(url, 'image')
+            .then(({ nw, nh }) => {
+              naturalSizeCacheRef.current.set(url, { nw, nh })
+              applyImageResize(nw, nh)
+            })
+            .catch(() => {})
+        }
       } else if (selectedVideoId) {
         const vid = videos.find((v) => v.id === selectedVideoId)
         if (!vid?.url) return
@@ -746,24 +793,36 @@ export function usePreviewInteractions(
         const nextX = c.x
         const nextY = c.y
         const videoId = selectedVideoId
-        void loadNaturalMediaSize(vid.url, 'video')
-          .then(({ nw, nh }) => {
-            const cur = useManifestStore.getState().videos.find((v) => v.id === videoId)
-            if (!cur) return
-            const n = normalizeCropToFrameAspect(
-              newW,
-              newH,
-              nw,
-              nh,
-              cur.cropSx ?? 0,
-              cur.cropSy ?? 0,
-              cur.cropSw ?? 1,
-              cur.cropSh ?? 1,
-              0.05
-            )
-            const base = { width: newW, height: newH, x: nextX, y: nextY }
-            updateVideo(videoId, n ? { ...base, ...n } : base)
-          })
+        const url = vid.url
+        const applyVideoResize = (nw: number, nh: number) => {
+          if (resizeGen !== wheelResizeGenRef.current) return
+          const cur = useManifestStore.getState().videos.find((v) => v.id === videoId)
+          if (!cur || cur.url !== url) return
+          const n = normalizeCropToFrameAspect(
+            newW,
+            newH,
+            nw,
+            nh,
+            cur.cropSx ?? 0,
+            cur.cropSy ?? 0,
+            cur.cropSw ?? 1,
+            cur.cropSh ?? 1,
+            0.05
+          )
+          const base = { width: newW, height: newH, x: nextX, y: nextY }
+          updateVideo(videoId, n ? { ...base, ...n } : base)
+        }
+        const cachedVid = naturalSizeCacheRef.current.get(url)
+        if (cachedVid) {
+          applyVideoResize(cachedVid.nw, cachedVid.nh)
+        } else {
+          void loadNaturalMediaSize(url, 'video')
+            .then(({ nw, nh }) => {
+              naturalSizeCacheRef.current.set(url, { nw, nh })
+              applyVideoResize(nw, nh)
+            })
+            .catch(() => {})
+        }
       }
     }
     document.addEventListener('wheel', handleWheel, { passive: false })

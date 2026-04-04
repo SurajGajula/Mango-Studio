@@ -1,17 +1,117 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, type MutableRefObject } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { getSortedMainItems, findActiveAndNextItems, checkTransition, calculateSourceTime } from '@/app/lib/renderUtils'
 import { VideoRenderingEngine, RenderState, RenderResources } from '@/app/lib/videoRenderingEngine'
 import { setVideoCrossOriginForUrl } from '@/app/lib/mediaUtils'
+import type { VideoClass } from '@/app/models/VideoClass'
+
+function resolvedMediaHref(src: string): string {
+  try {
+    return new URL(src, window.location.href).href
+  } catch {
+    return src
+  }
+}
+
+function videoElementSrcMatches(el: HTMLVideoElement, src: string): boolean {
+  const current = el.currentSrc || el.src || ''
+  return resolvedMediaHref(current) === resolvedMediaHref(src)
+}
 
 function audioDecodeLeadSeconds(ctx: AudioContext): number {
   let lead = typeof ctx.baseLatency === 'number' ? ctx.baseLatency : 0
   const ol = (ctx as AudioContext & { outputLatency?: number }).outputLatency
   if (typeof ol === 'number' && Number.isFinite(ol)) lead += ol
   return Math.min(0.12, Math.max(0, lead))
+}
+
+type PersistenceCanvasMap = Map<string, { current: HTMLCanvasElement; accumulation: HTMLCanvasElement }>
+
+function syncManifestVideoPool(
+  playbackTime: number,
+  videosList: VideoClass[],
+  videoElementsRef: MutableRefObject<Map<string, HTMLVideoElement>>,
+  persistenceCanvasesRef: MutableRefObject<PersistenceCanvasMap>
+) {
+  const sortedVideos = [...videosList].sort((a, b) => a.timestamp - b.timestamp)
+  const currentIds = new Set(sortedVideos.map((v) => v.id))
+
+  const removedElements = new Map<string, HTMLVideoElement>()
+  videoElementsRef.current.forEach((el, id) => {
+    if (!currentIds.has(id)) {
+      removedElements.set(el.src, el)
+      videoElementsRef.current.delete(id)
+      persistenceCanvasesRef.current.delete(id)
+    }
+  })
+
+  sortedVideos.forEach((clip) => {
+    let video = videoElementsRef.current.get(clip.id)
+    const clipSrc = clip.url || clip.sourceUrl
+    const span = clip.duration ?? 0
+    const clipEnd = clip.timestamp + span
+    const inTimelineRange = playbackTime >= clip.timestamp && playbackTime < clipEnd
+    const prefetchBeforeStart =
+      playbackTime < clip.timestamp && clip.timestamp - playbackTime <= 10
+    const isNearPlayhead = inTimelineRange || prefetchBeforeStart
+
+    if (!video && clipSrc && isNearPlayhead) {
+      const fullUrl = clipSrc.startsWith('http') ? clipSrc : window.location.origin + clipSrc
+      video =
+        removedElements.get(resolvedMediaHref(fullUrl)) ||
+        removedElements.get(resolvedMediaHref(clipSrc)) ||
+        removedElements.get(fullUrl) ||
+        removedElements.get(clipSrc)
+
+      if (video) {
+        removedElements.delete(video.src)
+        setVideoCrossOriginForUrl(video, clipSrc)
+      } else {
+        video = document.createElement('video')
+        video.preload = 'auto'
+        video.playsInline = true
+        setVideoCrossOriginForUrl(video, clipSrc)
+        video.src = clipSrc
+        video.onloadedmetadata = () => {
+          const currentClip = useManifestStore.getState().videos.find((v) => v.id === clip.id)
+          if (!currentClip) return
+          const hasTrim = currentClip.trimStart > 0 || currentClip.trimEnd > 0
+          if (!hasTrim && video!.duration && (!currentClip.duration || Math.abs(currentClip.duration - video!.duration) > 0.1)) {
+            useManifestStore.getState().updateVideo(clip.id, { duration: video!.duration })
+          }
+        }
+      }
+      videoElementsRef.current.set(clip.id, video)
+    } else if (video && clipSrc && !videoElementSrcMatches(video, clipSrc) && isNearPlayhead) {
+      video.pause()
+      setVideoCrossOriginForUrl(video, clipSrc)
+      video.src = clipSrc
+      video.load()
+    } else if (video && !isNearPlayhead) {
+      const srcActive = (video.currentSrc || video.src || '').length > 0
+      if (srcActive) {
+        video.pause()
+        video.src = ''
+        video.load()
+      }
+      videoElementsRef.current.delete(clip.id)
+      persistenceCanvasesRef.current.delete(clip.id)
+      video = undefined
+    }
+
+    if (video && video.muted !== clip.muted) {
+      video.muted = clip.muted
+    }
+  })
+
+  removedElements.forEach((el) => {
+    el.pause()
+    el.src = ''
+    el.load()
+  })
 }
 
 export function useVideoPlayback(
@@ -57,71 +157,8 @@ export function useVideoPlayback(
   const getSelectionState = useSelectionStore.getState
 
   useEffect(() => {
-    const sortedVideos = [...videos].sort((a, b) => a.timestamp - b.timestamp)
-    const currentIds = new Set(sortedVideos.map((v) => v.id))
-
-    const removedElements = new Map<string, HTMLVideoElement>()
-    videoElementsRef.current.forEach((el, id) => {
-      if (!currentIds.has(id)) {
-        removedElements.set(el.src, el)
-        videoElementsRef.current.delete(id)
-        persistenceCanvasesRef.current.delete(id)
-      }
-    })
-
-    sortedVideos.forEach((clip) => {
-      let video = videoElementsRef.current.get(clip.id)
-      const isNearPlayhead = Math.abs(clip.timestamp - playbackTime) < 10 || 
-                             (playbackTime >= clip.timestamp && playbackTime < clip.timestamp + (clip.duration ?? 0))
-
-      if (!video && clip.url && isNearPlayhead) {
-        const fullUrl = clip.url.startsWith('http') ? clip.url : window.location.origin + clip.url
-        video = removedElements.get(fullUrl) || removedElements.get(clip.url)
-        
-        if (video) {
-          removedElements.delete(video.src)
-          setVideoCrossOriginForUrl(video, clip.url)
-        } else {
-          video = document.createElement('video')
-          video.preload = 'auto'
-          video.playsInline = true
-          setVideoCrossOriginForUrl(video, clip.url)
-          video.src = clip.url
-          video.onloadedmetadata = () => {
-            const currentClip = useManifestStore.getState().videos.find((v) => v.id === clip.id)
-            if (!currentClip) return
-            const hasTrim = currentClip.trimStart > 0 || currentClip.trimEnd > 0
-            if (!hasTrim && video!.duration && (!currentClip.duration || Math.abs(currentClip.duration - video!.duration) > 0.1)) {
-              useManifestStore.getState().updateVideo(clip.id, { duration: video!.duration })
-            }
-          }
-        }
-        videoElementsRef.current.set(clip.id, video)
-      } else if (video && clip.url && video.src !== clip.url && isNearPlayhead) {
-        video.pause()
-        setVideoCrossOriginForUrl(video, clip.url)
-        video.src = clip.url
-        video.load()
-      } else if (video && !isNearPlayhead) {
-        video.pause()
-        video.src = ''
-        video.load()
-        videoElementsRef.current.delete(clip.id)
-        persistenceCanvasesRef.current.delete(clip.id)
-        video = undefined
-      }
-
-      if (video && video.muted !== clip.muted) {
-        video.muted = clip.muted
-      }
-    })
-
-    removedElements.forEach((el) => {
-      el.pause()
-      el.src = ''
-      el.load()
-    })
-  }, [videos, Math.floor(playbackTime / 5)])
+    syncManifestVideoPool(getState().playbackTime, videos, videoElementsRef, persistenceCanvasesRef)
+  }, [videos, getState])
 
   useEffect(() => {
     const currentIds = new Set(images.map((o) => o.id))
@@ -309,12 +346,30 @@ export function useVideoPlayback(
   const applyCanvasSizeRef = useRef(applyCanvasSize)
   applyCanvasSizeRef.current = applyCanvasSize
 
+  const previewLayoutRef = useRef({ cw: 0, ch: 0, cr: { x: 0, y: 0, width: 0, height: 0 } })
+
+  useEffect(() => {
+    const container = containerRef.current
+    const canvas = canvasRef.current
+    if (!container || !canvas) return
+    const measure = () => {
+      const rect = container.getBoundingClientRect()
+      if (rect.width <= 0 || rect.height <= 0) return
+      const cw = Math.round(rect.width)
+      const ch = Math.round(rect.height)
+      const cr = applyCanvasSizeRef.current(canvas, cw, ch)
+      previewLayoutRef.current = { cw, ch, cr }
+    }
+    measure()
+    const ro = new ResizeObserver(() => {
+      measure()
+    })
+    ro.observe(container)
+    return () => ro.disconnect()
+  }, [])
+
   useEffect(() => {
     let lastTimestamp: number | null = null
-    let lastRectUpdate = 0
-    let currentCW = 0
-    let currentCH = 0
-    let currentCR = { x: 0, y: 0, width: 0, height: 0 }
 
     const loop = (timestamp: number) => {
       const state = getState()
@@ -348,6 +403,8 @@ export function useVideoPlayback(
       const sorted = getSortedMainItems(state.videos, state.images)
       const { activeItem: activeClip, nextItem: nextClip } = findActiveAndNextItems(sorted, newTime)
       const { transitionActive, progress: transProgress } = checkTransition(activeClip, nextClip, newTime)
+
+      syncManifestVideoPool(newTime, state.videos, videoElementsRef, persistenceCanvasesRef)
 
       const canvas = canvasRef.current; const container = containerRef.current
       
@@ -433,19 +490,18 @@ export function useVideoPlayback(
       })
       
       if (canvas && container) {
-        // Optimization: Only update layout dimensions every 500ms or on first run
-        // This avoids expensive getBoundingClientRect calls every frame
-        if (timestamp - lastRectUpdate > 500 || currentCW === 0) {
+        let { cw, ch, cr } = previewLayoutRef.current
+        if (cw === 0) {
           const rect = container.getBoundingClientRect()
           if (rect.width > 0 && rect.height > 0) {
-            currentCW = Math.round(rect.width)
-            currentCH = Math.round(rect.height)
-            currentCR = applyCanvasSizeRef.current(canvas, currentCW, currentCH)
-            lastRectUpdate = timestamp
+            cw = Math.round(rect.width)
+            ch = Math.round(rect.height)
+            cr = applyCanvasSizeRef.current(canvas, cw, ch)
+            previewLayoutRef.current = { cw, ch, cr }
           }
         }
 
-        if (currentCW > 0) {
+        if (cw > 0) {
           if (!bufferCanvasRef.current) bufferCanvasRef.current = document.createElement('canvas')
           const bufferCanvas = bufferCanvasRef.current
           if (bufferCanvas.width !== canvas.width || bufferCanvas.height !== canvas.height) {
@@ -473,7 +529,7 @@ export function useVideoPlayback(
 
           engineRef.current?.render(
             canvas,
-            currentCR,
+            cr,
             renderState,
             resources,
             sorted,
@@ -481,10 +537,7 @@ export function useVideoPlayback(
             nextClip,
             transitionActive,
             transProgress,
-            (id, time) => {
-              const el = videoElementsRef.current.get(id)
-              if (el) el.currentTime = time
-            },
+            (_id: string, _time: number) => {},
              (id, playing, pRate) => {
                const el = videoElementsRef.current.get(id)
                if (!el) return

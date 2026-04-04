@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
+import { useRef, useEffect, useState, useCallback, useMemo, useLayoutEffect } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useAudioStore } from '@/app/stores/audioStore'
@@ -52,7 +52,6 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
 
   const addVideo = useManifestStore((state) => state.addVideo)
   const updateVideo = useManifestStore((state) => state.updateVideo)
-  const addImage = useManifestStore((state) => state.addImage)
   const updateImage = useManifestStore((state) => state.updateImage)
   const addText = useManifestStore((state) => state.addText)
   const updateText = useManifestStore((state) => state.updateText)
@@ -83,6 +82,18 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
   const effectivePadding = visibleDuration / 2
   const visibleDurationRef = useRef(8)
   const totalTimelineWidth = totalDuration > 0 ? ((totalDuration + effectivePadding * 2) / visibleDuration) * 100 : 100
+
+  const [timelineScrollPortWidth, setTimelineScrollPortWidth] = useState(0)
+  useLayoutEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    const measure = () => setTimelineScrollPortWidth(el.clientWidth)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  const timelineInnerWidthPx = timelineScrollPortWidth * (totalTimelineWidth / 100)
 
   const { handleScroll, isScrollingProgrammatically } = useTimelineScroll({
     scrollContainerRef,
@@ -164,7 +175,6 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     playbackTime,
     aspectRatio,
     addVideo,
-    addImage,
     addAudioToManifest,
     setAudio,
     updateAudio,
@@ -334,9 +344,6 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
           isProcessing={isReplacingClip}
           onConfirm={handleConfirmReplaceVideo}
           onCancel={() => {
-            if (replaceVideoData.isNew) {
-              URL.revokeObjectURL(replaceVideoData.url)
-            }
             setReplaceVideoData(null)
             setReplaceTargetId(null)
           }}
@@ -432,6 +439,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
                     replaceInputRef={replaceInputRef}
                     videoThumbnails={videoThumbnails}
                     scrollContainerRef={scrollContainerRef}
+                    timelineInnerWidthPx={timelineInnerWidthPx}
                     handleImageDragStart={handleImageDragStart}
                     onOpenTransitions={onOpenTransitions}
                     onCloseTransitions={onCloseTransitions}

@@ -1,10 +1,11 @@
 import { useState, useCallback } from 'react'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
-import { resolveVideoMetadata, computeCropForAspect, computeCanvasCropPlacement, ASPECT_RATIOS, computeVideoCropForAspect } from '@/app/lib/mediaUtils'
+import { resolveVideoMetadata, computeCropForAspect, computeCanvasCropPlacement, ASPECT_RATIOS, computeVideoCropForAspect, withoutCanvasPlacement } from '@/app/lib/mediaUtils'
 import { extractVideoClip } from '@/app/lib/videoExporter'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { generateId } from '@/app/lib/idUtils'
+import { getOrCreateObjectURLForFile } from '@/app/lib/fileObjectUrlCache'
 
 interface UseTimelineReplaceProps {
   videos: VideoClass[]
@@ -37,7 +38,6 @@ export function useTimelineReplace({
     speedEasing?: 'linear' | 'ease'
     initialTrimStart: number
     projectStartTime?: number
-    isNew?: boolean
   } | null>(null)
   const [isReplacingClip, setIsReplacingClip] = useState(false)
 
@@ -50,7 +50,7 @@ export function useTimelineReplace({
     
     if (image) {
       if (file.type.startsWith('image/')) {
-        const newUrl = URL.createObjectURL(file)
+        const newUrl = getOrCreateObjectURLForFile(file)
         const newName = file.name
         
         const { aspectRatio, updateImage } = useManifestStore.getState()
@@ -59,18 +59,42 @@ export function useTimelineReplace({
           if (ratio) {
             const tempImage = new ImageClass('tmp', '', newUrl, 0, 1)
             const patch = await computeCropForAspect(tempImage, aspectRatio, ratio[0], ratio[1], image.cropAspect)
-            updateImage(image.id, { ...patch, url: newUrl, name: newName })
+            updateImage(image.id, {
+              ...withoutCanvasPlacement(patch),
+              url: newUrl,
+              name: newName,
+              x: image.x,
+              y: image.y,
+              width: image.width,
+              height: image.height,
+            })
           } else {
             const patch = await computeCanvasCropPlacement(newUrl, 'image', aspectRatio)
-            updateImage(image.id, { ...patch, url: newUrl, name: newName })
+            updateImage(image.id, {
+              ...withoutCanvasPlacement(patch),
+              url: newUrl,
+              name: newName,
+              x: image.x,
+              y: image.y,
+              width: image.width,
+              height: image.height,
+            })
           }
         } else {
           const patch = await computeCanvasCropPlacement(newUrl, 'image', aspectRatio)
-          updateImage(image.id, { ...patch, url: newUrl, name: newName })
+          updateImage(image.id, {
+            ...withoutCanvasPlacement(patch),
+            url: newUrl,
+            name: newName,
+            x: image.x,
+            y: image.y,
+            width: image.width,
+            height: image.height,
+          })
         }
         setReplaceTargetId(null)
       } else if (file.type.startsWith('video/')) {
-        const url = URL.createObjectURL(file)
+        const url = getOrCreateObjectURLForFile(file)
         const { duration, width, height } = await resolveVideoMetadata(url)
         const windowDuration = image.duration
         let playbackSpeed = 1
@@ -110,7 +134,7 @@ export function useTimelineReplace({
             0, 0,
             undefined,
             !image.isMainTrack,
-            patch.x ?? image.x, patch.y ?? image.y, patch.width ?? image.width, patch.height ?? image.height,
+            image.x, image.y, image.width, image.height,
             image.opacity,
             image.animation,
             image.transition,
@@ -149,13 +173,12 @@ export function useTimelineReplace({
             speedEnd,
             initialTrimStart: 0,
             projectStartTime: image.startTime,
-            isNew: true,
           })
         }
       }
     } else if (video) {
       if (file.type.startsWith('image/')) {
-        const url = URL.createObjectURL(file)
+        const url = getOrCreateObjectURLForFile(file)
         const { aspectRatio } = useManifestStore.getState()
         let patch: Partial<ImageClass> = {}
         if (video.cropAspect) {
@@ -173,7 +196,7 @@ export function useTimelineReplace({
           url,
           video.timestamp,
           video.timestamp + (video.duration ?? 5),
-          patch.x ?? video.x, patch.y ?? video.y, patch.width ?? video.width, patch.height ?? video.height,
+          video.x, video.y, video.width, video.height,
           video.opacity,
           new Date(),
           !video.isOverlay,
@@ -193,7 +216,7 @@ export function useTimelineReplace({
         replaceVideoWithImage(replaceTargetId, imageInstance)
         setReplaceTargetId(null)
       } else if (file.type.startsWith('video/')) {
-        const url = URL.createObjectURL(file)
+        const url = getOrCreateObjectURLForFile(file)
         const { duration, width, height } = await resolveVideoMetadata(url)
         const windowDuration = video.duration ?? 5
         let playbackSpeed = video.playbackSpeed ?? 1
@@ -221,7 +244,18 @@ export function useTimelineReplace({
           } else {
             patch = await computeCanvasCropPlacement(url, 'video', aspectRatio)
           }
-          updateVideo(replaceTargetId, { ...patch, url, title: file.name, playbackSpeed, speedStart, speedEnd })
+          updateVideo(replaceTargetId, {
+            ...withoutCanvasPlacement(patch),
+            url,
+            title: file.name,
+            playbackSpeed,
+            speedStart,
+            speedEnd,
+            x: video.x,
+            y: video.y,
+            width: video.width,
+            height: video.height,
+          })
           setReplaceTargetId(null)
         } else {
           setReplaceVideoData({
@@ -239,7 +273,6 @@ export function useTimelineReplace({
             speedEasing: video.speedEasing,
             initialTrimStart: 0,
             projectStartTime: video.timestamp,
-            isNew: true,
           })
         }
       }
@@ -313,7 +346,7 @@ export function useTimelineReplace({
           finalTrimEnd,
           undefined,
           !image.isMainTrack,
-          patch.x ?? image.x, patch.y ?? image.y, patch.width ?? image.width, patch.height ?? image.height,
+          image.x, image.y, image.width, image.height,
           image.opacity,
           image.animation,
           image.transition,
@@ -353,7 +386,7 @@ export function useTimelineReplace({
         }
 
         updateVideo(video.id, {
-          ...patch,
+          ...withoutCanvasPlacement(patch),
           url: finalUrl,
           title: replaceVideoData.title,
           duration: replaceVideoData.windowDuration,
@@ -366,7 +399,11 @@ export function useTimelineReplace({
           speedEasing: replaceVideoData.speedEasing,
           sourceUrl,
           sourceTrimStart,
-          sourceDuration
+          sourceDuration,
+          x: video.x,
+          y: video.y,
+          width: video.width,
+          height: video.height,
         })
       }
       setReplaceVideoData(null)

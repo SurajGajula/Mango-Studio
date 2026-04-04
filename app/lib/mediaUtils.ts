@@ -359,6 +359,13 @@ export function computeMediaCropForAspect(
   })
 }
 
+export function withoutCanvasPlacement<M extends Partial<ImageClass | VideoClass>>(
+  patch: M
+): Omit<M, 'x' | 'y' | 'width' | 'height'> {
+  const { x: _x, y: _y, width: _w, height: _h, ...rest } = patch
+  return rest as Omit<M, 'x' | 'y' | 'width' | 'height'>
+}
+
 export function resolveVideoMetadata(url: string): Promise<{ duration: number; width: number; height: number }> {
   return new Promise((resolve) => {
     const probe = document.createElement('video')

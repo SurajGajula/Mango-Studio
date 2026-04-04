@@ -121,6 +121,7 @@ export default function PreviewArea() {
   } = usePreviewInteractions(
     aspectRatio, xScale, yScale, offsetX, offsetY,
     images, videos, texts,
+    playbackTime,
     updateImage, updateVideo, updateText, pushHistory,
     selectedImageId, setSelectedImageId,
     selectedVideoId, setSelectedVideoId,
@@ -164,7 +165,7 @@ export default function PreviewArea() {
 
     const itemW = item.width
     const itemH = item.height
-    const eff = getEffectiveCropForEdit(item, selectedKeyframeId)
+    const eff = getEffectiveCropForEdit(item, selectedKeyframeId, playbackTime)
 
     setCropPanState({
       startX: e.clientX,
@@ -176,7 +177,7 @@ export default function PreviewArea() {
       destW: itemW * xScale,
       destH: itemH * yScale,
     })
-  }, [cropEditId, selectedKeyframeId, xScale, yScale, setCropPanState])
+  }, [cropEditId, selectedKeyframeId, playbackTime, xScale, yScale, setCropPanState])
 
   const handleCanvasDoubleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current

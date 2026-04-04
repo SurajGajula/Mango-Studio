@@ -64,7 +64,7 @@ export default function CropEditor({
 
   useEffect(() => {
     if (!item || !canvasRef.current || !mediaRef.current) return
-    const eff = getEffectiveCropForEdit(item, selectedKeyframeId)
+    const eff = getEffectiveCropForEdit(item, selectedKeyframeId, playbackTime)
 
     const canvas = canvasRef.current
     const ctx = canvas.getContext('2d')

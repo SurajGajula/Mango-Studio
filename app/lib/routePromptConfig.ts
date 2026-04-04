@@ -326,7 +326,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'replace_images',
-    description: 'Replace existing timeline images or videos with uploaded files. Use this when the user attaches images and asks to replace, swap, or update existing images or videos on the timeline with them. Map each target id to the fileIndex of the uploaded file to use.',
+    description: 'Replace existing timeline images or videos with uploaded files ONLY when the user has attached one or more image/video files. Map each target id to the fileIndex of the uploaded file. Do NOT use this for solid/flat colors — use replace_with_solid instead.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -351,6 +351,39 @@ export const functionDeclarations: FunctionDeclaration[] = [
         message: {
           type: Type.STRING,
           description: 'A short confirmation message, e.g. "Replaced 24 items."',
+        },
+      },
+      required: ['replacements', 'message'],
+    },
+  },
+  {
+    name: 'replace_with_solid',
+    description:
+      'Replace existing timeline images or videos with a flat solid color (no file upload). Use when the user asks for white/black/colored frames, blank screens, solid backgrounds, or "replace video N with white" / "make clips X–Y a white image". Include one entry per target clip with the same targetId from the manifest. Color must be a CSS color the browser understands: named colors (white, black, red, …) or hex (#ffffff, #000000).',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        replacements: {
+          type: Type.ARRAY,
+          description: 'One object per image or video to replace.',
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              targetId: {
+                type: Type.STRING,
+                description: 'Exact id of the timeline image or video to replace.',
+              },
+              color: {
+                type: Type.STRING,
+                description: 'CSS color, e.g. white, #ffffff, black, #000000.',
+              },
+            },
+            required: ['targetId', 'color'],
+          },
+        },
+        message: {
+          type: Type.STRING,
+          description: 'Short confirmation, e.g. "Replaced videos 3–16 with white."',
         },
       },
       required: ['replacements', 'message'],
@@ -408,7 +441,8 @@ export const systemInstruction =
   '- split_at_marks: when the user asks to split, cut, or divide images or videos at specific positions, or into equal parts (like halves or fourths). You must compute the absolute timeline split times yourself from the item\'s timing data (halves = 1 split at midpoint, fourths = 3 splits at 25%/50%/75%). Also use this for splitting at audio marks (use the marks listed in the audio data)\n' +
   '- add_text: when the user asks to add text overlays to the timeline at a computed time range\n' +
   '- add_effect: when the user asks to add visual effects (like "crt-dither", "flashing-black-vignette", "black-and-white", or "vivid-sharp") over a specific time range; include intensity (0.0–1.0) if specified for flashing-black-vignette, black-and-white, or vivid-sharp\n' +
-    '- replace_images: when the user has attached files and asks to replace, swap, or update existing timeline images or videos with them\n' +
+    '- replace_with_solid: when the user asks to replace timeline images or videos with a solid/flat color (white, black, hex, named CSS colors) without uploading a file — e.g. "replace videos 3–16 with white", "blank frames", "solid red background clip"\n' +
+    '- replace_images: ONLY when the user has attached image/video files AND asks to replace timeline items with those uploads\n' +
   '- set_transitions: when the user asks to set, apply, add, or remove animations (none, pulse, shake, or jitter) or transitions (none, split, fade, slide-in, circle, rotate, or flash) on images or videos; include zoomIntensity (0.05–1.0) if specified, transitionDuration if specified, transitionColor if specified (for flash), transitionDirection if specified (for slide-in), or transitionAxis if specified (for split)\n' +
   '- set_crop: when the user asks to set or change the aspect ratio of images or videos (e.g. "make images 2-25 16:9"); cropAspect must be one of "16:9", "4:3", "1:1", "3:4", "9:16", or "none"\n' +
   '- no_op: for anything else\n' +
