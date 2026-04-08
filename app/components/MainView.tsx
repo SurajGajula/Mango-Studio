@@ -10,6 +10,7 @@ import TransitionsPanel from './panels/TransitionsPanel'
 import FontPanel from './panels/FontPanel'
 import EffectsPanel from './panels/EffectsPanel'
 import SpeedPanel from './panels/SpeedPanel'
+import PitchPanel from './panels/PitchPanel'
 import { useAuth } from './AuthProvider'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
@@ -20,12 +21,13 @@ import {
 } from '@/app/lib/projectPersistence'
 import styles from './MainView.module.css'
 
-type RightPanel = 'chat' | 'transitions' | 'animations' | 'font' | 'effects' | 'speed'
+type RightPanel = 'chat' | 'transitions' | 'animations' | 'font' | 'effects' | 'speed' | 'pitch'
 
 export default function MainView() {
   const [rightPanel, setRightPanel] = useState<RightPanel>('chat')
   const [transitionItemId, setTransitionItemId] = useState<string | null>(null)
   const [speedItemId, setSpeedItemId] = useState<string | null>(null)
+  const [pitchItemId, setPitchItemId] = useState<string | null>(null)
   const [localPersistReady, setLocalPersistReady] = useState(false)
   const { user, loading } = useAuth()
   const videos = useManifestStore((s) => s.videos)
@@ -67,6 +69,15 @@ export default function MainView() {
         setRightPanel('chat')
         setSpeedItemId(null)
       }
+    } else if (rightPanel === 'pitch') {
+      if (selectedAudioId) {
+        if (selectedAudioId !== pitchItemId) {
+          setPitchItemId(selectedAudioId)
+        }
+      } else if (!pitchItemId) {
+        setRightPanel('chat')
+        setPitchItemId(null)
+      }
     } else if (rightPanel === 'animations') {
       const currentSelectedId = selectedVideoId || selectedImageId
       if (currentSelectedId) {
@@ -92,7 +103,7 @@ export default function MainView() {
         setRightPanel('chat')
       }
     }
-  }, [selectedVideoId, selectedImageId, selectedTextId, selectedAudioId, rightPanel, speedItemId, transitionItemId])
+  }, [selectedVideoId, selectedImageId, selectedTextId, selectedAudioId, rightPanel, speedItemId, pitchItemId, transitionItemId])
 
   const onOpenTransitions = useCallback((id: string) => {
     setRightPanel('transitions')
@@ -136,6 +147,16 @@ export default function MainView() {
     [videos, audios, selectVideo, selectAudio]
   )
 
+  const onOpenPitch = useCallback(
+    (id: string) => {
+      setRightPanel('pitch')
+      setPitchItemId(id)
+      const isAudio = audios.some((a) => a.id === id)
+      if (isAudio) selectAudio(id)
+    },
+    [audios, selectAudio]
+  )
+
   if (loading) {
     return (
       <div className={styles.loadingOverlay}>
@@ -174,6 +195,8 @@ export default function MainView() {
             <EffectsPanel onClose={() => setRightPanel('chat')} />
           ) : rightPanel === 'speed' ? (
             <SpeedPanel key={`speed-${speedItemId}`} itemId={speedItemId || ''} onClose={() => setRightPanel('chat')} />
+          ) : rightPanel === 'pitch' ? (
+            <PitchPanel key={`pitch-${pitchItemId}`} itemId={pitchItemId || ''} onClose={() => setRightPanel('chat')} />
           ) : user ? (
             <ChatWindow />
           ) : (
@@ -189,6 +212,7 @@ export default function MainView() {
           onOpenFont={onOpenFont}
           onOpenEffects={onOpenEffects}
           onOpenSpeed={onOpenSpeed}
+          onOpenPitch={onOpenPitch}
         />
       </div>
     </div>

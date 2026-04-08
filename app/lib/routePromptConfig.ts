@@ -94,7 +94,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   {
     name: 'delete_timeline_items',
     description:
-      'Remove one or more items from the timeline by id. Use when the user asks to delete, remove, or clear specific images, videos, text overlays, or audio clips — for example "delete images 19 through 31" (resolve to ids from the manifest #N order). Include every item to remove in one call. Main-track removals shift later clips earlier automatically.',
+      'Remove one or more items from the timeline by id. Use when the user asks to delete, remove, or clear specific images, videos, text overlays, audio clips, or effects — for example "delete images 19 through 31" (resolve to ids from the manifest #N order). Include every item to remove in one call. Main-track removals shift later clips earlier automatically.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -106,7 +106,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
             properties: {
               type: {
                 type: Type.STRING,
-                description: 'One of: image, video, text, audio.',
+                description: 'One of: image, video, text, audio, effect.',
               },
               id: {
                 type: Type.STRING,
@@ -153,7 +153,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'split_at_marks',
-    description: "Split images or videos into multiple segments. Use this when the user asks to split, cut, or divide items at specific positions, or into equal parts like halves or fourths. For equal parts, compute the split times yourself based on the item's startTime and endTime. For splitting at audio marks, include only the marks that fall within that item's time range.",
+    description: "Split images or videos into multiple segments. Use this when the user asks to split, cut, or divide items at specific positions, or into equal parts like halves or fourths. For equal parts, compute the split times yourself based on the item's startTime and endTime. For splitting at audio marks, use splitAtMarksTimelineSeconds from the manifest (not marksSourceFileSeconds). Include only split times that fall strictly between the target item's startTime and endTime.",
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -173,7 +173,8 @@ export const functionDeclarations: FunctionDeclaration[] = [
               },
               times: {
                 type: Type.ARRAY,
-                description: "The times (in seconds) at which to split the item. For halves, this is the midpoint. For fourths, these are the 25%, 50%, and 75% points.",
+                description:
+                  "Absolute timeline times in seconds (same coordinate system as image startTime/endTime and video timestamp). For halves, this is the midpoint. For fourths, these are the 25%, 50%, and 75% points. For audio marks, use splitAtMarksTimelineSeconds from the manifest.",
                 items: { type: Type.NUMBER },
               },
             },
@@ -391,7 +392,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'add_effect',
-    description: 'Add one or more visual effects (e.g. "crt-dither", "flashing-black-vignette", "black-and-white", or "vivid-sharp") to the timeline. Use this when the user asks to add, apply, or insert an effect over a specific time range — for example "add a crt dither from image 12 to 22" or "apply flashing vignette to the first 5 seconds". Compute startTime and endTime from the manifest data.',
+    description: 'Add one or more visual effects (e.g. "crt-dither", "flashing-black-vignette", "black-and-white", "vivid-sharp", or "pixel-glitch-scan") to the timeline. Use this when the user asks to add, apply, or insert an effect over a specific time range — for example "add a crt dither from image 12 to 22" or "apply flashing vignette to the first 5 seconds". Compute startTime and endTime from the manifest data.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -403,7 +404,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
             properties: {
               type: {
                 type: Type.STRING,
-                description: 'The type of effect: "crt-dither", "flashing-black-vignette", "black-and-white", or "vivid-sharp".',
+                description: 'The type of effect: "crt-dither", "flashing-black-vignette", "black-and-white", "vivid-sharp", or "pixel-glitch-scan".',
               },
               startTime: {
                 type: Type.NUMBER,
@@ -415,7 +416,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
               },
               intensity: {
                 type: Type.NUMBER,
-                description: 'The intensity of the effect (0.0 to 1.0). For "flashing-black-vignette" and "black-and-white" (0 = none / full color, 1 = full effect). For "vivid-sharp", intensity controls sharpening only (0 = vivid color only, 1 = maximum sharpness). Default is 0.5.',
+                description: 'The intensity of the effect (0.0 to 1.0). For "flashing-black-vignette" and "black-and-white" (0 = none / full color, 1 = full effect). For "vivid-sharp", intensity controls sharpening only (0 = vivid color only, 1 = maximum sharpness). For "pixel-glitch-scan", intensity controls macro block size (0 = finer blocks, 1 = larger blocks). Default is 0.5.',
               },
             },
             required: ['type', 'startTime', 'endTime'],
@@ -435,12 +436,12 @@ export const tools: Tool[] = [{ functionDeclarations }]
 
 export const systemInstruction =
   'You are a timeline editing assistant for a media studio. Your only job is to call the correct function:\n' +
-    '- delete_timeline_items: when the user asks to delete, remove, or clear one or more timeline items. Map phrases like "images 19–31" to the manifest #N order (sorted by start time for images, by timestamp for videos) and include one { type, id } per item in the items array in a SINGLE call.\n' +
+    '- delete_timeline_items: when the user asks to delete, remove, or clear one or more timeline items (images, videos, texts, audios, or effects). Map phrases like "images 19–31" to the manifest #N order (sorted by start time for images, by timestamp for videos) and include one { type, id } per item in the items array in a SINGLE call.\n' +
     '- duplicate_timeline_range: when the user asks to duplicate, repeat, or copy a range of images or videos so the copy plays immediately after the original block ends. Use kind "image" or "video" and firstNumber/lastNumber inclusive (same #N as the manifest).\n' +
     '- edit_manifest: when the user asks to change timing, duration, position, playback speed, or mute status of existing items. You MUST include all affected items as separate entries in the mutations array in a SINGLE call — never call edit_manifest multiple times. For audio mutations (type=updateAudio): ALWAYS use trimStart and trimEnd fields (not endTime). To restore an audio to its full original length set trimStart=0 and trimEnd=0. The active playing duration of an audio is: originalDuration - trimStart - trimEnd. Use playbackSpeed for constant video and audio playback speed changes (e.g. 0.5 for half speed). For speed ramps (e.g. "0.5x start to 0.1x end"), use both speedStart and speedEnd (and optionally speedEasing: "linear" or "ease"). If speedStart/speedEnd are used, they will override any constant playbackSpeed. Use muted for video mute status (true to mute, false to unmute). ALWAYS use the exact id strings from the manifest (e.g. "audio-1234-abc") — never make up or shorten ids.\n' +
-  '- split_at_marks: when the user asks to split, cut, or divide images or videos at specific positions, or into equal parts (like halves or fourths). You must compute the absolute timeline split times yourself from the item\'s timing data (halves = 1 split at midpoint, fourths = 3 splits at 25%/50%/75%). Also use this for splitting at audio marks (use the marks listed in the audio data)\n' +
+  '- split_at_marks: when the user asks to split, cut, or divide images or videos at specific positions, or into equal parts (like halves or fourths). You must compute the absolute timeline split times yourself from the item\'s timing data (halves = 1 split at midpoint, fourths = 3 splits at 25%/50%/75%). For splitting at audio marks, use splitAtMarksTimelineSeconds from each audio line — do not use marksSourceFileSeconds (those are source-file seconds, not timeline positions).\n' +
   '- add_text: when the user asks to add text overlays to the timeline at a computed time range\n' +
-  '- add_effect: when the user asks to add visual effects (like "crt-dither", "flashing-black-vignette", "black-and-white", or "vivid-sharp") over a specific time range; include intensity (0.0–1.0) if specified for flashing-black-vignette, black-and-white, or vivid-sharp\n' +
+  '- add_effect: when the user asks to add visual effects (like "crt-dither", "flashing-black-vignette", "black-and-white", "vivid-sharp", or "pixel-glitch-scan") over a specific time range; include intensity (0.0–1.0) if specified for flashing-black-vignette, black-and-white, vivid-sharp, or pixel-glitch-scan\n' +
     '- replace_with_solid: when the user asks to replace timeline images or videos with a solid/flat color (white, black, hex, named CSS colors) without uploading a file — e.g. "replace videos 3–16 with white", "blank frames", "solid red background clip"\n' +
     '- replace_images: ONLY when the user has attached image/video files AND asks to replace timeline items with those uploads\n' +
   '- set_transitions: when the user asks to set, apply, add, or remove animations (none, pulse, shake, or jitter) or transitions (none, split, fade, slide-in, circle, rotate, or flash) on images or videos; include zoomIntensity (0.05–1.0) if specified, transitionDuration if specified, transitionColor if specified (for flash), transitionDirection if specified (for slide-in), or transitionAxis if specified (for split)\n' +

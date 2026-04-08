@@ -58,6 +58,18 @@ const ANIMATION_OPTIONS: { value: AnimationMode; label: string; desc: string; ic
       </svg>
     ),
   },
+  {
+    value: 'last-frame-hold',
+    label: 'Last frame hold',
+    desc: 'Video plays, then stays on the last frame for the rest of the clip',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="4" y="5" width="10" height="10" rx="1" />
+        <path d="M9 9l2 2 4-4" />
+        <line x1="4" y1="19" x2="20" y2="19" />
+      </svg>
+    ),
+  },
 ]
 
 const TRANSITION_OPTIONS: { value: TransitionMode; label: string; desc: string; icon: React.ReactNode }[] = [
@@ -173,7 +185,16 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
   
   // Max duration depends on transition type
   const isTransitionAffectingPrevious = ['split', 'fade', 'slide-in', 'circle', 'rotate', 'flash'].includes(currentTransition)
-  const maxDuration = (mode === 'transition' && isTransitionAffectingPrevious) ? (previousItem?.duration || 1.0) : (selectedItem?.duration || 1.0)
+  const isLastFrameHold =
+    mode === 'animation' &&
+    currentAnimation === 'last-frame-hold' &&
+    !!selectedItem &&
+    videos.some((v) => v.id === selectedItem.id)
+  const maxDuration = (mode === 'transition' && isTransitionAffectingPrevious)
+    ? (previousItem?.duration || 1.0)
+    : isLastFrameHold
+      ? Math.max(0.1, selectedItem?.duration || 1.0)
+      : (selectedItem?.duration || 1.0)
 
   // Use a local state for the slider to ensure it's always responsive
   const initialDuration = selectedItem ? (
@@ -209,16 +230,16 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
     const updates: any = {}
     if (mode === 'animation') {
       updates.animation = val
-      // When switching from 'none' to something, default to 1s if not already set
-      if (val !== 'none' && (selectedItem?.animationDuration === undefined || selectedItem?.animationDuration === 0)) {
+      if (val === 'last-frame-hold' && videos.some((v) => v.id === selectedItem.id)) {
+        const d = selectedItem.duration ?? 1
+        updates.animationDuration = Math.min(Math.max(0.1, d * 0.25), d)
+      } else if (val !== 'none' && (selectedItem?.animationDuration === undefined || selectedItem?.animationDuration === 0)) {
         updates.animationDuration = 1.0
       }
-      // Reset intensity to 0.5 when switching animations to ensure a clean state
       if (val !== 'none') {
         updates.zoomIntensity = 0.5
       }
 
-      // UX: Seek to item start and play to show feedback for animations
       if (val !== 'none') {
         const itemStart = (selectedItem as any).startTime !== undefined ? (selectedItem as any).startTime : (selectedItem as any).timestamp
         setPlaybackTime(itemStart)
@@ -282,7 +303,9 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
           <>
             <p className={styles.sectionLabel}>{mode === 'animation' ? 'Animation Type' : 'Transition Type'}</p>
             <div className={styles.optionList}>
-              {options.map((opt) => (
+              {options
+                .filter((opt) => opt.value !== 'last-frame-hold' || (!!selectedItem && videos.some((v) => v.id === selectedItem.id)))
+                .map((opt) => (
                 <button
                   key={opt.value}
                   className={`${styles.optionCard} ${currentValue === opt.value ? styles.optionCardActive : ''}`}
@@ -300,7 +323,9 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
             {currentValue !== 'none' && currentAnimation !== 'pulse' && (
               <div className={styles.durationControl}>
                 <div className={styles.durationHeader}>
-                  <label className={styles.durationLabel}>Duration</label>
+                  <label className={styles.durationLabel}>
+                    {isLastFrameHold ? 'Hold duration' : 'Duration'}
+                  </label>
                   <span className={styles.durationValue}>{displayDuration.toFixed(1)}s</span>
                 </div>
                 <input
@@ -308,7 +333,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
                   min="0.1"
                   max={maxDuration}
                   step="0.1"
-                  value={displayDuration}
+                  value={Math.min(displayDuration, maxDuration)}
                   className={styles.durationSlider}
                   onPointerDown={durationSliderHistory}
                   onInput={(e) => {

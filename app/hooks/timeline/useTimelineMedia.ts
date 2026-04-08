@@ -107,7 +107,7 @@ export function useTimelineMedia({
           1.0, // animationDuration
           undefined, undefined, undefined,
           row,
-          false,
+          true,
           cropAspect,
           cropSx, cropSy, cropSw, cropSh,
           undefined, undefined, undefined,
@@ -164,7 +164,8 @@ export function useTimelineMedia({
             audioDuration,
             1,
             isOverlay,
-            row
+            row,
+            1
           )
 
           if (!isOverlay) setAudio(audioInstance)

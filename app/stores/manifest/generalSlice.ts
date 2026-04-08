@@ -5,6 +5,7 @@ import { TextClass } from '@/app/models/TextClass'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { ManifestStore, AspectRatio } from './types'
 import { calculateTotalDuration } from '@/app/lib/timeUtils'
+import { calculateSourceTime } from '@/app/lib/renderUtils'
 import { generateId } from '@/app/lib/idUtils'
 import { findFreeVisualOverlayRowFromState } from '@/app/lib/visualOverlayRowScan'
 
@@ -14,8 +15,14 @@ export const createGeneralSlice = (set: any, get: any) => ({
   playbackRate: 1,
   aspectRatio: '9:16' as AspectRatio,
   pendingPrompt: null,
+  pendingVideoReplaceSpeed: null,
+  videoReplaceFilePickerRequest: null,
 
   setPendingPrompt: (prompt: string | null) => set({ pendingPrompt: prompt }),
+  setPendingVideoReplaceSpeed: (value: ManifestStore['pendingVideoReplaceSpeed']) =>
+    set({ pendingVideoReplaceSpeed: value }),
+  setVideoReplaceFilePickerRequest: (value: ManifestStore['videoReplaceFilePickerRequest']) =>
+    set({ videoReplaceFilePickerRequest: value }),
   setPlaybackTime: (time: number) => set({ playbackTime: Math.max(0, time) }),
   setIsPlaying: (playing: boolean) => set({ isPlaying: playing }),
   setPlaybackRate: (rate: number) => set({ playbackRate: rate }),
@@ -214,44 +221,42 @@ export const createGeneralSlice = (set: any, get: any) => ({
     const video = state.videos.find((v: VideoClass) => v.id === id)
     const audio = state.audios.find((a: any) => a.id === id)
 
-    // Calculate effective speed for duration purposes
-    // For a ramp, the average speed determines the timeline duration for the same source content
     let effectiveSpeed = speed
     if (speedStart !== undefined && speedEnd !== undefined) {
-      if (speedEasing === 'ease') {
-        // Integral of 3x^2 - 2x^3 from 0 to 1 is 1 - 0.5 = 0.5
-        // So average is (speedStart + speedEnd) / 2, same as linear!
-        effectiveSpeed = (speedStart + speedEnd) / 2
-      } else {
-        effectiveSpeed = (speedStart + speedEnd) / 2
-      }
+      effectiveSpeed = (speedStart + speedEnd) / 2
     }
 
     if (video) {
-      const currentDuration = video.duration ?? 0
-      const sourceDurationToPlay = currentDuration * (video.playbackSpeed ?? 1)
-      const origDuration = video.originalDuration ?? currentDuration
-      const maxAvailableSource = origDuration - video.trimStart
-      
-      const newDuration = Math.min(maxAvailableSource / effectiveSpeed, sourceDurationToPlay / effectiveSpeed)
-      const newTrimEnd = Math.max(0, origDuration - video.trimStart - (newDuration * effectiveSpeed))
+      const D = video.duration ?? 0
+      if (D <= 1e-6) return true
 
-      const durationDelta = newDuration - currentDuration
-      const isMainTrack = video.row === 0
+      const origDuration = video.originalDuration ?? D
+      const maxSource = origDuration - video.trimStart
+      if (maxSource <= 1e-6) return false
 
-      const updates: any = { 
-        playbackSpeed: speed, 
-        speedStart: speedStart ?? speed, 
-        speedEnd: speedEnd ?? speed,
-        speedEasing: speedEasing ?? video.speedEasing ?? 'linear'
+      const newSS = speedStart ?? speed
+      const newSE = speedEnd ?? speed
+      const newEasing = speedEasing ?? video.speedEasing ?? 'linear'
+      const requiredSource = calculateSourceTime(D, D, newSS, newSE, speed, newEasing)
+
+      if (requiredSource > maxSource + 1e-3) {
+        return false
       }
 
-      if (durationDelta !== 0 && isMainTrack) {
-        get().trimVideo(id, video.trimStart, newTrimEnd)
-        get().updateVideo(id, updates)
-      } else {
-        get().updateVideo(id, { ...updates, trimEnd: newTrimEnd, duration: newDuration })
+      const newTrimEnd = Math.max(0, origDuration - video.trimStart - requiredSource)
+
+      const updates: any = {
+        playbackSpeed: speed,
+        speedStart: newSS,
+        speedEnd: newSE,
+        speedEasing: newEasing,
+        trimEnd: newTrimEnd,
+        duration: D,
+        sourceDuration: requiredSource,
       }
+
+      get().updateVideo(id, updates)
+      return true
     } else if (audio) {
       const currentDuration = audio.endTime - audio.startTime
       const sourceDurationToPlay = currentDuration * (audio.playbackSpeed ?? 1)
@@ -269,7 +274,9 @@ export const createGeneralSlice = (set: any, get: any) => ({
       }
 
       get().updateAudio(id, { ...updates, trimEnd: newTrimEnd, endTime: audio.startTime + newEffectiveDuration })
+      return true
     }
+    return false
   },
 
   duplicateItem: (id: string) => {

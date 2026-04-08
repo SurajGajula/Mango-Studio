@@ -66,6 +66,20 @@ const MainTrackComponent = ({
     })
   }, [videos, images])
 
+  const imageManifestNumberById = useMemo(() => {
+    const sorted = [...images].sort((a, b) => (a.startTime ?? 0) - (b.startTime ?? 0))
+    const m = new Map<string, number>()
+    sorted.forEach((img, i) => m.set(img.id, i + 1))
+    return m
+  }, [images])
+
+  const videoManifestNumberById = useMemo(() => {
+    const sorted = [...videos].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
+    const m = new Map<string, number>()
+    sorted.forEach((vid, i) => m.set(vid.id, i + 1))
+    return m
+  }, [videos])
+
   const adjacentEpsilon = 0.01
 
   return (
@@ -213,7 +227,7 @@ const MainTrackComponent = ({
                       })()}
                     </div>
                     <div className={styles.videoOverlayText}>
-                      <span className={styles.overlayName}>Video #{idx + 1}</span>
+                      <span className={styles.overlayName}>Video #{videoManifestNumberById.get(v.id)}</span>
                       {(v.trimStart > 0 || v.trimEnd > 0) && (
                         <span className={styles.trimBadge}>
                           {v.trimStart.toFixed(1)}s / {v.trimEnd.toFixed(1)}s
@@ -280,7 +294,7 @@ const MainTrackComponent = ({
                   />
                   <div className={styles.overlayBox}>
                     <img src={img.url} alt={img.name} className={styles.overlayThumbnail} draggable={false} />
-                    <span className={styles.overlayName}>Image #{idx + 1}</span>
+                    <span className={styles.overlayName}>Image #{imageManifestNumberById.get(img.id)}</span>
                   </div>
                   {kfEntries.map(({ id: kfId, timelinePos }) => (
                     <div

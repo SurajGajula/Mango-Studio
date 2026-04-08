@@ -1,6 +1,6 @@
 import type { MediaKeyframe } from './mediaKeyframe'
 
-export type AnimationMode = 'none' | 'pulse' | 'shake' | 'jitter'
+export type AnimationMode = 'none' | 'pulse' | 'shake' | 'jitter' | 'last-frame-hold'
 export type TransitionMode = 'none' | 'split' | 'fade' | 'slide-in' | 'circle' | 'rotate' | 'flash'
 
 export class ImageClass {

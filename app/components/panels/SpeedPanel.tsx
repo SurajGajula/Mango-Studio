@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useSliderHistorySession } from '@/app/hooks/useSliderHistorySession'
 import { useManifestStore } from '@/app/stores/manifestStore'
+import { useSelectionStore } from '@/app/stores/selectionStore'
 import styles from './SpeedPanel.module.css'
 
 interface Props {
@@ -31,6 +32,9 @@ export default function SpeedPanel({ onClose, itemId }: Props) {
   const videos = useManifestStore((s) => s.videos)
   const audios = useManifestStore((s) => s.audios)
   const setItemPlaybackSpeed = useManifestStore((s) => s.setItemPlaybackSpeed)
+  const setPendingVideoReplaceSpeed = useManifestStore((s) => s.setPendingVideoReplaceSpeed)
+  const setVideoReplaceFilePickerRequest = useManifestStore((s) => s.setVideoReplaceFilePickerRequest)
+  const selectVideo = useSelectionStore((s) => s.selectVideo)
 
   const speedStartSliderHistory = useSliderHistorySession()
   const speedEndSliderHistory = useSliderHistorySession()
@@ -68,9 +72,25 @@ export default function SpeedPanel({ onClose, itemId }: Props) {
   const applySpeed = (start: number, end: number, easing?: 'linear' | 'ease') => {
     const avg = (start + end) / 2
     const finalEasing = easing ?? speedEasing
-    // We use the updated setItemPlaybackSpeed logic which handles speedStart/speedEnd/duration/trim correctly
-    setItemPlaybackSpeed(itemId, avg, start, end, finalEasing)
-    
+    const ok = setItemPlaybackSpeed(itemId, avg, start, end, finalEasing)
+    if (!ok) {
+      if (video) {
+        setPendingVideoReplaceSpeed({
+          videoId: itemId,
+          playbackSpeed: avg,
+          speedStart: start,
+          speedEnd: end,
+          speedEasing: finalEasing,
+        })
+        selectVideo(itemId)
+        setVideoReplaceFilePickerRequest({ videoId: itemId })
+        setSpeedStart(start)
+        setSpeedEnd(end)
+        setSpeedEasing(finalEasing)
+      }
+      return
+    }
+
     setSpeedStart(start)
     setSpeedEnd(end)
     setSpeedEasing(finalEasing)
@@ -95,8 +115,14 @@ export default function SpeedPanel({ onClose, itemId }: Props) {
   const activePreset = PRESETS.find(p => p.id !== 'custom' && p.start === speedStart && p.end === speedEnd)?.id || 'custom'
 
   const averageSpeed = (speedStart + speedEnd) / 2
-  const sourcePlayed = video ? (video.duration ?? 0) * (video.playbackSpeed ?? 1) : audio ? (audio.endTime - audio.startTime) * (audio.playbackSpeed ?? 1) : 0
-  const newTimelineDuration = sourcePlayed / (averageSpeed || 1)
+  const sourcePlayed = video
+    ? (video.duration ?? 0) * (video.playbackSpeed ?? 1)
+    : audio
+      ? (audio.endTime - audio.startTime) * (audio.playbackSpeed ?? 1)
+      : 0
+  const timelineDurationLabel = video
+    ? (video.duration ?? 0)
+    : sourcePlayed / (averageSpeed || 1)
 
   return (
     <div className={styles.container}>
@@ -173,7 +199,7 @@ export default function SpeedPanel({ onClose, itemId }: Props) {
           </div>
           <div className={styles.durationRow} style={{ marginTop: '8px' }}>
             <span>Timeline Duration</span>
-            <b>{newTimelineDuration.toFixed(2)}s</b>
+            <b>{timelineDurationLabel.toFixed(2)}s</b>
           </div>
         </div>
       </div>

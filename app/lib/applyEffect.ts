@@ -2,6 +2,7 @@ import type { EffectType } from '@/app/models/EffectClass'
 
 let bwScratch: HTMLCanvasElement | null = null
 let vividScratch: HTMLCanvasElement | null = null
+let glitchScratch: HTMLCanvasElement | null = null
 
 const VIVID_FILTER = 'saturate(1.38) contrast(1.06)'
 const UNSHARP_STRENGTH = 1.85
@@ -153,6 +154,104 @@ function makeLCG(seed: number) {
     s = (Math.imul(s, 1664525) + 1013904223) >>> 0
     return s / 0x100000000
   }
+}
+
+function getGlitchScratch(w: number, h: number): HTMLCanvasElement {
+  if (!glitchScratch) {
+    glitchScratch = document.createElement('canvas')
+    glitchScratch.getContext('2d', { willReadFrequently: true })
+  }
+  if (glitchScratch.width !== w || glitchScratch.height !== h) {
+    glitchScratch.width = w
+    glitchScratch.height = h
+  }
+  return glitchScratch
+}
+
+function drawMacroBlock(
+  ctx: CanvasRenderingContext2D,
+  source: HTMLCanvasElement,
+  destX: number,
+  destY: number,
+  destW: number,
+  destH: number,
+  blockPx: number
+): void {
+  if (destW <= 0 || destH <= 0) return
+  const iw = Math.max(1, Math.floor(destW / blockPx))
+  const ih = Math.max(1, Math.floor(destH / blockPx))
+  const snap = getGlitchScratch(iw, ih)
+  const sctx = snap.getContext('2d', { willReadFrequently: true })
+  if (!sctx) return
+  sctx.setTransform(1, 0, 0, 1, 0, 0)
+  sctx.clearRect(0, 0, iw, ih)
+  sctx.imageSmoothingEnabled = false
+  sctx.drawImage(source, destX, destY, destW, destH, 0, 0, iw, ih)
+  ctx.save()
+  ctx.imageSmoothingEnabled = false
+  ctx.drawImage(snap, 0, 0, iw, ih, destX, destY, destW, destH)
+  ctx.restore()
+}
+
+function applyPixelGlitchScan(
+  ctx: CanvasRenderingContext2D,
+  rx: number,
+  ry: number,
+  rw: number,
+  rh: number,
+  playbackTime: number,
+  intensity: number = 0.5
+): void {
+  if (rw <= 0 || rh <= 0) return
+
+  const t = Math.max(0, Math.min(1, intensity))
+  const V_WIDTH = 480
+  const scale = rw / V_WIDTH
+  const vHeight = rh / scale
+
+  const blockVirt = 4 + Math.round(t * 16)
+  const blockPx = Math.max(2, blockVirt * scale)
+  const bandVirtH = 20
+
+  const source = ctx.canvas
+
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(rx, ry, rw, rh)
+  ctx.clip()
+
+  const scrollPeriod = 3.2
+  const u = (playbackTime / scrollPeriod) % 1
+  const yTopVirt = u * (vHeight + bandVirtH) - bandVirtH
+  const v0 = Math.max(0, yTopVirt)
+  const v1 = Math.min(vHeight, yTopVirt + bandVirtH)
+  if (v1 > v0) {
+    const stripY = ry + v0 * scale
+    const stripH = (v1 - v0) * scale
+    drawMacroBlock(ctx, source, rx, stripY, rw, stripH, blockPx)
+  }
+
+  const sporadicCycle = 2.6
+  const sporadicFlash = 0.16
+  const phase = playbackTime % sporadicCycle
+  if (phase < sporadicFlash) {
+    const seed = (Math.floor(playbackTime / sporadicCycle) * 1103515245 + 12345) >>> 0
+    const rng = makeLCG(seed)
+    const n = 3 + Math.floor(rng() * 5)
+    for (let i = 0; i < n; i++) {
+      const bw = 12 + rng() * 48
+      const bh = 8 + rng() * 28
+      const vx = rng() * Math.max(1, V_WIDTH - bw)
+      const vy = rng() * Math.max(1, vHeight - bh)
+      const dx = rx + vx * scale
+      const dy = ry + vy * scale
+      const dw = bw * scale
+      const dh = bh * scale
+      drawMacroBlock(ctx, source, dx, dy, dw, dh, blockPx)
+    }
+  }
+
+  ctx.restore()
 }
 
 function applyCrtDither(
@@ -311,5 +410,7 @@ export function applyEffect(
     applyBlackAndWhite(ctx, x, y, width, height, intensity)
   } else if (type === 'vivid-sharp') {
     applyVividSharp(ctx, x, y, width, height, intensity)
+  } else if (type === 'pixel-glitch-scan') {
+    applyPixelGlitchScan(ctx, x, y, width, height, playbackTime, intensity)
   }
 }

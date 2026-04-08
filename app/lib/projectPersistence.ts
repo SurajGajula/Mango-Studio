@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
+import { useAudioStore } from '@/app/stores/audioStore'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { TextClass } from '@/app/models/TextClass'
@@ -293,6 +294,7 @@ function reviveAudio(o: Record<string, unknown>): AudioClass {
     isOverlay,
     row,
     o.volume as number | undefined,
+    o.pitch as number | undefined,
     o.speedStart as number | undefined,
     o.speedEnd as number | undefined,
     o.speedEasing as 'linear' | 'ease' | undefined
@@ -446,6 +448,13 @@ async function hydrateSnapshotIntoStore(snap: ProjectSnapshotPayload, dbName: st
     aspectRatio: (snap.aspectRatio as AspectRatio) ?? '9:16',
     pendingPrompt: snap.pendingPrompt,
   })
+
+  const mainAudio = revivedAudios.find((a) => !a.isOverlay)
+  if (mainAudio) {
+    useAudioStore.getState().setAudio(mainAudio)
+  } else {
+    useAudioStore.getState().removeAudio()
+  }
 }
 
 export async function saveGuestProjectSnapshot(): Promise<void> {

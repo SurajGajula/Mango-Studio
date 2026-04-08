@@ -1,5 +1,18 @@
 import { AudioClass } from '@/app/models/AudioClass'
 
+export function audioMarksAbsoluteTimelinePositions(
+  startTime: number,
+  trimStart: number,
+  trimEnd: number,
+  originalDuration: number,
+  sourceTimes: number[]
+): number[] {
+  const maxSource = originalDuration - trimEnd
+  return sourceTimes
+    .filter((t) => t >= trimStart && t <= maxSource)
+    .map((t) => startTime + (t - trimStart))
+}
+
 export function audioMarkTimelineEntries(
   audioItem: AudioClass,
   totalDuration: number

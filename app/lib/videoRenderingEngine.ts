@@ -1,7 +1,7 @@
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { EffectClass } from '@/app/models/EffectClass'
-import { MainItem, calculateAnimationProgress, calculateSourceTime, clipTimelineSpanForSourceMap } from '@/app/lib/renderUtils'
+import { MainItem, calculateAnimationProgress, clipTimelineSpanForSourceMap, videoTimelineSourceMapping } from '@/app/lib/renderUtils'
 import { resolveMediaKeyframeTransform } from '@/app/lib/resolveMediaKeyframeTransform'
 import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
 import { applyEffect } from '@/app/lib/applyEffect'
@@ -101,15 +101,9 @@ export class VideoRenderingEngine {
         const vEl = videoElements.get(activeClip.id)
         if (vEl) {
           const elapsed = Math.max(0, newTime - activeClip.startTime)
-          const sourceElapsed = calculateSourceTime(
-            elapsed,
-            clipTimelineSpanForSourceMap(v.duration),
-            v.speedStart ?? v.playbackSpeed ?? 1,
-            v.speedEnd ?? v.playbackSpeed ?? 1,
-            v.playbackSpeed ?? 1,
-            v.speedEasing
-          )
-          const target = (v.trimStart ?? 0) + sourceElapsed
+          const clipDur = clipTimelineSpanForSourceMap(v.duration)
+          const tm = videoTimelineSourceMapping(v, elapsed, clipDur)
+          const target = (v.trimStart ?? 0) + tm.sourceElapsed
           
           if (this.currentVideoId !== activeClip.id) {
             videoElements.forEach((el, id) => {
@@ -143,17 +137,23 @@ export class VideoRenderingEngine {
               onVideoTimeUpdate(activeClip.id, target)
             }
 
-            const x = elapsed / Math.max(0.1, clipTimelineSpanForSourceMap(v.duration))
-            let f = x
-            if (v.speedEasing === 'ease') {
-              f = 3 * Math.pow(x, 2) - 2 * Math.pow(x, 3)
-            }
-            const instantaneousSpeed = (v.speedStart ?? v.playbackSpeed ?? 1) + 
-              f * ((v.speedEnd ?? v.playbackSpeed ?? 1) - (v.speedStart ?? v.playbackSpeed ?? 1))
+            if (tm.inHold) {
+              if (!vEl.paused) {
+                onVideoPlayState(activeClip.id, false, 1)
+              }
+            } else {
+              const x = tm.playSpan > 0 ? Math.min(elapsed, tm.playSpan) / tm.playSpan : 1
+              let f = x
+              if (v.speedEasing === 'ease') {
+                f = 3 * Math.pow(x, 2) - 2 * Math.pow(x, 3)
+              }
+              const instantaneousSpeed = (v.speedStart ?? v.playbackSpeed ?? 1) + 
+                f * ((v.speedEnd ?? v.playbackSpeed ?? 1) - (v.speedStart ?? v.playbackSpeed ?? 1))
 
-            const targetRate = rate * instantaneousSpeed
-            if (vEl.paused || Math.abs(vEl.playbackRate - targetRate) > 0.01) {
-              onVideoPlayState(activeClip.id, true, targetRate)
+              const targetRate = rate * instantaneousSpeed
+              if (vEl.paused || Math.abs(vEl.playbackRate - targetRate) > 0.01) {
+                onVideoPlayState(activeClip.id, true, targetRate)
+              }
             }
           } else {
             if (!vEl.paused) {
@@ -173,21 +173,25 @@ export class VideoRenderingEngine {
         const nvEl = videoElements.get(nextClip.id)
         if (nvEl) {
           const elapsedB = Math.max(0, newTime - nextClip.startTime)
-          const sourceElapsedB = calculateSourceTime(
-            elapsedB,
-            clipTimelineSpanForSourceMap(nv.duration),
-            nv.speedStart ?? nv.playbackSpeed ?? 1,
-            nv.speedEnd ?? nv.playbackSpeed ?? 1,
-            nv.playbackSpeed ?? 1,
-            nv.speedEasing
-          )
-          const targetB = (nv.trimStart ?? 0) + sourceElapsedB
+          const nvClipDur = clipTimelineSpanForSourceMap(nv.duration)
+          const tmB = videoTimelineSourceMapping(nv, elapsedB, nvClipDur)
+          const targetB = (nv.trimStart ?? 0) + tmB.sourceElapsed
           
           const timeUntilNext = nextClip.startTime - newTime
           const isInTransitionWindow = transitionActive || (timeUntilNext > 0 && timeUntilNext < 1.0)
 
+          const freezeNextAtFirstFrame = transitionActive && transProgress < 1
+
           if (isInTransitionWindow) {
-            if (isPlaying) {
+            if (freezeNextAtFirstFrame) {
+              if (!nvEl.paused) {
+                onVideoPlayState(nextClip.id, false, 1)
+              }
+              if (Math.abs(nvEl.currentTime - targetB) > PAUSED_SCRUB_SEEK_THRESHOLD) {
+                nvEl.currentTime = targetB
+                onVideoTimeUpdate(nextClip.id, targetB)
+              }
+            } else if (isPlaying) {
               const warmupWindow = 0.2
               const shouldPlayNow = (nextClip.startTime - newTime) < warmupWindow
 
@@ -196,17 +200,23 @@ export class VideoRenderingEngine {
                   nvEl.currentTime = targetB
                   onVideoTimeUpdate(nextClip.id, targetB)
                 }
-                const x = elapsedB / Math.max(0.1, clipTimelineSpanForSourceMap(nv.duration))
-                let f = x
-                if (nv.speedEasing === 'ease') {
-                  f = 3 * Math.pow(x, 2) - 2 * Math.pow(x, 3)
-                }
-                const instantaneousSpeedB = (nv.speedStart ?? nv.playbackSpeed ?? 1) + 
-                  f * ((nv.speedEnd ?? nv.playbackSpeed ?? 1) - (nv.speedStart ?? nv.playbackSpeed ?? 1))
-                
-                const targetRateB = rate * instantaneousSpeedB
-                if (nvEl.paused || Math.abs(nvEl.playbackRate - targetRateB) > 0.01) {
-                  onVideoPlayState(nextClip.id, true, targetRateB)
+                if (tmB.inHold) {
+                  if (!nvEl.paused) {
+                    onVideoPlayState(nextClip.id, false, 1)
+                  }
+                } else {
+                  const x = tmB.playSpan > 0 ? Math.min(elapsedB, tmB.playSpan) / tmB.playSpan : 1
+                  let f = x
+                  if (nv.speedEasing === 'ease') {
+                    f = 3 * Math.pow(x, 2) - 2 * Math.pow(x, 3)
+                  }
+                  const instantaneousSpeedB = (nv.speedStart ?? nv.playbackSpeed ?? 1) + 
+                    f * ((nv.speedEnd ?? nv.playbackSpeed ?? 1) - (nv.speedStart ?? nv.playbackSpeed ?? 1))
+                  
+                  const targetRateB = rate * instantaneousSpeedB
+                  if (nvEl.paused || Math.abs(nvEl.playbackRate - targetRateB) > 0.01) {
+                    onVideoPlayState(nextClip.id, true, targetRateB)
+                  }
                 }
               } else {
                 if (!nvEl.paused) {
@@ -236,32 +246,31 @@ export class VideoRenderingEngine {
         if (!ovEl) continue
         const elapsedOv = Math.max(0, newTime - ov.timestamp)
         const ovTimelineDur = clipTimelineSpanForSourceMap(ov.duration)
-        const sourceElapsedOv = calculateSourceTime(
-          elapsedOv,
-          ovTimelineDur,
-          ov.speedStart ?? ov.playbackSpeed ?? 1,
-          ov.speedEnd ?? ov.playbackSpeed ?? 1,
-          ov.playbackSpeed ?? 1,
-          ov.speedEasing
-        )
-        const targetOv = (ov.trimStart ?? 0) + sourceElapsedOv
+        const tmOv = videoTimelineSourceMapping(ov, elapsedOv, ovTimelineDur)
+        const targetOv = (ov.trimStart ?? 0) + tmOv.sourceElapsed
         if (isPlaying) {
           const driftOv = Math.abs(ovEl.currentTime - targetOv)
           if (driftOv > 0.22) {
             ovEl.currentTime = targetOv
             onVideoTimeUpdate(ov.id, targetOv)
           }
-          const xOv = elapsedOv / Math.max(0.1, ovTimelineDur)
-          let fOv = xOv
-          if (ov.speedEasing === 'ease') {
-            fOv = 3 * Math.pow(xOv, 2) - 2 * Math.pow(xOv, 3)
-          }
-          const instSpeedOv =
-            (ov.speedStart ?? ov.playbackSpeed ?? 1) +
-            fOv * ((ov.speedEnd ?? ov.playbackSpeed ?? 1) - (ov.speedStart ?? ov.playbackSpeed ?? 1))
-          const targetRateOv = rate * instSpeedOv
-          if (ovEl.paused || Math.abs(ovEl.playbackRate - targetRateOv) > 0.01) {
-            onVideoPlayState(ov.id, true, targetRateOv)
+          if (tmOv.inHold) {
+            if (!ovEl.paused) {
+              onVideoPlayState(ov.id, false, 1)
+            }
+          } else {
+            const xOv = tmOv.playSpan > 0 ? Math.min(elapsedOv, tmOv.playSpan) / tmOv.playSpan : 1
+            let fOv = xOv
+            if (ov.speedEasing === 'ease') {
+              fOv = 3 * Math.pow(xOv, 2) - 2 * Math.pow(xOv, 3)
+            }
+            const instSpeedOv =
+              (ov.speedStart ?? ov.playbackSpeed ?? 1) +
+              fOv * ((ov.speedEnd ?? ov.playbackSpeed ?? 1) - (ov.speedStart ?? ov.playbackSpeed ?? 1))
+            const targetRateOv = rate * instSpeedOv
+            if (ovEl.paused || Math.abs(ovEl.playbackRate - targetRateOv) > 0.01) {
+              onVideoPlayState(ov.id, true, targetRateOv)
+            }
           }
         } else {
           if (Math.abs(ovEl.currentTime - targetOv) > PAUSED_SCRUB_SEEK_THRESHOLD) {
@@ -499,7 +508,8 @@ export class VideoRenderingEngine {
     const elapsed = Math.max(0, currentTime - videoClip.timestamp)
     const clipDur = videoClip.duration ?? 0
     const kf = resolveMediaKeyframeTransform(videoClip, elapsed, clipDur)
-    const x = elapsed / Math.max(0.1, clipTimelineSpanForSourceMap(videoClip.duration))
+    const tmDraw = videoTimelineSourceMapping(videoClip, elapsed, clipDur)
+    const x = tmDraw.playSpan > 0 ? Math.min(elapsed, tmDraw.playSpan) / tmDraw.playSpan : 1
     let f = x
     if (videoClip.speedEasing === 'ease') {
       f = 3 * Math.pow(x, 2) - 2 * Math.pow(x, 3)

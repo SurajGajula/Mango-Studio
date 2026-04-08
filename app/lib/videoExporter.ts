@@ -9,7 +9,7 @@ import { wrapTextToLines } from '@/app/lib/textUtils'
 import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
 import { applyEffect } from '@/app/lib/applyEffect'
 import { setVideoCrossOriginForUrl } from '@/app/lib/mediaUtils'
-import { getSortedMainItems, findActiveAndNextItems, checkTransition, calculateAnimationProgress, calculateSourceTime, clipTimelineSpanForSourceMap } from '@/app/lib/renderUtils'
+import { getSortedMainItems, findActiveAndNextItems, checkTransition, calculateAnimationProgress, clipTimelineSpanForSourceMap, videoTimelineSourceMapping } from '@/app/lib/renderUtils'
 import { resolveMediaKeyframeTransform } from '@/app/lib/resolveMediaKeyframeTransform'
 import { calculateTotalDuration } from '@/app/lib/timeUtils'
 import { audioBufferToWav } from '@/app/lib/audioUtils'
@@ -139,6 +139,7 @@ export async function exportVideo(
             // Handle speed ramping for audio
             const sStart = audioItem.speedStart ?? audioItem.playbackSpeed ?? 1
             const sEnd = audioItem.speedEnd ?? audioItem.playbackSpeed ?? 1
+            const pitch = audioItem.pitch ?? 1
             const timelineDuration = audioItem.endTime - audioItem.startTime
             const easing = audioItem.speedEasing ?? 'linear'
             
@@ -150,16 +151,16 @@ export async function exportVideo(
                 for (let i = 0; i < points; i++) {
                   const t = i / (points - 1)
                   const f = 3 * t * t - 2 * t * t * t
-                  curve[i] = sStart + (sEnd - sStart) * f
+                  curve[i] = (sStart + (sEnd - sStart) * f) * pitch
                 }
                 source.playbackRate.setValueCurveAtTime(curve, audioItem.startTime, timelineDuration)
               } else {
                 // Linear ramp for playbackRate
-                source.playbackRate.setValueAtTime(sStart, audioItem.startTime)
-                source.playbackRate.linearRampToValueAtTime(sEnd, audioItem.startTime + timelineDuration)
+                source.playbackRate.setValueAtTime(sStart * pitch, audioItem.startTime)
+                source.playbackRate.linearRampToValueAtTime(sEnd * pitch, audioItem.startTime + timelineDuration)
               }
             } else {
-              source.playbackRate.value = sStart
+              source.playbackRate.value = sStart * pitch
             }
             
             source.connect(gainNode)
@@ -167,7 +168,7 @@ export async function exportVideo(
 
             // Calculate how much source duration to consume
             const avgSpeed = (sStart + sEnd) / 2
-            const sourceDurationToPlay = timelineDuration * avgSpeed
+            const sourceDurationToPlay = timelineDuration * avgSpeed * pitch
             
             source.start(audioItem.startTime, audioItem.trimStart, sourceDurationToPlay)
           } catch (e) { console.error(`Failed to load audio ${audioItem.id} for offline mix`, e) }
@@ -258,15 +259,9 @@ export async function exportVideo(
           const av = activeMain!.item as VideoClass
           const currentEl = videoElements.get(av.id); if (currentEl) {
             const elapsed = Math.max(0, t - activeMain!.startTime)
-            const sourceElapsed = calculateSourceTime(
-              elapsed,
-              clipTimelineSpanForSourceMap(av.duration),
-              av.speedStart ?? av.playbackSpeed ?? 1,
-              av.speedEnd ?? av.playbackSpeed ?? 1,
-              av.playbackSpeed ?? 1,
-              av.speedEasing
-            )
-            const localNow = (av.trimStart ?? 0) + sourceElapsed
+            const avDur = clipTimelineSpanForSourceMap(av.duration)
+            const tmA = videoTimelineSourceMapping(av, elapsed, avDur)
+            const localNow = (av.trimStart ?? 0) + tmA.sourceElapsed
             videosToReady.push({ el: currentEl, time: localNow })
           }
         }
@@ -274,15 +269,9 @@ export async function exportVideo(
         const v = activeMain.item as VideoClass
         const vEl = videoElements.get(v.id); if (vEl) {
           const elapsed = Math.max(0, t - activeMain.startTime)
-          const sourceElapsed = calculateSourceTime(
-            elapsed,
-            clipTimelineSpanForSourceMap(v.duration),
-            v.speedStart ?? v.playbackSpeed ?? 1,
-            v.speedEnd ?? v.playbackSpeed ?? 1,
-            v.playbackSpeed ?? 1,
-            v.speedEasing
-          )
-          const localTime = (v.trimStart ?? 0) + sourceElapsed
+          const vDur = clipTimelineSpanForSourceMap(v.duration)
+          const tmV = videoTimelineSourceMapping(v, elapsed, vDur)
+          const localTime = (v.trimStart ?? 0) + tmV.sourceElapsed
           videosToReady.push({ el: vEl, time: localTime })
         }
       }
@@ -291,15 +280,9 @@ export async function exportVideo(
       for (const v of ovs) {
         const vEl = videoElements.get(v.id); if (vEl) {
           const elapsed = Math.max(0, t - v.timestamp)
-          const sourceElapsed = calculateSourceTime(
-            elapsed,
-            clipTimelineSpanForSourceMap(v.duration),
-            v.speedStart ?? v.playbackSpeed ?? 1,
-            v.speedEnd ?? v.playbackSpeed ?? 1,
-            v.playbackSpeed ?? 1,
-            v.speedEasing
-          )
-          const localTime = (v.trimStart ?? 0) + sourceElapsed
+          const ovDur = clipTimelineSpanForSourceMap(v.duration)
+          const tmOvEx = videoTimelineSourceMapping(v, elapsed, ovDur)
+          const localTime = (v.trimStart ?? 0) + tmOvEx.sourceElapsed
           videosToReady.push({ el: vEl, time: localTime })
         }
       }

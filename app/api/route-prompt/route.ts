@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/app/utils/supabase/server'
 import { getGenAIClient } from '@/app/lib/genaiClient'
+import { audioMarksAbsoluteTimelinePositions } from '@/app/lib/audioMarkTimeline'
 import { tools, systemInstruction, FunctionCallingConfigMode } from '@/app/lib/routePromptConfig'
 
 interface ManifestItem {
@@ -35,6 +36,7 @@ interface SerializedManifest {
   videos?: ManifestItem[]
   texts?: ManifestItem[]
   audios?: ManifestItem[]
+  effects?: ManifestItem[]
 }
 
 interface UploadedFileMeta {
@@ -87,7 +89,7 @@ export interface AddTextInstruction {
 }
 
 export interface AddEffectInstruction {
-  type: 'crt-dither' | 'flashing-black-vignette' | 'black-and-white' | 'vivid-sharp'
+  type: 'crt-dither' | 'flashing-black-vignette' | 'black-and-white' | 'vivid-sharp' | 'pixel-glitch-scan'
   startTime: number
   endTime: number
   intensity?: number
@@ -96,7 +98,7 @@ export interface AddEffectInstruction {
 export interface TransitionInstruction {
   type: 'image' | 'video'
   id: string
-  animation?: 'none' | 'pulse' | 'shake' | 'jitter'
+  animation?: 'none' | 'pulse' | 'shake' | 'jitter' | 'last-frame-hold'
   transition?: 'none' | 'split' | 'fade' | 'slide-in' | 'circle' | 'rotate' | 'flash'
   zoomIntensity?: number
   transitionDuration?: number
@@ -113,7 +115,7 @@ export interface CropInstruction {
 }
 
 export interface DeleteTimelineItemInstruction {
-  type: 'image' | 'video' | 'text' | 'audio'
+  type: 'image' | 'video' | 'text' | 'audio' | 'effect'
   id: string
 }
 
@@ -186,16 +188,32 @@ function buildManifestContext(manifest: SerializedManifest): string {
     const sorted = [...manifest.audios].sort((a, b) => (a.startTime ?? 0) - (b.startTime ?? 0))
     lines.push(`Audios (${sorted.length}):`)
     sorted.forEach((aud, i) => {
-      const markStr = aud.marks?.length
-        ? aud.marks
-            .map((m) => `${(typeof m === 'number' ? m : m.t).toFixed(3)}s`)
-            .join(', ')
-        : 'none'
       const origDur = aud.originalDuration ?? aud.endTime ?? 0
       const ts = aud.trimStart ?? 0
       const te = aud.trimEnd ?? 0
+      const sourceTimes = (aud.marks ?? []).map((m) => (typeof m === 'number' ? m : m.t))
+      const markStr = sourceTimes.length ? sourceTimes.map((t) => `${t.toFixed(3)}s`).join(', ') : 'none'
+      const timelineSplits = audioMarksAbsoluteTimelinePositions(
+        aud.startTime ?? 0,
+        ts,
+        te,
+        origDur,
+        sourceTimes
+      )
+      const timelineSplitStr = timelineSplits.length ? timelineSplits.map((t) => `${t.toFixed(3)}s`).join(', ') : 'none'
       const activeDur = Math.max(0, origDur - ts - te)
-      lines.push(`  - #${i + 1} id="${aud.id}" name="${aud.name}" activeStartTime=${aud.startTime}s originalDuration=${origDur}s trimStart=${ts}s trimEnd=${te}s playbackSpeed=${aud.playbackSpeed ?? 1}x activeDuration=${activeDur.toFixed(3)}s (to restore to originalDuration set trimStart=0 trimEnd=0) marks=[${markStr}]`)
+      lines.push(
+        `  - #${i + 1} id="${aud.id}" name="${aud.name}" activeStartTime=${aud.startTime}s originalDuration=${origDur}s trimStart=${ts}s trimEnd=${te}s playbackSpeed=${aud.playbackSpeed ?? 1}x activeDuration=${activeDur.toFixed(3)}s (to restore to originalDuration set trimStart=0 trimEnd=0) marksSourceFileSeconds=[${markStr}] splitAtMarksTimelineSeconds=[${timelineSplitStr}] (marksSourceFileSeconds are positions in the original audio file; splitAtMarksTimelineSeconds are the absolute timeline times to use in split_at_marks)`
+      )
+    })
+  }
+  if (manifest.effects?.length) {
+    const sorted = [...manifest.effects].sort((a, b) => (a.startTime ?? 0) - (b.startTime ?? 0))
+    lines.push(`Effects (${sorted.length}):`)
+    sorted.forEach((effect, i) => {
+      lines.push(
+        `  - #${i + 1} id="${effect.id}" type="${effect.name ?? 'unknown'}" startTime=${effect.startTime}s endTime=${effect.endTime}s`
+      )
     })
   }
 

@@ -63,6 +63,7 @@ export default function ChatWindow() {
   const removeVideo = useManifestStore((state) => state.removeVideo)
   const removeText = useManifestStore((state) => state.removeText)
   const removeAudio = useManifestStore((state) => state.removeAudio)
+  const removeEffect = useManifestStore((state) => state.removeEffect)
   const duplicateTimelineRange = useManifestStore((state) => state.duplicateTimelineRange)
   useEffect(() => {
     if (pendingPrompt) {
@@ -85,9 +86,9 @@ export default function ChatWindow() {
         updateImage(m.id, updates)
       } else if (m.type === 'updateVideo') {
         if (m.speedStart !== undefined || m.speedEnd !== undefined) {
-          setItemPlaybackSpeed(m.id, m.playbackSpeed ?? 1, m.speedStart, m.speedEnd, m.speedEasing)
+          if (!setItemPlaybackSpeed(m.id, m.playbackSpeed ?? 1, m.speedStart, m.speedEnd, m.speedEasing)) continue
         } else if (m.playbackSpeed !== undefined) {
-          setItemPlaybackSpeed(m.id, m.playbackSpeed)
+          if (!setItemPlaybackSpeed(m.id, m.playbackSpeed)) continue
         }
         updateVideo(m.id, { timestamp: m.timestamp, duration: m.duration, muted: m.muted })
       } else if (m.type === 'updateText') updateText(m.id, { startTime: m.startTime, endTime: m.endTime })
@@ -123,6 +124,7 @@ export default function ChatWindow() {
       else if (item.type === 'video') removeVideo(item.id)
       else if (item.type === 'text') removeText(item.id)
       else if (item.type === 'audio') removeAudio(item.id)
+      else if (item.type === 'effect') removeEffect(item.id)
     }
   }
 
@@ -358,12 +360,13 @@ export default function ChatWindow() {
     ])
 
     try {
-      const { videos, images, texts, audios } = useManifestStore.getState()
+      const { videos, images, texts, audios, effects } = useManifestStore.getState()
       const manifest = {
         images: images.map((i) => ({ id: i.id, name: i.name, startTime: i.startTime, endTime: i.endTime, animation: i.animation, transition: i.transition, zoomIntensity: i.zoomIntensity, transitionDuration: i.transitionDuration, animationDuration: i.animationDuration, cropAspect: i.cropAspect, transitionColor: i.transitionColor, transitionDirection: i.transitionDirection, transitionAxis: i.transitionAxis })),
         videos: videos.map((v) => ({ id: v.id, title: v.title, timestamp: v.timestamp, duration: v.duration, playbackSpeed: v.playbackSpeed, speedStart: v.speedStart, speedEnd: v.speedEnd, speedEasing: v.speedEasing, muted: v.muted, isOverlay: v.isOverlay, animation: v.animation, transition: v.transition, zoomIntensity: v.zoomIntensity, transitionDuration: v.transitionDuration, animationDuration: v.animationDuration, cropAspect: v.cropAspect, transitionColor: v.transitionColor, transitionDirection: v.transitionDirection, transitionAxis: v.transitionAxis })),
         texts: texts.map((t) => ({ id: t.id, content: t.content, startTime: t.startTime, endTime: t.endTime })),
         audios: audios.map((a) => ({ id: a.id, name: a.name, startTime: a.startTime, endTime: a.endTime, originalDuration: a.originalDuration, trimStart: a.trimStart, trimEnd: a.trimEnd, playbackSpeed: a.playbackSpeed, speedStart: a.speedStart, speedEnd: a.speedEnd, speedEasing: a.speedEasing, marks: a.marks })),
+        effects: effects.map((e) => ({ id: e.id, name: e.type, startTime: e.startTime, endTime: e.endTime })),
       }
 
       const filesSnapshot = uploadedFiles

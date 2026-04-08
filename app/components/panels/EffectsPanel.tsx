@@ -61,6 +61,17 @@ const EFFECT_OPTIONS: { value: EffectType; label: string; desc: string; icon: Re
       </svg>
     ),
   },
+  {
+    value: 'pixel-glitch-scan',
+    label: 'Pixel Glitch Scan',
+    desc: 'Scrolling blocky band plus brief random pixel bursts',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 6h16M4 12h10M4 18h16" />
+        <rect x="14" y="9" width="6" height="6" rx="1" />
+      </svg>
+    ),
+  },
 ]
 
 export default function EffectsPanel({ onClose }: Props) {
@@ -132,11 +143,17 @@ export default function EffectsPanel({ onClose }: Props) {
           ))}
         </div>
 
-        {(activeEffect?.type === 'flashing-black-vignette' || activeEffect?.type === 'black-and-white' || activeEffect?.type === 'vivid-sharp') && (
+        {(activeEffect?.type === 'flashing-black-vignette' || activeEffect?.type === 'black-and-white' || activeEffect?.type === 'vivid-sharp' || activeEffect?.type === 'pixel-glitch-scan') && (
           <div className={styles.durationControl} style={{ marginTop: '2rem' }}>
             <div className={styles.durationHeader}>
               <span className={styles.durationLabel}>
-                {activeEffect.type === 'black-and-white' ? 'Desaturation' : activeEffect.type === 'vivid-sharp' ? 'Sharpness' : 'Vignette Intensity'}
+                {activeEffect.type === 'black-and-white'
+                  ? 'Desaturation'
+                  : activeEffect.type === 'vivid-sharp'
+                    ? 'Sharpness'
+                    : activeEffect.type === 'pixel-glitch-scan'
+                      ? 'Block size'
+                      : 'Vignette Intensity'}
               </span>
               <span className={styles.durationValue}>{((activeEffect.intensity ?? 0.5) * 100).toFixed(0)}%</span>
             </div>

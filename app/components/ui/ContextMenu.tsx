@@ -14,6 +14,7 @@ interface ContextMenuProps {
   onOpenFont?: () => void
   onOpenEffects?: () => void
   onOpenSpeed?: (id: string) => void
+  onOpenPitch?: (id: string) => void
   onReplace?: (id: string) => void
   playbackTime: number
 }
@@ -24,6 +25,7 @@ export default function ContextMenu({
   onOpenFont,
   onOpenEffects,
   onOpenSpeed,
+  onOpenPitch,
   onReplace,
   playbackTime,
 }: ContextMenuProps) {
@@ -56,6 +58,7 @@ export default function ContextMenu({
   const pushHistory = useManifestStore((s) => s.pushHistory)
 
   const volumeSliderHistory = useSliderHistorySession()
+  const pitchSliderHistory = useSliderHistorySession()
 
   const removeAudioFromStore = useAudioStore((s) => s.removeAudio)
   const audioInStore = useAudioStore((s) => s.audio)
@@ -230,6 +233,30 @@ export default function ContextMenu({
               {Math.round((currentAudio.volume ?? 1) * 100)}%
             </span>
           </div>
+          <div className={styles.contextMenuSliderItem}>
+            <div className={styles.contextMenuIcon}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3v9"></path>
+                <path d="m9 9 3 3 3-3"></path>
+                <path d="M5 16a7 7 0 0 0 14 0"></path>
+              </svg>
+            </div>
+            <span style={{ fontSize: '0.75rem', color: '#cccccc', marginRight: '8px', minWidth: '45px' }}>Pitch</span>
+            <input
+              type="range"
+              min="0.5"
+              max="1.5"
+              step="0.01"
+              value={currentAudio.pitch ?? 1}
+              onPointerDown={pitchSliderHistory}
+              onChange={(e) => updateAudio(itemId, { pitch: parseFloat(e.target.value) })}
+              onClick={(e) => e.stopPropagation()}
+              className={styles.contextMenuSlider}
+            />
+            <span style={{ fontSize: '0.7rem', color: '#888', marginLeft: '8px', minWidth: '30px' }}>
+              {(currentAudio.pitch ?? 1).toFixed(2)}x
+            </span>
+          </div>
           <div className={styles.contextMenuSeparator} />
         </>
       )}
@@ -350,6 +377,19 @@ export default function ContextMenu({
             </svg>
           </div>
           Playback Speed
+        </button>
+      )}
+      {itemType === 'audio' && currentAudio && (
+        <button
+          className={styles.contextMenuItem}
+          onClick={() => handleAction(() => onOpenPitch?.(itemId))}
+        >
+          <div className={styles.contextMenuIcon}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 3v9"/><path d="m9 9 3 3 3-3"/><path d="M5 16a7 7 0 0 0 14 0"/>
+            </svg>
+          </div>
+          Pitch
         </button>
       )}
 

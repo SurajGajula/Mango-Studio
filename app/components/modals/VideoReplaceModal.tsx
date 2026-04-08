@@ -3,8 +3,31 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { generateVideoThumbnails } from '@/app/lib/mediaUtils'
 import { terminateFFmpeg } from '@/app/lib/videoExporter'
+import { calculateSourceTime } from '@/app/lib/renderUtils'
+import { AudioClass } from '@/app/models/AudioClass'
 import { useAudioStore } from '@/app/stores/audioStore'
 import styles from './VideoReplaceModal.module.css'
+
+function projectTimeToAudioSourceTime(projectTime: number, audio: AudioClass): number {
+  const elapsed = projectTime - audio.startTime
+  const timelineDuration = audio.endTime - audio.startTime
+  if (timelineDuration <= 0) return audio.trimStart ?? 0
+  const clampedElapsed = Math.max(0, Math.min(elapsed, timelineDuration - 1e-6))
+  const sourceTimeOffset = calculateSourceTime(
+    clampedElapsed,
+    timelineDuration,
+    audio.speedStart ?? audio.playbackSpeed ?? 1,
+    audio.speedEnd ?? audio.playbackSpeed ?? 1,
+    audio.playbackSpeed ?? 1,
+    audio.speedEasing ?? 'linear'
+  )
+  const pitch = audio.pitch ?? 1
+  return (audio.trimStart ?? 0) + sourceTimeOffset * pitch
+}
+
+function isProjectTimeInAudioClip(projectTime: number, audio: AudioClass): boolean {
+  return projectTime >= audio.startTime && projectTime < audio.endTime
+}
 
 const PIXELS_PER_SECOND = 60
 const VIRTUALIZATION_BUFFER = 5 // Number of extra thumbnails to render on each side
@@ -14,8 +37,12 @@ interface Props {
   windowDuration: number
   videoDuration: number
   playbackSpeed?: number
+  speedStart?: number
+  speedEnd?: number
+  speedEasing?: 'linear' | 'ease'
   initialTrimStart?: number
   projectStartTime?: number
+  mainAudio?: AudioClass | null
   confirmLabel?: string
   isProcessing?: boolean
   onConfirm: (trimStart: number) => void
@@ -27,8 +54,12 @@ export default function VideoReplaceModal({
   windowDuration,
   videoDuration,
   playbackSpeed = 1,
+  speedStart,
+  speedEnd,
+  speedEasing = 'linear',
   initialTrimStart = 0,
   projectStartTime,
+  mainAudio = null,
   confirmLabel = 'Replace',
   isProcessing = false,
   onConfirm,
@@ -54,7 +85,19 @@ export default function VideoReplaceModal({
   const videoPlayPromiseRef = useRef<Promise<void> | null>(null)
   const audioPlayPromiseRef = useRef<Promise<void> | null>(null)
 
-  const sourceWindowDuration = windowDuration * playbackSpeed
+  const ps = playbackSpeed
+  const ss = speedStart ?? ps
+  const se = speedEnd ?? ps
+  const sourceWindowDuration = useMemo(
+    () => calculateSourceTime(windowDuration, windowDuration, ss, se, ps, speedEasing),
+    [windowDuration, ss, se, ps, speedEasing]
+  )
+  const speedHint =
+    Math.abs(ss - 1) < 0.05 && Math.abs(se - 1) < 0.05
+      ? ''
+      : Math.abs(ss - se) < 0.05
+        ? ` (preview ${ss.toFixed(2)}x)`
+        : ` (preview ${ss.toFixed(2)}x → ${se.toFixed(2)}x)`
   const maxTrimStart = Math.max(0, videoDuration - sourceWindowDuration)
 
   useEffect(() => {
@@ -147,10 +190,10 @@ export default function VideoReplaceModal({
     if (!isVideoSeeking && (isAtEnd || isWayBeforeStart)) {
       video.currentTime = trimStart
       if (audio && projectStartTime !== undefined) {
-        audio.currentTime = projectStartTime
-        // Use muted to hide the seek stutter instead of pause() 
-        // to avoid the 1-second play-promise gap.
-        audio.muted = true 
+        audio.currentTime = mainAudio
+          ? projectTimeToAudioSourceTime(projectStartTime, mainAudio)
+          : projectStartTime
+        audio.muted = true
       }
       setCurrentTime(trimStart)
       requestRef.current = requestAnimationFrame(animate)
@@ -180,18 +223,39 @@ export default function VideoReplaceModal({
         .finally(() => { videoPlayPromiseRef.current = null })
     }
     
-    // Sync audio with video
     if (audio && projectStartTime !== undefined) {
       const timelineOffset = (vTime - trimStart) / playbackSpeed
       const targetProjectTime = projectStartTime + timelineOffset
-      
-      if (targetProjectTime >= 0) {
+
+      if (mainAudio) {
+        if (!isProjectTimeInAudioClip(targetProjectTime, mainAudio)) {
+          if (!audio.paused) {
+            if (audioPlayPromiseRef.current) {
+              audioPlayPromiseRef.current.then(() => audio?.pause()).catch(() => {})
+            } else {
+              audio.pause()
+            }
+          }
+        } else {
+          const targetSourceTime = projectTimeToAudioSourceTime(targetProjectTime, mainAudio)
+          const drift = Math.abs(audio.currentTime - targetSourceTime)
+          if (drift > 0.25 && !audio.seeking) {
+            audio.currentTime = targetSourceTime
+          }
+
+          if (audio.paused && video.readyState >= 2 && !audioPlayPromiseRef.current) {
+            audioPlayPromiseRef.current = audio.play()
+            audioPlayPromiseRef.current
+              .catch(() => {})
+              .finally(() => { audioPlayPromiseRef.current = null })
+          }
+        }
+      } else if (targetProjectTime >= 0) {
         const drift = Math.abs(audio.currentTime - targetProjectTime)
-        // Relaxed drift correction for replacement modal to avoid "rough" audio
         if (drift > 0.25 && !audio.seeking) {
           audio.currentTime = targetProjectTime
         }
-        
+
         if (audio.paused && video.readyState >= 2 && !audioPlayPromiseRef.current) {
           audioPlayPromiseRef.current = audio.play()
           audioPlayPromiseRef.current
@@ -210,7 +274,7 @@ export default function VideoReplaceModal({
     }
 
     requestRef.current = requestAnimationFrame(animate)
-  }, [isPlaying, projectStartTime, trimStart, sourceWindowDuration])
+  }, [isPlaying, projectStartTime, trimStart, sourceWindowDuration, playbackSpeed, mainAudio])
 
   useEffect(() => {
     requestRef.current = requestAnimationFrame(animate)
@@ -250,15 +314,16 @@ export default function VideoReplaceModal({
     return () => { isMounted = false }
   }, [videoUrl, videoDuration])
 
-  // Sync video time with trimStart when it changes
   useEffect(() => {
     if (videoRef.current && !isPlaying) {
       videoRef.current.currentTime = trimStart
       if (audioRef.current && projectStartTime !== undefined) {
-        audioRef.current.currentTime = projectStartTime
+        audioRef.current.currentTime = mainAudio
+          ? projectTimeToAudioSourceTime(projectStartTime, mainAudio)
+          : projectStartTime
       }
     }
-  }, [trimStart, isPlaying, projectStartTime])
+  }, [trimStart, isPlaying, projectStartTime, mainAudio])
 
   useEffect(() => {
     overlayRef.current?.focus()
@@ -332,10 +397,12 @@ export default function VideoReplaceModal({
       videoRef.current.currentTime = newTrimStart
       setCurrentTime(newTrimStart)
       if (audioRef.current && projectStartTime !== undefined) {
-        audioRef.current.currentTime = projectStartTime
+        audioRef.current.currentTime = mainAudio
+          ? projectTimeToAudioSourceTime(projectStartTime, mainAudio)
+          : projectStartTime
       }
     }
-  }, [maxTrimStart, isPlaying, projectStartTime])
+  }, [maxTrimStart, isPlaying, projectStartTime, mainAudio])
 
   useEffect(() => {
     const container = scrollContainerRef.current
@@ -391,7 +458,7 @@ export default function VideoReplaceModal({
       <div className={styles.modal}>
         <div className={styles.header}>
           <h3>Select Video Window</h3>
-          <p>Choose a {windowDuration.toFixed(1)}s segment from the video{playbackSpeed !== 1 ? ` (playing at ${playbackSpeed}x speed)` : ''}.</p>
+          <p>Choose a {windowDuration.toFixed(1)}s timeline segment; source window {sourceWindowDuration.toFixed(2)}s{speedHint}.</p>
         </div>
 
         <div className={styles.videoContainer}>

@@ -79,7 +79,9 @@ function syncManifestVideoPool(
           const currentClip = useManifestStore.getState().videos.find((v) => v.id === clip.id)
           if (!currentClip) return
           const hasTrim = currentClip.trimStart > 0 || currentClip.trimEnd > 0
-          if (!hasTrim && video!.duration && (!currentClip.duration || Math.abs(currentClip.duration - video!.duration) > 0.1)) {
+          const cd = currentClip.duration
+          const needsTimelineDuration = cd == null || !(cd > 0)
+          if (!hasTrim && video!.duration && needsTimelineDuration) {
             useManifestStore.getState().updateVideo(clip.id, { duration: video!.duration })
           }
         }
@@ -241,6 +243,8 @@ export function useVideoPlayback(
         el = new Audio(audioItem.url)
         el.preload = 'auto'
         el.crossOrigin = 'anonymous'
+        ;(el as HTMLAudioElement & { preservesPitch?: boolean; webkitPreservesPitch?: boolean }).preservesPitch = false
+        ;(el as HTMLAudioElement & { preservesPitch?: boolean; webkitPreservesPitch?: boolean }).webkitPreservesPitch = false
         audioElementsRef.current.set(audioItem.id, el)
 
         // Setup Web Audio for volume > 100%
@@ -429,8 +433,9 @@ export function useVideoPlayback(
             audioItem.playbackSpeed ?? 1,
             audioItem.speedEasing ?? 'linear'
           )
+          const pitch = audioItem.pitch ?? 1
 
-          const target = (audioItem.trimStart ?? 0) + sourceTimeOffset
+          const target = (audioItem.trimStart ?? 0) + sourceTimeOffset * pitch
           const syncTarget = target + decodeLead
 
           const vol = audioItem.volume ?? 1.0
@@ -446,7 +451,7 @@ export function useVideoPlayback(
           const instantaneousSpeed = (audioItem.speedStart ?? audioItem.playbackSpeed ?? 1) +
             f * ((audioItem.speedEnd ?? audioItem.playbackSpeed ?? 1) - (audioItem.speedStart ?? audioItem.playbackSpeed ?? 1))
 
-          const targetRate = rate * instantaneousSpeed
+          const targetRate = rate * instantaneousSpeed * pitch
           if (Math.abs(el.playbackRate - targetRate) > 0.01) {
             el.playbackRate = targetRate
           }
@@ -480,7 +485,8 @@ export function useVideoPlayback(
               audioItem.playbackSpeed ?? 1,
               audioItem.speedEasing ?? 'linear'
             )
-            const target = (audioItem.trimStart ?? 0) + sourceTimeOffset
+            const pitch = audioItem.pitch ?? 1
+            const target = (audioItem.trimStart ?? 0) + sourceTimeOffset * pitch
             const syncTarget = target + decodeLead
             if (Math.abs(el.currentTime - syncTarget) > 0.04) {
               el.currentTime = syncTarget

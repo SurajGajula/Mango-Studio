@@ -45,6 +45,63 @@ export function clipTimelineSpanForSourceMap(duration: number | undefined | null
   return d > 0 ? d : 0
 }
 
+export function videoTimelineSourceMapping(
+  video: VideoClass,
+  elapsedInClip: number,
+  clipDuration: number
+): { sourceElapsed: number; playSpan: number; inHold: boolean } {
+  const D = clipDuration > 0 ? clipDuration : 0
+  const span = clipTimelineSpanForSourceMap(clipDuration)
+  const speedStart = video.speedStart ?? video.playbackSpeed ?? 1
+  const speedEnd = video.speedEnd ?? video.playbackSpeed ?? 1
+  const baseSpeed = video.playbackSpeed ?? 1
+  const easing = video.speedEasing
+
+  if (video.animation !== 'last-frame-hold') {
+    const e = Math.max(0, Math.min(elapsedInClip, D))
+    const sourceElapsed = calculateSourceTime(e, span, speedStart, speedEnd, baseSpeed, easing)
+    return { sourceElapsed, playSpan: D > 0 ? D : 0.1, inHold: false }
+  }
+
+  const holdRaw = video.animationDuration ?? 0
+  const hold = Math.max(0, Math.min(holdRaw, D))
+  const playSpan = D - hold
+  const e = Math.max(0, elapsedInClip)
+
+  if (hold <= 0) {
+    const sourceElapsed = calculateSourceTime(Math.min(e, D), span, speedStart, speedEnd, baseSpeed, easing)
+    return { sourceElapsed, playSpan: D > 0 ? D : 0.1, inHold: false }
+  }
+
+  if (playSpan <= 0) {
+    const sourceElapsed = calculateSourceTime(D, span, speedStart, speedEnd, baseSpeed, easing)
+    return { sourceElapsed, playSpan: Math.max(0.001, D), inHold: true }
+  }
+
+  const inHold = e >= playSpan - 1e-6
+  if (inHold) {
+    const sourceAtEnd = calculateSourceTime(playSpan, playSpan, speedStart, speedEnd, baseSpeed, easing)
+    return { sourceElapsed: sourceAtEnd, playSpan, inHold: true }
+  }
+  const sourceElapsed = calculateSourceTime(e, playSpan, speedStart, speedEnd, baseSpeed, easing)
+  return { sourceElapsed, playSpan, inHold: false }
+}
+
+export function timelineClipSourceSpanSeconds(
+  timelineDuration: number,
+  playbackSpeed: number,
+  speedStart?: number,
+  speedEnd?: number,
+  easing: 'linear' | 'ease' = 'linear'
+): number {
+  const D = timelineDuration
+  if (!(D > 0)) return 0
+  const ps = playbackSpeed
+  const ss = speedStart ?? ps
+  const se = speedEnd ?? ps
+  return calculateSourceTime(D, D, ss, se, ps, easing)
+}
+
 export function calculateSourceTime(
   elapsedTimelineTime: number,
   timelineDuration: number,

@@ -30,9 +30,10 @@ interface TimelineProps {
   onOpenFont?: () => void
   onOpenEffects?: () => void
   onOpenSpeed?: (id: string) => void
+  onOpenPitch?: (id: string) => void
 }
 
-export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpenAnimations, onOpenFont, onOpenEffects, onOpenSpeed }: TimelineProps) {
+export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpenAnimations, onOpenFont, onOpenEffects, onOpenSpeed, onOpenPitch }: TimelineProps) {
   const videos = useManifestStore((state) => state.videos)
   const images = useManifestStore((state) => state.images)
   const texts = useManifestStore((state) => state.texts)
@@ -186,8 +187,20 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     images,
     replaceImageWithVideo,
     replaceVideoWithImage,
-    updateVideo,
   })
+
+  const videoReplaceFilePickerRequest = useManifestStore((s) => s.videoReplaceFilePickerRequest)
+  const setVideoReplaceFilePickerRequestStore = useManifestStore((s) => s.setVideoReplaceFilePickerRequest)
+
+  useLayoutEffect(() => {
+    if (!videoReplaceFilePickerRequest) return
+    const { videoId } = videoReplaceFilePickerRequest
+    setVideoReplaceFilePickerRequestStore(null)
+    setReplaceTargetId(videoId)
+    window.setTimeout(() => {
+      replaceInputRef.current?.click()
+    }, 0)
+  }, [videoReplaceFilePickerRequest, setReplaceTargetId, setVideoReplaceFilePickerRequestStore])
 
   const getContentPosition = useCallback((time: number) => {
     const timeWithPadding = time + effectivePadding
@@ -334,12 +347,17 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
       />
       {replaceVideoData && (
         <VideoReplaceModal
+          key={`${replaceVideoData.targetId}-${replaceVideoData.url}-${replaceVideoData.windowDuration}-${replaceVideoData.playbackSpeed}-${replaceVideoData.speedStart ?? ''}-${replaceVideoData.speedEnd ?? ''}-${replaceVideoData.speedEasing ?? ''}`}
           videoUrl={replaceVideoData.url}
           windowDuration={replaceVideoData.windowDuration}
           videoDuration={replaceVideoData.duration}
           playbackSpeed={replaceVideoData.playbackSpeed}
+          speedStart={replaceVideoData.speedStart}
+          speedEnd={replaceVideoData.speedEnd}
+          speedEasing={replaceVideoData.speedEasing}
           initialTrimStart={replaceVideoData.initialTrimStart}
           projectStartTime={replaceVideoData.projectStartTime}
+          mainAudio={audios.find((a) => !a.isOverlay) ?? null}
           confirmLabel={replaceVideoData.targetType === 'image' ? 'Replace' : 'Update'}
           isProcessing={isReplacingClip}
           onConfirm={handleConfirmReplaceVideo}
@@ -517,6 +535,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
               onOpenFont={onOpenFont}
               onOpenEffects={onOpenEffects}
               onOpenSpeed={onOpenSpeed}
+              onOpenPitch={onOpenPitch}
               onReplace={(id) => {
                 setReplaceTargetId(id)
                 replaceInputRef.current?.click()

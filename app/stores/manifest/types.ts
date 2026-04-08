@@ -20,6 +20,24 @@ export interface ManifestStore {
   texts: TextClass[]
   audios: AudioClass[]
   pendingPrompt: string | null
+  pendingVideoReplaceSpeed: {
+    videoId: string
+    playbackSpeed: number
+    speedStart: number
+    speedEnd: number
+    speedEasing: 'linear' | 'ease'
+  } | null
+  setPendingVideoReplaceSpeed: (
+    value: {
+      videoId: string
+      playbackSpeed: number
+      speedStart: number
+      speedEnd: number
+      speedEasing: 'linear' | 'ease'
+    } | null
+  ) => void
+  videoReplaceFilePickerRequest: { videoId: string } | null
+  setVideoReplaceFilePickerRequest: (value: { videoId: string } | null) => void
   playbackTime: number
   isPlaying: boolean
   aspectRatio: AspectRatio
@@ -69,7 +87,7 @@ export interface ManifestStore {
   splitAudio: (id: string, playbackTime: number) => void
   removeAudio: (id: string) => void
   trimAudio: (id: string, trimStart: number, trimEnd: number, startTime?: number) => void
-  setItemPlaybackSpeed: (id: string, speed: number, speedStart?: number, speedEnd?: number, speedEasing?: 'linear' | 'ease') => void
+  setItemPlaybackSpeed: (id: string, speed: number, speedStart?: number, speedEnd?: number, speedEasing?: 'linear' | 'ease') => boolean
   splitVideoAtTimes: (id: string, times: number[]) => void
   splitImageAtTimes: (id: string, times: number[]) => void
   duplicateItem: (id: string) => void
