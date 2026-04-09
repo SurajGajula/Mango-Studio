@@ -1,13 +1,11 @@
 import type { TransformParams } from './types'
 import { drawWithAnimation } from './animationUtils'
+import { easedTransitionProgress } from './transitionEasing'
 
 export function applyCircle(params: TransformParams): void {
-  const { ctx, progress, imgEl, animation, elapsedTime, zoomIntensity, animationDuration, x, y, w, h } = params
-  
-  const t = Math.max(0, Math.min(1, progress))
-  
-  // Use cubic easing for a smoother, more natural reveal
-  const ease = t * t * (3 - 2 * t)
+  const { ctx, progress, imgEl, animation, elapsedTime, zoomIntensity, animationDuration, x, y, w, h, transitionCircleEasing } = params
+
+  const ease = easedTransitionProgress(progress, transitionCircleEasing)
 
   // Calculate center of the incoming item
   const centerX = x + w / 2

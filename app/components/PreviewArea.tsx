@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useCallback, useState, useMemo, memo } from 'react'
+import { useEffect, useRef, useCallback, useState, useMemo, memo, type CSSProperties } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useVideoPlayback } from '@/app/lib/useVideoPlayback'
@@ -20,12 +20,16 @@ interface OverlayItemProps {
   y: number
   w: number
   h: number
+  rotation: number
   isSelected: boolean
   offsetX: number
   offsetY: number
   xScale: number
   yScale: number
   handleOverlayMouseDown: (itemId: string, itemType: 'image' | 'video', mode: any, e: React.MouseEvent) => void
+  handleOverlayContextMenu: (itemId: string, itemType: 'image' | 'video', e: React.MouseEvent) => void
+  handleImageRotationMouseDown?: (itemId: string, e: React.MouseEvent) => void
+  showRotateHandle: boolean
   hasCrop: boolean
   cropEditId: string | null
   enterCropEdit: (id: string, type: 'image' | 'video') => void
@@ -34,9 +38,9 @@ interface OverlayItemProps {
 }
 
 const OverlayItem = memo(({
-  itemId, itemType, x, y, w, h, isSelected,
+  itemId, itemType, x, y, w, h, rotation, isSelected,
   offsetX, offsetY, xScale, yScale,
-  handleOverlayMouseDown, hasCrop, cropEditId,
+  handleOverlayMouseDown, handleOverlayContextMenu, handleImageRotationMouseDown, showRotateHandle, hasCrop, cropEditId,
   enterCropEdit, exitCropEdit, children
 }: OverlayItemProps) => {
   const px = offsetX + x * xScale
@@ -50,13 +54,31 @@ const OverlayItem = memo(({
     else enterCropEdit(itemId, itemType)
   }, [hasCrop, cropEditId, itemId, itemType, enterCropEdit, exitCropEdit])
 
+  const rot = rotation ?? 0
+  const overlayStyle: CSSProperties = {
+    left: px,
+    top: py,
+    width: pw,
+    height: ph,
+    ...(rot !== 0
+      ? { transform: `rotate(${rot}deg)`, transformOrigin: `${pw / 2}px ${ph / 2}px` }
+      : {}),
+  }
+
   return (
     <div
       className={`${styles.imageOverlay} ${isSelected ? styles.selected : ''}`}
-      style={{ left: px, top: py, width: pw, height: ph }}
+      style={overlayStyle}
       onMouseDown={(e) => handleOverlayMouseDown(itemId, itemType, 'move', e)}
+      onContextMenu={(e) => handleOverlayContextMenu(itemId, itemType, e)}
       onDoubleClick={handleDoubleClick}
     >
+      {itemType === 'image' && showRotateHandle && handleImageRotationMouseDown && (
+        <div
+          className={styles.imageRotateHandle}
+          onMouseDown={(e) => handleImageRotationMouseDown(itemId, e)}
+        />
+      )}
       {children}
     </div>
   )
@@ -91,6 +113,9 @@ export default function PreviewArea() {
   const setSelectedVideoId = useSelectionStore((state) => state.setSelectedVideoId)
   const selectedTextId = useSelectionStore((state) => state.selectedTextId)
   const setSelectedTextId = useSelectionStore((state) => state.setSelectedTextId)
+  const selectImage = useSelectionStore((state) => state.selectImage)
+  const selectVideo = useSelectionStore((state) => state.selectVideo)
+  const setContextMenu = useSelectionStore((state) => state.setContextMenu)
   const selectedKeyframeId = useSelectionStore((state) => state.selectedKeyframeId)
   const updateImage = useManifestStore((state) => state.updateImage)
   const updateVideo = useManifestStore((state) => state.updateVideo)
@@ -116,6 +141,7 @@ export default function PreviewArea() {
     enterCropEdit,
     exitCropEdit,
     handleOverlayMouseDown,
+    handleImageRotationMouseDown,
     handleTextMouseDown,
     handleTextResizeStart
   } = usePreviewInteractions(
@@ -140,8 +166,9 @@ export default function PreviewArea() {
       layers.push({ kind: 'image', row: image.row, t0: image.startTime, image })
     }
     for (const video of videos) {
-      if (!video.isOverlay) continue
-      if (playbackTime < video.timestamp || playbackTime >= video.timestamp + (video.duration ?? 0)) continue
+      const vdur = video.duration ?? 0
+      if (vdur <= 0) continue
+      if (playbackTime < video.timestamp || playbackTime >= video.timestamp + vdur) continue
       layers.push({ kind: 'video', row: video.row, t0: video.timestamp, video })
     }
     for (const text of texts) {
@@ -222,6 +249,108 @@ export default function PreviewArea() {
     }
   }, [videos, sortedPreviewLayers, playbackTime, xScale, yScale, offsetX, offsetY, contentRect, enterCropEdit])
 
+  const handleOverlayContextMenu = useCallback(
+    (itemId: string, itemType: 'image' | 'video', e: React.MouseEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (itemType === 'image') selectImage(itemId)
+      else selectVideo(itemId)
+      setContextMenu({
+        isOpen: true,
+        x: e.clientX,
+        y: e.clientY,
+        itemId,
+        itemType,
+      })
+    },
+    [selectImage, selectVideo, setContextMenu]
+  )
+
+  const handleCanvasContextMenu = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const rect = canvas.getBoundingClientRect()
+      const px = e.clientX - rect.left
+      const py = e.clientY - rect.top
+
+      const topFirst = [...sortedPreviewLayers].reverse()
+      for (let i = 0; i < topFirst.length; i++) {
+        const layer = topFirst[i]
+        if (layer.kind === 'video') {
+          const vid = layer.video
+          const vx = vid.x * xScale + offsetX
+          const vy = vid.y * yScale + offsetY
+          const vw = vid.width * xScale
+          const vh = vid.height * yScale
+          if (px >= vx && px <= vx + vw && py >= vy && py <= vy + vh) {
+            e.preventDefault()
+            e.stopPropagation()
+            selectVideo(vid.id)
+            setContextMenu({
+              isOpen: true,
+              x: e.clientX,
+              y: e.clientY,
+              itemId: vid.id,
+              itemType: 'video',
+            })
+            return
+          }
+        } else if (layer.kind === 'image') {
+          const img = layer.image
+          const ix = img.x * xScale + offsetX
+          const iy = img.y * yScale + offsetY
+          const iw = img.width * xScale
+          const ih = img.height * yScale
+          if (px >= ix && px <= ix + iw && py >= iy && py <= iy + ih) {
+            e.preventDefault()
+            e.stopPropagation()
+            selectImage(img.id)
+            setContextMenu({
+              isOpen: true,
+              x: e.clientX,
+              y: e.clientY,
+              itemId: img.id,
+              itemType: 'image',
+            })
+            return
+          }
+        }
+      }
+
+      const mainVideo = videos.find(
+        (v) => !v.isOverlay && playbackTime >= v.timestamp && playbackTime < v.timestamp + (v.duration ?? 0)
+      )
+      if (mainVideo) {
+        if (px >= offsetX && px <= offsetX + contentRect.width && py >= offsetY && py <= offsetY + contentRect.height) {
+          e.preventDefault()
+          e.stopPropagation()
+          selectVideo(mainVideo.id)
+          setContextMenu({
+            isOpen: true,
+            x: e.clientX,
+            y: e.clientY,
+            itemId: mainVideo.id,
+            itemType: 'video',
+          })
+        }
+      }
+    },
+    [
+      videos,
+      sortedPreviewLayers,
+      playbackTime,
+      xScale,
+      yScale,
+      offsetX,
+      offsetY,
+      contentRect,
+      selectImage,
+      selectVideo,
+      setContextMenu,
+    ]
+  )
+
   useEffect(() => {
     if (!cropEditId) return
     const handleMouseDown = (e: MouseEvent) => {
@@ -243,6 +372,7 @@ export default function PreviewArea() {
               ref={canvasRef}
               className={styles.video}
               onClick={() => { setSelectedImageId(null); setSelectedVideoId(null); setSelectedTextId(null); setEditingTextId(null); if (cropEditId) exitCropEdit() }}
+              onContextMenu={handleCanvasContextMenu}
               onDoubleClick={handleCanvasDoubleClick}
             />
             {hasMainContent && (
@@ -260,12 +390,16 @@ export default function PreviewArea() {
                           y={image.y}
                           w={image.width}
                           h={image.height}
+                          rotation={image.rotation ?? 0}
                           isSelected={selectedImageId === image.id}
                           offsetX={offsetX}
                           offsetY={offsetY}
                           xScale={xScale}
                           yScale={yScale}
                           handleOverlayMouseDown={handleOverlayMouseDown}
+                          handleOverlayContextMenu={handleOverlayContextMenu}
+                          handleImageRotationMouseDown={handleImageRotationMouseDown}
+                          showRotateHandle={selectedImageId === image.id && !cropEditId}
                           hasCrop={!!image.cropAspect}
                           cropEditId={cropEditId}
                           enterCropEdit={enterCropEdit}
@@ -284,12 +418,15 @@ export default function PreviewArea() {
                           y={video.y}
                           w={video.width}
                           h={video.height}
+                          rotation={0}
                           isSelected={selectedVideoId === video.id}
                           offsetX={offsetX}
                           offsetY={offsetY}
                           xScale={xScale}
                           yScale={yScale}
                           handleOverlayMouseDown={handleOverlayMouseDown}
+                          handleOverlayContextMenu={handleOverlayContextMenu}
+                          showRotateHandle={false}
                           hasCrop={!!video.cropAspect}
                           cropEditId={cropEditId}
                           enterCropEdit={enterCropEdit}

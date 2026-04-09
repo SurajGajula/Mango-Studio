@@ -34,7 +34,9 @@ export default function PlaybackControls({
   handleAddText,
 }: PlaybackControlsProps) {
   const isPlaying = useManifestStore((state) => state.isPlaying)
+  const isLooping = useManifestStore((state) => state.isLooping)
   const setIsPlaying = useManifestStore((state) => state.setIsPlaying)
+  const setIsLooping = useManifestStore((state) => state.setIsLooping)
   const setPlaybackTime = useManifestStore((state) => state.setPlaybackTime)
   const playbackRate = useManifestStore((state) => state.playbackRate)
   const setPlaybackRate = useManifestStore((state) => state.setPlaybackRate)
@@ -118,6 +120,17 @@ export default function PlaybackControls({
             <path d="M16 12 6 6 6 18 16 12Z" fill="currentColor" />
             <line x1="19" y1="6" x2="19" y2="18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
           </svg>
+        </button>
+        <button
+          type="button"
+          className={styles.historyButton}
+          onClick={() => setIsLooping(!isLooping)}
+          disabled={isExporting || totalDuration <= 0}
+          title={isLooping ? 'Disable loop playback' : 'Enable loop playback'}
+          aria-pressed={isLooping}
+          style={isLooping ? { color: '#ffffff', backgroundColor: '#444444' } : undefined}
+        >
+          ↻
         </button>
         <button
           className={styles.speedButton}

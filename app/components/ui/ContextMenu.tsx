@@ -221,7 +221,7 @@ export default function ContextMenu({
             <input
               type="range"
               min="0"
-              max="2"
+              max="4"
               step="0.05"
               value={currentAudio.volume ?? 1}
               onPointerDown={volumeSliderHistory}

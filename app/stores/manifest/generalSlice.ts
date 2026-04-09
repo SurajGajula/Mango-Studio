@@ -12,6 +12,7 @@ import { findFreeVisualOverlayRowFromState } from '@/app/lib/visualOverlayRowSca
 export const createGeneralSlice = (set: any, get: any) => ({
   playbackTime: 0,
   isPlaying: false,
+  isLooping: false,
   playbackRate: 1,
   aspectRatio: '9:16' as AspectRatio,
   pendingPrompt: null,
@@ -25,6 +26,7 @@ export const createGeneralSlice = (set: any, get: any) => ({
     set({ videoReplaceFilePickerRequest: value }),
   setPlaybackTime: (time: number) => set({ playbackTime: Math.max(0, time) }),
   setIsPlaying: (playing: boolean) => set({ isPlaying: playing }),
+  setIsLooping: (looping: boolean) => set({ isLooping: looping }),
   setPlaybackRate: (rate: number) => set({ playbackRate: rate }),
   getTotalDuration: () => {
     const state = get()

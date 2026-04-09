@@ -106,6 +106,8 @@ export function useTimelineMedia({
           1.0, // transitionDuration
           1.0, // animationDuration
           undefined, undefined, undefined,
+          undefined,
+          undefined,
           row,
           true,
           cropAspect,

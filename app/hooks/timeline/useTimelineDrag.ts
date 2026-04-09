@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 
 const MOVE_HOLD_MS = 280
 const HOLD_PREVIEW_MOVE_SLOP_PX = 8
@@ -13,6 +13,16 @@ import { EffectClass } from '@/app/models/EffectClass'
 
 type TrimHandle = 'start' | 'end' | null
 
+const TIMELINE_SNAP_REF_VISIBLE_SEC = 8
+const TIMELINE_SNAP_BASE_SEC = 0.15
+const TIMELINE_SNAP_MIN_SEC = 0.02
+const TIMELINE_SNAP_MAX_SEC = 0.25
+
+function timelineSnapThresholdSeconds(visibleDuration: number): number {
+  const scaled = TIMELINE_SNAP_BASE_SEC * (visibleDuration / TIMELINE_SNAP_REF_VISIBLE_SEC)
+  return Math.max(TIMELINE_SNAP_MIN_SEC, Math.min(TIMELINE_SNAP_MAX_SEC, scaled))
+}
+
 interface UseTimelineDragProps {
   videos: VideoClass[]
   images: ImageClass[]
@@ -20,6 +30,7 @@ interface UseTimelineDragProps {
   audios: AudioClass[]
   totalDuration: number
   effectivePadding: number
+  visibleDuration: number
   timelineRowRef: React.RefObject<HTMLDivElement>
   setIsPlaying: (playing: boolean) => void
   trimVideo: (id: string, start: number, end: number, ts?: number) => void
@@ -41,6 +52,7 @@ export function useTimelineDrag({
   audios,
   totalDuration,
   effectivePadding,
+  visibleDuration,
   timelineRowRef,
   setIsPlaying,
   trimVideo,
@@ -54,6 +66,8 @@ export function useTimelineDrag({
   deleteRow,
   pushHistory,
 }: UseTimelineDragProps) {
+  const snapThresholdSec = useMemo(() => timelineSnapThresholdSeconds(visibleDuration), [visibleDuration])
+
   const [trimDragging, setTrimDragging] = useState<{ videoId: string; handle: TrimHandle } | null>(null)
   const [audioTrimDragging, setAudioTrimDragging] = useState<{ audioId: string; handle: 'start' | 'end' } | null>(null)
   const [audioBodyDragging, setAudioBodyDragging] = useState<{ audioId: string } | null>(null)
@@ -193,11 +207,11 @@ export function useTimelineDrag({
     
     // Snapping
     const targets = getSnapTargets(itemId)
-    const snappedTime = snapToMarkers(targetTime, targets, 0.15)
+    const snappedTime = snapToMarkers(targetTime, targets, snapThresholdSec)
     if (snappedTime !== targetTime) {
       targetTime = snappedTime
     } else {
-      const snappedEnd = snapToMarkers(targetTime + duration, targets, 0.15)
+      const snappedEnd = snapToMarkers(targetTime + duration, targets, snapThresholdSec)
       if (snappedEnd !== targetTime + duration) {
         targetTime = snappedEnd - duration
       }
@@ -407,7 +421,7 @@ export function useTimelineDrag({
 
       return { targetRow, targetTime, isInsertion, isValid }
     },
-    [timelineRowRef, totalDuration, effectivePadding, getSnapTargets, videos, images, texts, audios]
+    [timelineRowRef, totalDuration, effectivePadding, snapThresholdSec, getSnapTargets, videos, images, texts, audios]
   )
 
   const calculateDragState = useCallback(
@@ -531,14 +545,13 @@ export function useTimelineDrag({
     const { originalDuration, trimStart: initialTrimStart, trimEnd: initialTrimEnd, initialTimestamp, initialMouseX, timelineWidth, totalWithPadding } = trimStartRef.current
     const mouseDeltaX = e.clientX - initialMouseX
     const mouseDeltaTime = (mouseDeltaX / timelineWidth) * totalWithPadding
-    const snapThreshold = 0.15
     const playbackSpeed = video.playbackSpeed ?? 1
     const targets = getSnapTargets(trimDragging.videoId)
 
     if (trimDragging.handle === 'start') {
       let newTrimStart = initialTrimStart + mouseDeltaTime * playbackSpeed
       const globalLeftEdge = initialTimestamp + (newTrimStart - initialTrimStart) / playbackSpeed
-      const snapped = snapToMarkers(globalLeftEdge, targets, snapThreshold)
+      const snapped = snapToMarkers(globalLeftEdge, targets, snapThresholdSec)
       if (snapped !== globalLeftEdge) {
         newTrimStart = initialTrimStart + (snapped - initialTimestamp) * playbackSpeed
       }
@@ -552,20 +565,25 @@ export function useTimelineDrag({
         ].sort((a, b) => a.start - b.start)
         const currentIndex = allMainItems.findIndex(item => item.id === video.id)
         const previousItem = currentIndex > 0 ? allMainItems[currentIndex - 1] : null
-        newTimestamp = previousItem ? previousItem.end : 0
+        const minStart = previousItem ? previousItem.end : 0
+        if (newTimestamp < minStart) {
+          newTimestamp = minStart
+          newTrimStart = initialTrimStart + (newTimestamp - initialTimestamp) * playbackSpeed
+          newTrimStart = Math.max(0, Math.min(newTrimStart, originalDuration - initialTrimEnd - (0.5 * playbackSpeed)))
+        }
       }
       trimVideo(trimDragging.videoId, newTrimStart, initialTrimEnd, newTimestamp)
     } else if (trimDragging.handle === 'end') {
       let newTrimEnd = initialTrimEnd - mouseDeltaTime * playbackSpeed
       const globalRightEdge = initialTimestamp + (originalDuration - initialTrimStart - newTrimEnd) / playbackSpeed
-      const snapped = snapToMarkers(globalRightEdge, targets, snapThreshold)
+      const snapped = snapToMarkers(globalRightEdge, targets, snapThresholdSec)
       if (snapped !== globalRightEdge) {
         newTrimEnd = originalDuration - initialTrimStart - (snapped - initialTimestamp) * playbackSpeed
       }
       newTrimEnd = Math.max(0, Math.min(newTrimEnd, originalDuration - initialTrimStart - (0.5 * playbackSpeed)))
       trimVideo(trimDragging.videoId, initialTrimStart, newTrimEnd)
     }
-  }, [trimDragging, videos, trimVideo, timelineRowRef, getSnapTargets])
+  }, [trimDragging, videos, images, trimVideo, timelineRowRef, getSnapTargets, snapThresholdSec])
 
   const handleTrimEnd = useCallback(() => {
     setTrimDragging(null)
@@ -609,14 +627,13 @@ export function useTimelineDrag({
     const audio = audios.find(a => a.id === audioTrimDragging.audioId)
     if (!audio) return
     const playbackSpeed = audio.playbackSpeed ?? 1
-    const snapThreshold = 0.15
     const targets = getSnapTargets(audioTrimDragging.audioId)
 
     if (audioTrimDragging.handle === 'start') {
       let newTrimStart = initialTrimStart + mouseDeltaTime * playbackSpeed
       newTrimStart = Math.max(0, Math.min(newTrimStart, originalDuration - initialTrimEnd - (minDuration * playbackSpeed)))
       let newStartTime = fileOffset + newTrimStart / playbackSpeed
-      const snapped = snapToMarkers(newStartTime, targets, snapThreshold)
+      const snapped = snapToMarkers(newStartTime, targets, snapThresholdSec)
       if (snapped !== newStartTime) {
         newStartTime = snapped
         newTrimStart = (newStartTime - fileOffset) * playbackSpeed
@@ -628,14 +645,14 @@ export function useTimelineDrag({
       newTrimEnd = Math.max(0, Math.min(newTrimEnd, originalDuration - initialTrimStart - (minDuration * playbackSpeed)))
       const activeDur = (originalDuration - initialTrimStart - newTrimEnd) / playbackSpeed
       const currentEndTime = audio.startTime + activeDur
-      const snapped = snapToMarkers(currentEndTime, targets, snapThreshold)
+      const snapped = snapToMarkers(currentEndTime, targets, snapThresholdSec)
       if (snapped !== currentEndTime) {
         const newActiveDur = snapped - audio.startTime
         newTrimEnd = originalDuration - initialTrimStart - newActiveDur * playbackSpeed
       }
       trimAudio(audioTrimDragging.audioId, initialTrimStart, newTrimEnd)
     }
-  }, [audioTrimDragging, audios, trimAudio, getSnapTargets])
+  }, [audioTrimDragging, audios, trimAudio, getSnapTargets, snapThresholdSec])
 
   const handleAudioTrimEnd = useCallback(() => {
     setAudioTrimDragging(null)
@@ -676,18 +693,17 @@ export function useTimelineDrag({
     const audio = audios.find(a => a.id === audioBodyDragging.audioId)
     if (!audio) return
     const playbackSpeed = audio.playbackSpeed ?? 1
-    const snapThreshold = 0.15
     const targets = getSnapTargets(audioBodyDragging.audioId)
 
     let newStartTime = Math.max(0, initialStartTime + mouseDeltaTime)
     const activeDur = (initialOrigDuration - initialTrimStart - initialTrimEnd) / playbackSpeed
     
-    const snappedStart = snapToMarkers(newStartTime, targets, snapThreshold)
+    const snappedStart = snapToMarkers(newStartTime, targets, snapThresholdSec)
     if (snappedStart !== newStartTime) {
       newStartTime = snappedStart
     } else {
       const currentEndTime = newStartTime + activeDur
-      const snappedEnd = snapToMarkers(currentEndTime, targets, snapThreshold)
+      const snappedEnd = snapToMarkers(currentEndTime, targets, snapThresholdSec)
       if (snappedEnd !== currentEndTime) {
         newStartTime = snappedEnd - activeDur
       }
@@ -696,7 +712,7 @@ export function useTimelineDrag({
     const newActiveDuration = Math.min(initialEffectiveDuration, Math.max(0, td - newStartTime))
     const newTrimEnd = Math.max(0, initialOrigDuration - initialTrimStart - newActiveDuration * playbackSpeed)
     trimAudio(audioBodyDragging.audioId, initialTrimStart, newTrimEnd, newStartTime)
-  }, [audioBodyDragging, audios, trimAudio, getSnapTargets])
+  }, [audioBodyDragging, audios, trimAudio, getSnapTargets, snapThresholdSec])
 
   const handleAudioBodyDragEnd = useCallback(() => {
     setAudioBodyDragging(null)
@@ -753,18 +769,17 @@ export function useTimelineDrag({
     const totalWithPadding = totalDuration + effectivePadding * 2
     const mouseDelta = e.clientX - initialMouseX
     const timeDelta = (mouseDelta / timelineWidth) * totalWithPadding
-    const snapThreshold = 0.15
     const targets = getSnapTargets(imageId)
 
     if (handle === 'move') {
       let newStart = initialStartTime + timeDelta
       const dur = initialEndTime - initialStartTime
-      const snappedStart = snapToMarkers(newStart, targets, snapThreshold)
+      const snappedStart = snapToMarkers(newStart, targets, snapThresholdSec)
       if (snappedStart !== newStart) {
         newStart = snappedStart
       } else {
         const currentEnd = newStart + dur
-        const snappedEnd = snapToMarkers(currentEnd, targets, snapThreshold)
+        const snappedEnd = snapToMarkers(currentEnd, targets, snapThresholdSec)
         if (snappedEnd !== currentEnd) {
           newStart = snappedEnd - dur
         }
@@ -773,7 +788,7 @@ export function useTimelineDrag({
       updateImage(imageId, { startTime: newStart, endTime: newStart + dur })
     } else if (handle === 'start') {
       let newStart = Math.max(0, Math.min(initialStartTime + timeDelta, initialEndTime - 0.1))
-      const snapped = snapToMarkers(newStart, targets, snapThreshold)
+      const snapped = snapToMarkers(newStart, targets, snapThresholdSec)
       if (snapped !== newStart && snapped < initialEndTime - 0.1) {
         newStart = snapped
       }
@@ -781,13 +796,13 @@ export function useTimelineDrag({
       updateImage(imageId, { startTime: newStart, endTime: newStart + newDur })
     } else if (handle === 'end') {
       let newEnd = Math.max(image.startTime + 0.1, initialEndTime + timeDelta)
-      const snapped = snapToMarkers(newEnd, targets, snapThreshold)
+      const snapped = snapToMarkers(newEnd, targets, snapThresholdSec)
       if (snapped !== newEnd && snapped > image.startTime + 0.1) {
         newEnd = snapped
       }
       updateImage(imageId, { endTime: newEnd })
     }
-  }, [imageDragging, images, totalDuration, effectivePadding, updateImage, getSnapTargets])
+  }, [imageDragging, images, totalDuration, effectivePadding, updateImage, getSnapTargets, snapThresholdSec])
 
   const handleImageDragEnd = useCallback(() => {
     setImageDragging(null)
@@ -825,24 +840,23 @@ export function useTimelineDrag({
     const timeDelta = ((e.clientX - initialMouseX) / timelineWidth) * totalWithPadding
     const video = videos.find(v => v.id === videoId)
     if (!video) return
-    const snapThreshold = 0.15
     const targets = getSnapTargets(videoId)
 
     let newTimestamp = Math.max(0, initialTimestamp + timeDelta)
-    const snappedStart = snapToMarkers(newTimestamp, targets, snapThreshold)
+    const snappedStart = snapToMarkers(newTimestamp, targets, snapThresholdSec)
     if (snappedStart !== newTimestamp) {
       newTimestamp = snappedStart
     } else {
       const dur = video.duration ?? 0
       const currentEndTime = newTimestamp + dur
-      const snappedEnd = snapToMarkers(currentEndTime, targets, snapThreshold)
+      const snappedEnd = snapToMarkers(currentEndTime, targets, snapThresholdSec)
       if (snappedEnd !== currentEndTime) {
         newTimestamp = snappedEnd - dur
       }
     }
     if (newTimestamp < 0) newTimestamp = 0
     updateVideo(videoId, { timestamp: newTimestamp })
-  }, [overlayVideoDragging, updateVideo, videos, getSnapTargets])
+  }, [overlayVideoDragging, updateVideo, videos, getSnapTargets, snapThresholdSec])
 
   const handleOverlayVideoDragEnd = useCallback(() => {
     setOverlayVideoDragging(null)
@@ -895,18 +909,17 @@ export function useTimelineDrag({
     const others = texts.filter((t) => t.id !== textId).sort((a, b) => a.startTime - b.startTime)
     const prevEnd = others.filter((t) => t.endTime <= initialStartTime).reduce((max, t) => Math.max(max, t.endTime), 0)
     const nextStart = others.filter((t) => t.startTime >= initialEndTime).reduce((min, t) => Math.min(min, t.startTime), Infinity)
-    const snapThreshold = 0.15
     const targets = getSnapTargets(textId)
 
     if (handle === 'move') {
       const dur = initialEndTime - initialStartTime
       let newStart = initialStartTime + timeDelta
-      const snappedStart = snapToMarkers(newStart, targets, snapThreshold)
+      const snappedStart = snapToMarkers(newStart, targets, snapThresholdSec)
       if (snappedStart !== newStart) {
         newStart = snappedStart
       } else {
         const currentEnd = newStart + dur
-        const snappedEnd = snapToMarkers(currentEnd, targets, snapThreshold)
+        const snappedEnd = snapToMarkers(currentEnd, targets, snapThresholdSec)
         if (snappedEnd !== currentEnd) {
           newStart = snappedEnd - dur
         }
@@ -918,7 +931,7 @@ export function useTimelineDrag({
       updateText(textId, { startTime: newStart, endTime: newEnd })
     } else if (handle === 'start') {
       let newStart = Math.max(prevEnd, Math.min(initialStartTime + timeDelta, initialEndTime - 0.1))
-      const snapped = snapToMarkers(newStart, targets, snapThreshold)
+      const snapped = snapToMarkers(newStart, targets, snapThresholdSec)
       if (snapped !== newStart && snapped < initialEndTime - 0.1 && snapped >= prevEnd) {
         newStart = snapped
       }
@@ -926,13 +939,13 @@ export function useTimelineDrag({
     } else if (handle === 'end') {
       const currentStart = texts.find((t) => t.id === textId)?.startTime ?? initialStartTime
       let newEnd = Math.min(nextStart, Math.max(currentStart + 0.1, initialEndTime + timeDelta))
-      const snapped = snapToMarkers(newEnd, targets, snapThreshold)
+      const snapped = snapToMarkers(newEnd, targets, snapThresholdSec)
       if (snapped !== newEnd && snapped > currentStart + 0.1 && snapped <= nextStart) {
         newEnd = snapped
       }
       updateText(textId, { endTime: newEnd })
     }
-  }, [textDragging, texts, updateText, getSnapTargets])
+  }, [textDragging, texts, updateText, getSnapTargets, snapThresholdSec])
 
   const handleTextDragEnd = useCallback(() => {
     setTextDragging(null)
@@ -988,18 +1001,17 @@ export function useTimelineDrag({
     const timeDelta = ((e.clientX - initialMouseX) / timelineWidth) * totalWithPadding
     const effect = useManifestStore.getState().effects.find((f) => f.id === effectId)
     if (!effect) return
-    const snapThreshold = 0.15
     const targets = getSnapTargets(effectId)
 
     if (handle === 'move') {
       const dur = initialEndTime - initialStartTime
       let newStart = initialStartTime + timeDelta
-      const snappedStart = snapToMarkers(newStart, targets, snapThreshold)
+      const snappedStart = snapToMarkers(newStart, targets, snapThresholdSec)
       if (snappedStart !== newStart) {
         newStart = snappedStart
       } else {
         const currentEnd = newStart + dur
-        const snappedEnd = snapToMarkers(currentEnd, targets, snapThreshold)
+        const snappedEnd = snapToMarkers(currentEnd, targets, snapThresholdSec)
         if (snappedEnd !== currentEnd) {
           newStart = snappedEnd - dur
         }
@@ -1008,20 +1020,20 @@ export function useTimelineDrag({
       updateEffect(effectId, { startTime: newStart, endTime: newStart + dur })
     } else if (handle === 'start') {
       let newStart = Math.max(0, Math.min(initialStartTime + timeDelta, initialEndTime - 0.1))
-      const snapped = snapToMarkers(newStart, targets, snapThreshold)
+      const snapped = snapToMarkers(newStart, targets, snapThresholdSec)
       if (snapped !== newStart && snapped < initialEndTime - 0.1) {
         newStart = snapped
       }
       updateEffect(effectId, { startTime: newStart })
     } else if (handle === 'end') {
       let newEnd = Math.max(effect.startTime + 0.1, initialEndTime + timeDelta)
-      const snapped = snapToMarkers(newEnd, targets, snapThreshold)
+      const snapped = snapToMarkers(newEnd, targets, snapThresholdSec)
       if (snapped !== newEnd && snapped > effect.startTime + 0.1) {
         newEnd = snapped
       }
       updateEffect(effectId, { endTime: newEnd })
     }
-  }, [effectDragging, updateEffect, getSnapTargets])
+  }, [effectDragging, updateEffect, getSnapTargets, snapThresholdSec])
 
   const handleEffectDragEnd = useCallback(() => {
     setEffectDragging(null)

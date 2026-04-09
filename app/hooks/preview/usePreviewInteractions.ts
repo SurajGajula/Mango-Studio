@@ -62,6 +62,14 @@ interface CropPanState {
   destH: number
 }
 
+interface ImageRotateState {
+  itemId: string
+  centerClientX: number
+  centerClientY: number
+  startAngleRad: number
+  initialRotation: number
+}
+
 const SNAP_THRESHOLD = 10
 
 export function usePreviewInteractions(
@@ -93,6 +101,7 @@ export function usePreviewInteractions(
   const [textResizeState, setTextResizeState] = useState<TextResizeState | null>(null)
   const [snapLines, setSnapLines] = useState<{ horizontal: number[], vertical: number[] }>({ horizontal: [], vertical: [] })
   const [cropEditId, setCropEditId] = useState<string | null>(null)
+  const [imageRotateState, setImageRotateState] = useState<ImageRotateState | null>(null)
   const [cropPanState, setCropPanState] = useState<CropPanState | null>(null)
   const [cropNaturalSize, setCropNaturalSize] = useState<{ nw: number; nh: number } | null>(null)
   const selectedKeyframeId = useSelectionStore((state) => state.selectedKeyframeId)
@@ -279,6 +288,66 @@ export function usePreviewInteractions(
     setCropPanState(null)
     pushHistory()
   }, [pushHistory])
+
+  const handleImageRotationMouseDown = useCallback((itemId: string, e: React.MouseEvent) => {
+    if (cropEditId) return
+    e.preventDefault()
+    e.stopPropagation()
+    const img = images.find((i) => i.id === itemId)
+    if (!img) return
+    if (selectedImageId !== itemId) {
+      setSelectedImageId(itemId)
+      setSelectedVideoId(null)
+      setSelectedTextId(null)
+    }
+    const cx = offsetX + (img.x + img.width / 2) * xScale
+    const cy = offsetY + (img.y + img.height / 2) * yScale
+    setImageRotateState({
+      itemId,
+      centerClientX: cx,
+      centerClientY: cy,
+      startAngleRad: Math.atan2(e.clientY - cy, e.clientX - cx),
+      initialRotation: img.rotation ?? 0,
+    })
+  }, [
+    cropEditId,
+    images,
+    offsetX,
+    offsetY,
+    xScale,
+    yScale,
+    selectedImageId,
+    setSelectedImageId,
+    setSelectedVideoId,
+    setSelectedTextId,
+  ])
+
+  useEffect(() => {
+    if (!imageRotateState) return
+
+    useManifestStore.getState().pauseHistory()
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const { itemId, centerClientX, centerClientY, startAngleRad, initialRotation } = imageRotateState
+      const angle = Math.atan2(e.clientY - centerClientY, e.clientX - centerClientX)
+      const deltaDeg = ((angle - startAngleRad) * 180) / Math.PI
+      updateImage(itemId, { rotation: initialRotation + deltaDeg })
+    }
+
+    const handleMouseUp = () => {
+      useManifestStore.getState().resumeHistory()
+      setImageRotateState(null)
+      pushHistory()
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+      useManifestStore.getState().resumeHistory()
+    }
+  }, [imageRotateState, updateImage, pushHistory])
 
   const handleOverlayMouseDown = useCallback((itemId: string, itemType: 'image' | 'video', mode: DragMode, e: React.MouseEvent) => {
     if (cropEditId) return
@@ -838,6 +907,7 @@ export function usePreviewInteractions(
     enterCropEdit,
     exitCropEdit,
     handleOverlayMouseDown,
+    handleImageRotationMouseDown,
     handleTextMouseDown,
     handleTextResizeStart
   }

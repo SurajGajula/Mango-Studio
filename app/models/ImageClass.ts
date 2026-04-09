@@ -2,6 +2,7 @@ import type { MediaKeyframe } from './mediaKeyframe'
 
 export type AnimationMode = 'none' | 'pulse' | 'shake' | 'jitter' | 'last-frame-hold'
 export type TransitionMode = 'none' | 'split' | 'fade' | 'slide-in' | 'circle' | 'rotate' | 'flash'
+export type SlideTransitionEasing = 'smooth' | 'ease-in' | 'ease-out' | 'linear'
 
 export class ImageClass {
   id: string
@@ -24,12 +25,15 @@ export class ImageClass {
   transitionColor?: string
   transitionDirection?: 'left' | 'right' | 'top' | 'bottom'
   transitionAxis?: 'horizontal' | 'vertical'
+  transitionSlideEasing?: SlideTransitionEasing
+  transitionCircleEasing?: SlideTransitionEasing
   cropAspect?: string
   cropSx: number
   cropSy: number
   cropSw: number
   cropSh: number
   row: number
+  rotation: number
   keyframes: MediaKeyframe[]
 
   constructor(
@@ -58,7 +62,10 @@ export class ImageClass {
     transitionColor?: string,
     transitionDirection?: 'left' | 'right' | 'top' | 'bottom',
     transitionAxis?: 'horizontal' | 'vertical',
+    transitionSlideEasing?: SlideTransitionEasing,
+    transitionCircleEasing?: SlideTransitionEasing,
     row?: number,
+    rotation?: number,
     keyframes?: MediaKeyframe[],
     zoom?: any
   ) {
@@ -74,6 +81,7 @@ export class ImageClass {
     this.opacity = opacity ?? 1
     this.createdAt = createdAt || new Date()
     this.row = row ?? 0
+    this.rotation = rotation ?? 0
     this.isMainTrack = isMainTrack ?? (this.row === 0)
     
     // Migration logic
@@ -123,6 +131,8 @@ export class ImageClass {
     this.transitionColor = transitionColor ?? this.transitionColor ?? '#FFFFFF'
     this.transitionDirection = transitionDirection ?? this.transitionDirection ?? 'left'
     this.transitionAxis = transitionAxis ?? this.transitionAxis ?? 'horizontal'
+    this.transitionSlideEasing = transitionSlideEasing ?? this.transitionSlideEasing ?? 'smooth'
+    this.transitionCircleEasing = transitionCircleEasing ?? this.transitionCircleEasing ?? 'smooth'
     this.zoomIntensity = zoomIntensity !== undefined ? zoomIntensity : 0.5
     this.transitionDuration = transitionDuration
     this.animationDuration = animationDuration
@@ -161,7 +171,10 @@ export class ImageClass {
       updates.transitionColor ?? this.transitionColor,
       updates.transitionDirection ?? this.transitionDirection,
       updates.transitionAxis ?? this.transitionAxis,
+      updates.transitionSlideEasing ?? this.transitionSlideEasing,
+      updates.transitionCircleEasing ?? this.transitionCircleEasing,
       updates.row ?? this.row,
+      updates.rotation ?? this.rotation,
       updates.keyframes ?? this.keyframes,
       undefined
     )

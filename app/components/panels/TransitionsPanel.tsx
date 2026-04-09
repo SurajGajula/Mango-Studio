@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useSliderHistorySession } from '@/app/hooks/useSliderHistorySession'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
-import { AnimationMode, TransitionMode, ImageClass } from '@/app/models/ImageClass'
+import { AnimationMode, SlideTransitionEasing, TransitionMode, ImageClass } from '@/app/models/ImageClass'
 import { VideoClass } from '@/app/models/VideoClass'
 import styles from './TransitionsPanel.module.css'
 
@@ -70,6 +70,13 @@ const ANIMATION_OPTIONS: { value: AnimationMode; label: string; desc: string; ic
       </svg>
     ),
   },
+]
+
+const REVEAL_CURVE_OPTIONS: { value: SlideTransitionEasing; label: string }[] = [
+  { value: 'smooth', label: 'Smooth' },
+  { value: 'ease-in', label: 'Slow → fast' },
+  { value: 'ease-out', label: 'Fast → slow' },
+  { value: 'linear', label: 'Linear' },
 ]
 
 const TRANSITION_OPTIONS: { value: TransitionMode; label: string; desc: string; icon: React.ReactNode }[] = [
@@ -366,16 +373,51 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
             )}
 
             {mode === 'transition' && currentTransition === 'slide-in' && (
+              <>
+                <div className={styles.durationControl}>
+                  <label className={styles.sectionLabel}>Slide Direction</label>
+                  <div className={styles.segmentedControl}>
+                    {(['left', 'right', 'top', 'bottom'] as const).map(dir => (
+                      <button 
+                        key={dir}
+                        className={`${styles.segmentButton} ${selectedItem.transitionDirection === dir ? styles.segmentActive : ''}`}
+                        onClick={() => commitDiscreteChange({ transitionDirection: dir })}
+                      >
+                        {dir.charAt(0).toUpperCase() + dir.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={styles.durationControl}>
+                  <label className={styles.sectionLabel}>Slide Speed Curve</label>
+                  <div className={`${styles.segmentedControl} ${styles.segmentedControlWrap}`}>
+                    {REVEAL_CURVE_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        className={`${styles.segmentButton} ${(selectedItem.transitionSlideEasing ?? 'smooth') === opt.value ? styles.segmentActive : ''}`}
+                        onClick={() => commitDiscreteChange({ transitionSlideEasing: opt.value })}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {mode === 'transition' && currentTransition === 'circle' && (
               <div className={styles.durationControl}>
-                <label className={styles.sectionLabel}>Slide Direction</label>
-                <div className={styles.segmentedControl}>
-                  {(['left', 'right', 'top', 'bottom'] as const).map(dir => (
-                    <button 
-                      key={dir}
-                      className={`${styles.segmentButton} ${selectedItem.transitionDirection === dir ? styles.segmentActive : ''}`}
-                      onClick={() => commitDiscreteChange({ transitionDirection: dir })}
+                <label className={styles.sectionLabel}>Circle expand speed</label>
+                <div className={`${styles.segmentedControl} ${styles.segmentedControlWrap}`}>
+                  {REVEAL_CURVE_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      className={`${styles.segmentButton} ${(selectedItem.transitionCircleEasing ?? 'smooth') === opt.value ? styles.segmentActive : ''}`}
+                      onClick={() => commitDiscreteChange({ transitionCircleEasing: opt.value })}
                     >
-                      {dir.charAt(0).toUpperCase() + dir.slice(1)}
+                      {opt.label}
                     </button>
                   ))}
                 </div>

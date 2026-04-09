@@ -125,6 +125,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     audios,
     totalDuration,
     effectivePadding,
+    visibleDuration,
     timelineRowRef,
     setIsPlaying,
     trimVideo,

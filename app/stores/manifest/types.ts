@@ -40,6 +40,7 @@ export interface ManifestStore {
   setVideoReplaceFilePickerRequest: (value: { videoId: string } | null) => void
   playbackTime: number
   isPlaying: boolean
+  isLooping: boolean
   aspectRatio: AspectRatio
   history: HistoryEntry[]
   historyIndex: number
@@ -60,6 +61,7 @@ export interface ManifestStore {
   playbackRate: number
   setPlaybackTime: (time: number) => void
   setIsPlaying: (playing: boolean) => void
+  setIsLooping: (looping: boolean) => void
   setPlaybackRate: (rate: number) => void
   addImage: (image: ImageClass) => void
   removeImage: (id: string) => void

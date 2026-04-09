@@ -45,6 +45,8 @@ function TextOverlayComponent({
   const updateText = useManifestStore((state) => state.updateText)
   const pushHistory = useManifestStore((state) => state.pushHistory)
   const selectedTextId = useSelectionStore((state) => state.selectedTextId)
+  const selectText = useSelectionStore((state) => state.selectText)
+  const setContextMenu = useSelectionStore((state) => state.setContextMenu)
 
   const isSelected = selectedTextId === text.id
   const isEditing = editingTextId === text.id
@@ -93,6 +95,19 @@ function TextOverlayComponent({
         border: (text.style === 'negative' || text.style === 'highlight') && !isSelected ? 'none' : undefined,
       }}
       onMouseDown={(e) => handleTextMouseDown(text.id, e)}
+      onContextMenu={(e) => {
+        if (isEditing) return
+        e.preventDefault()
+        e.stopPropagation()
+        selectText(text.id)
+        setContextMenu({
+          isOpen: true,
+          x: e.clientX,
+          y: e.clientY,
+          itemId: text.id,
+          itemType: 'text',
+        })
+      }}
       onDoubleClick={(e) => { e.stopPropagation(); editingContentRef.current = text.content; setEditingContent(text.content); setEditingTextId(text.id) }}
     >
       {isSelected && !isEditing && (

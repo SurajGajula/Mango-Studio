@@ -56,6 +56,26 @@
   cursor: pointer;
 }
 
+.imageRotateHandle {
+  position: absolute;
+  left: 50%;
+  top: -12px;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  background-color: #ffffff;
+  border: 2px solid #000000;
+  border-radius: 50%;
+  cursor: grab;
+  pointer-events: auto;
+  z-index: 55;
+  box-sizing: border-box;
+}
+
+.imageRotateHandle:active {
+  cursor: grabbing;
+}
+
 .snapLineVertical {
   position: absolute;
   top: 0;

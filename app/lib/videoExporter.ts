@@ -7,6 +7,7 @@ import { FFmpeg } from '@ffmpeg/ffmpeg'
 import { fetchFile, toBlobURL } from '@ffmpeg/util'
 import { wrapTextToLines } from '@/app/lib/textUtils'
 import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
+import { runWithPlacementRotation } from '@/app/lib/placementRotation'
 import { applyEffect } from '@/app/lib/applyEffect'
 import { setVideoCrossOriginForUrl } from '@/app/lib/mediaUtils'
 import { getSortedMainItems, findActiveAndNextItems, checkTransition, calculateAnimationProgress, clipTimelineSpanForSourceMap, videoTimelineSourceMapping } from '@/app/lib/renderUtils'
@@ -405,7 +406,9 @@ export async function exportVideo(
               curParams,
               nextItem.transitionColor,
               nextItem.transitionDirection,
-              nextItem.transitionAxis
+              nextItem.transitionAxis,
+              nextItem.transitionSlideEasing,
+              nextItem.transitionCircleEasing
             )
           }
         }
@@ -427,7 +430,13 @@ export async function exportVideo(
           if (iEl) {
             const prog = calculateAnimationProgress(img, t, img.startTime)
             const kim = resolveMediaKeyframeTransform(img, t - img.startTime, img.duration)
-            applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, img.x * xScale, img.y * yScale, img.width * xScale, img.height * yScale, kim.cropSx, kim.cropSy, kim.cropSw, kim.cropSh, kim.zoomIntensity, img.duration, img.animationDuration, t - img.startTime)
+            const ix = img.x * xScale
+            const iy = img.y * yScale
+            const iw = img.width * xScale
+            const ih = img.height * yScale
+            runWithPlacementRotation(ctx, ix, iy, iw, ih, img.rotation, (ox, oy) => {
+              applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, ox, oy, iw, ih, kim.cropSx, kim.cropSy, kim.cropSw, kim.cropSh, kim.zoomIntensity, img.duration, img.animationDuration, t - img.startTime)
+            })
           }
         }
       }
@@ -460,7 +469,13 @@ export async function exportVideo(
           ctx.save(); ctx.globalAlpha = img.opacity
           const prog = calculateAnimationProgress(img, t, img.startTime)
           const kox = resolveMediaKeyframeTransform(img, t - img.startTime, img.duration)
-          applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, img.x * xScale, img.y * yScale, img.width * xScale, img.height * yScale, kox.cropSx, kox.cropSy, kox.cropSw, kox.cropSh, kox.zoomIntensity, img.duration, img.animationDuration, t - img.startTime)
+          const ix = img.x * xScale
+          const iy = img.y * yScale
+          const iw = img.width * xScale
+          const ih = img.height * yScale
+          runWithPlacementRotation(ctx, ix, iy, iw, ih, img.rotation, (ox, oy) => {
+            applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, ox, oy, iw, ih, kox.cropSx, kox.cropSy, kox.cropSw, kox.cropSh, kox.zoomIntensity, img.duration, img.animationDuration, t - img.startTime)
+          })
           ctx.restore()
         } else if (entry.kind === 'video') {
           const v = entry.video

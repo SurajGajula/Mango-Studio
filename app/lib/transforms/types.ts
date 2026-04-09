@@ -1,4 +1,4 @@
-import type { AnimationMode, TransitionMode } from '@/app/models/ImageClass'
+import type { AnimationMode, SlideTransitionEasing, TransitionMode } from '@/app/models/ImageClass'
 
 export interface TransformParams {
   ctx: CanvasRenderingContext2D;
@@ -38,4 +38,6 @@ export interface TransformParams {
   transitionColor?: string;
   transitionDirection?: 'left' | 'right' | 'top' | 'bottom';
   transitionAxis?: 'horizontal' | 'vertical';
+  transitionSlideEasing?: SlideTransitionEasing;
+  transitionCircleEasing?: SlideTransitionEasing;
 }

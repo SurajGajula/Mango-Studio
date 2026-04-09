@@ -1,4 +1,4 @@
-import type { AnimationMode, TransitionMode } from '@/app/models/ImageClass'
+import type { AnimationMode, SlideTransitionEasing, TransitionMode } from '@/app/models/ImageClass'
 import { drawWithAnimation } from './transforms/animationUtils'
 import { applySplit } from './transforms/split'
 import { applyFade } from './transforms/fade'
@@ -45,7 +45,9 @@ export function applyZoomTransform(
   },
   transitionColor?: string,
   transitionDirection?: 'left' | 'right' | 'top' | 'bottom',
-  transitionAxis?: 'horizontal' | 'vertical'
+  transitionAxis?: 'horizontal' | 'vertical',
+  transitionSlideEasing?: SlideTransitionEasing,
+  transitionCircleEasing?: SlideTransitionEasing
 ): void {
   let nw = 0
   let nh = 0
@@ -68,7 +70,7 @@ export function applyZoomTransform(
     ctx, animation: animation ?? 'none', transition: transition ?? 'none', progress, imgEl, x, y, w, h, sx, sy, sw, sh,
     zoomIntensity: zoomIntensity !== undefined ? zoomIntensity : 0.5, 
     itemDuration, animationDuration, elapsedTime, prevEl, prevAnimation, prevAnimationProgress, prevElapsedTime, prevZoomIntensity, prevItemDuration, prevAnimationDuration, prevParams,
-    transitionColor, transitionDirection, transitionAxis
+    transitionColor, transitionDirection, transitionAxis, transitionSlideEasing, transitionCircleEasing
   }
 
   ctx.save()

@@ -1,8 +1,14 @@
 .strip {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-direction: column;
   gap: 0.35rem;
+}
+
+.presetRow {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.3rem;
 }
 
 .swatch {
@@ -14,6 +20,14 @@
   cursor: pointer;
   flex-shrink: 0;
   transition: transform 0.1s ease, border-color 0.1s ease;
+}
+
+.swatch.circle {
+  border-radius: 50%;
+}
+
+.swatch.arrow {
+  clip-path: polygon(8% 50%, 55% 12%, 55% 32%, 92% 32%, 92% 68%, 55% 68%, 55% 88%);
 }
 
 .swatch:hover:not(:disabled) {

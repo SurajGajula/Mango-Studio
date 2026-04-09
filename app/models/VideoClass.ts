@@ -1,4 +1,4 @@
-import type { AnimationMode, TransitionMode } from './ImageClass'
+import type { AnimationMode, SlideTransitionEasing, TransitionMode } from './ImageClass'
 import type { MediaKeyframe } from './mediaKeyframe'
 
 export class VideoClass {
@@ -27,6 +27,8 @@ export class VideoClass {
   transitionColor?: string
   transitionDirection?: 'left' | 'right' | 'top' | 'bottom'
   transitionAxis?: 'horizontal' | 'vertical'
+  transitionSlideEasing?: SlideTransitionEasing
+  transitionCircleEasing?: SlideTransitionEasing
   row: number
   muted: boolean
   cropAspect?: string
@@ -69,6 +71,8 @@ export class VideoClass {
     transitionColor?: string,
     transitionDirection?: 'left' | 'right' | 'top' | 'bottom',
     transitionAxis?: 'horizontal' | 'vertical',
+    transitionSlideEasing?: SlideTransitionEasing,
+    transitionCircleEasing?: SlideTransitionEasing,
     row?: number,
     muted?: boolean,
     cropAspect?: string,
@@ -152,6 +156,8 @@ export class VideoClass {
     this.transitionColor = transitionColor ?? this.transitionColor ?? '#FFFFFF'
     this.transitionDirection = transitionDirection ?? this.transitionDirection ?? 'left'
     this.transitionAxis = transitionAxis ?? this.transitionAxis ?? 'horizontal'
+    this.transitionSlideEasing = transitionSlideEasing ?? this.transitionSlideEasing ?? 'smooth'
+    this.transitionCircleEasing = transitionCircleEasing ?? this.transitionCircleEasing ?? 'smooth'
     this.zoomIntensity = zoomIntensity !== undefined ? zoomIntensity : 0.5
     this.transitionDuration = transitionDuration
     this.animationDuration = animationDuration
@@ -198,6 +204,8 @@ export class VideoClass {
       updates.transitionColor ?? this.transitionColor,
       updates.transitionDirection ?? this.transitionDirection,
       updates.transitionAxis ?? this.transitionAxis,
+      updates.transitionSlideEasing ?? this.transitionSlideEasing,
+      updates.transitionCircleEasing ?? this.transitionCircleEasing,
       updates.row ?? this.row,
       updates.muted ?? this.muted,
       updates.cropAspect ?? this.cropAspect,

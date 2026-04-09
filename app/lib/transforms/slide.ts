@@ -1,11 +1,11 @@
 import type { TransformParams } from './types'
 import { drawWithAnimation } from './animationUtils'
+import { easedTransitionProgress } from './transitionEasing'
 
 export function applySlide(params: TransformParams): void {
-  const { ctx, transition, progress, x, y, w, h, imgEl, animation, elapsedTime, zoomIntensity, transitionDirection } = params
-  
-  // Cubic easing for smooth motion
-  const ease = progress * progress * (3 - 2 * progress)
+  const { progress, x, y, w, h, imgEl, animation, elapsedTime, zoomIntensity, transitionDirection, transitionSlideEasing } = params
+
+  const ease = easedTransitionProgress(progress, transitionSlideEasing)
   
   let offsetX = 0
   let offsetY = 0

@@ -106,6 +106,8 @@ export interface TransitionInstruction {
   transitionColor?: string
   transitionDirection?: 'left' | 'right' | 'top' | 'bottom'
   transitionAxis?: 'horizontal' | 'vertical'
+  transitionSlideEasing?: 'smooth' | 'ease-in' | 'ease-out' | 'linear'
+  transitionCircleEasing?: 'smooth' | 'ease-in' | 'ease-out' | 'linear'
 }
 
 export interface CropInstruction {

@@ -31,6 +31,7 @@ export type ProjectSnapshotPayload = {
   historyIndex: number
   playbackTime: number
   isPlaying: boolean
+  isLooping: boolean
   playbackRate: number
   aspectRatio: string
   pendingPrompt: string | null
@@ -201,6 +202,8 @@ function reviveVideo(o: Record<string, unknown>): VideoClass {
     o.transitionColor as string | undefined,
     o.transitionDirection as VideoClass['transitionDirection'],
     o.transitionAxis as VideoClass['transitionAxis'],
+    o.transitionSlideEasing as VideoClass['transitionSlideEasing'],
+    o.transitionCircleEasing as VideoClass['transitionCircleEasing'],
     row,
     o.muted as boolean | undefined,
     o.cropAspect as string | undefined,
@@ -248,7 +251,10 @@ function reviveImage(o: Record<string, unknown>): ImageClass {
     o.transitionColor as string | undefined,
     o.transitionDirection as ImageClass['transitionDirection'],
     o.transitionAxis as ImageClass['transitionAxis'],
+    o.transitionSlideEasing as ImageClass['transitionSlideEasing'],
+    o.transitionCircleEasing as ImageClass['transitionCircleEasing'],
     row,
+    o.rotation as number | undefined,
     o.keyframes as ImageClass['keyframes']
   )
 }
@@ -365,6 +371,7 @@ async function saveProjectSnapshot(dbName: string, metaKey: string): Promise<voi
     historyIndex: s.historyIndex,
     playbackTime: s.playbackTime,
     isPlaying: false,
+    isLooping: s.isLooping,
     playbackRate: s.playbackRate,
     aspectRatio: s.aspectRatio,
     pendingPrompt: s.pendingPrompt,
@@ -444,6 +451,7 @@ async function hydrateSnapshotIntoStore(snap: ProjectSnapshotPayload, dbName: st
     historyIndex,
     playbackTime: snap.playbackTime,
     isPlaying: false,
+    isLooping: snap.isLooping ?? false,
     playbackRate: snap.playbackRate,
     aspectRatio: (snap.aspectRatio as AspectRatio) ?? '9:16',
     pendingPrompt: snap.pendingPrompt,

@@ -143,6 +143,8 @@ export function useTimelineReplace({
             image.transitionDuration,
             image.animationDuration,
             undefined, undefined, undefined,
+            image.transitionSlideEasing,
+            image.transitionCircleEasing,
             image.row,
             true,
             patch.cropAspect ?? image.cropAspect,
@@ -212,6 +214,8 @@ export function useTimelineReplace({
           video.transitionDuration,
           video.animationDuration,
           undefined, undefined, undefined,
+          video.transitionSlideEasing,
+          video.transitionCircleEasing,
           video.row
         )
         replaceVideoWithImage(replaceTargetId, imageInstance)
@@ -402,6 +406,8 @@ export function useTimelineReplace({
           image.transitionDuration,
           image.animationDuration,
           undefined, undefined, undefined,
+          image.transitionSlideEasing,
+          image.transitionCircleEasing,
           image.row,
           true,
           patch.cropAspect ?? image.cropAspect,

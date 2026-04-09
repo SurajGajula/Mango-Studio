@@ -5,7 +5,7 @@ import { getAuthCallbackUrl } from '@/app/lib/authRedirect'
 import { useAuth } from './AuthProvider'
 import PaymentModal from './modals/PaymentModal'
 import SolidColorPresetStrip from './ui/SolidColorPresetStrip'
-import { addSolidColorPresetAtPlayhead } from '@/app/lib/addImageAtPlayhead'
+import { addSolidShapePresetAtPlayhead } from '@/app/lib/addImageAtPlayhead'
 import styles from './AccountPanel.module.css'
 
 export default function AccountPanel() {
@@ -134,7 +134,7 @@ export default function AccountPanel() {
 
       <div className={styles.mediaSection}>
         <p className={styles.mediaSectionLabel}>Media</p>
-        <SolidColorPresetStrip onPick={(color, name) => void addSolidColorPresetAtPlayhead(color, name)} />
+        <SolidColorPresetStrip onPick={(shape, color, name) => void addSolidShapePresetAtPlayhead(color, name, shape)} />
       </div>
 
       {showPaymentModal && <PaymentModal onClose={() => setShowPaymentModal(false)} />}

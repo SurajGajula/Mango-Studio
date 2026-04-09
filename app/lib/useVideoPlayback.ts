@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback, type MutableRefObject } from 
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { getSortedMainItems, findActiveAndNextItems, checkTransition, calculateSourceTime } from '@/app/lib/renderUtils'
+import { syncSelectionToActivePlayingClip } from '@/app/lib/playbackSelectionSync'
 import { VideoRenderingEngine, RenderState, RenderResources } from '@/app/lib/videoRenderingEngine'
 import { setVideoCrossOriginForUrl } from '@/app/lib/mediaUtils'
 import type { VideoClass } from '@/app/models/VideoClass'
@@ -156,7 +157,6 @@ export function useVideoPlayback(
   const effects = useManifestStore((state) => state.effects)
 
   const getState = useManifestStore.getState
-  const getSelectionState = useSelectionStore.getState
 
   useEffect(() => {
     syncManifestVideoPool(getState().playbackTime, videos, videoElementsRef, persistenceCanvasesRef)
@@ -390,11 +390,18 @@ export function useVideoPlayback(
 
         const totalDur = state.getTotalDuration()
         if (newTime >= totalDur) {
-          state.setIsPlaying(false)
-          state.setPlaybackTime(0)
-          internalPlaybackTimeRef.current = 0
-          newTime = 0
-          lastTimestamp = null
+          if (state.isLooping && totalDur > 0) {
+            state.setPlaybackTime(0)
+            internalPlaybackTimeRef.current = 0
+            newTime = 0
+            lastTimestamp = null
+          } else {
+            state.setIsPlaying(false)
+            state.setPlaybackTime(0)
+            internalPlaybackTimeRef.current = 0
+            newTime = 0
+            lastTimestamp = null
+          }
         } else {
           state.setPlaybackTime(newTime)
         }
@@ -407,6 +414,8 @@ export function useVideoPlayback(
       const sorted = getSortedMainItems(state.videos, state.images)
       const { activeItem: activeClip, nextItem: nextClip } = findActiveAndNextItems(sorted, newTime)
       const { transitionActive, progress: transProgress } = checkTransition(activeClip, nextClip, newTime)
+
+      syncSelectionToActivePlayingClip(newTime, activeClip, state.videos, state.images, useSelectionStore.getState())
 
       syncManifestVideoPool(newTime, state.videos, videoElementsRef, persistenceCanvasesRef)
 
@@ -522,8 +531,7 @@ export function useVideoPlayback(
             aspectRatio: state.aspectRatio,
             videos: state.videos,
             images: state.images,
-            effects: state.effects,
-            selectedVideoId: getSelectionState().selectedVideoId
+            effects: state.effects
           }
 
           const resources: RenderResources = {
@@ -565,9 +573,6 @@ export function useVideoPlayback(
                   else { el.pause(); el.playbackRate = 1 }
                 }
               }
-            },
-            (id) => {
-              if (getSelectionState().selectedVideoId !== id) getSelectionState().setSelectedVideoId(id)
             }
           )
         }
@@ -576,7 +581,7 @@ export function useVideoPlayback(
     }
     rafRef.current = requestAnimationFrame(loop)
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
-  }, [getState, getSelectionState, canvasRef, containerRef, getAudioCtx])
+  }, [getState, canvasRef, containerRef, getAudioCtx])
 
   useEffect(() => { return () => { 
     videoElementsRef.current.forEach((video) => { 

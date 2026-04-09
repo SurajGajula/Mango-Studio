@@ -1,7 +1,7 @@
 import { ImageClass } from '@/app/models/ImageClass'
 import { ASPECT_RATIOS, computeMediaCropForAspect } from '@/app/lib/mediaUtils'
 import { findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
-import { createSolidColorDataUrl } from '@/app/lib/solidColorImage'
+import { createSolidShapeDataUrl, type SolidShapeKind } from '@/app/lib/solidColorImage'
 import { useManifestStore } from '@/app/stores/manifestStore'
 
 function findFreeRow(
@@ -18,7 +18,15 @@ function findFreeRow(
   }
 }
 
-export async function addImageAtCurrentPlayhead(url: string, name: string) {
+export type AddImageAtPlayheadOptions = {
+  importCropAspect?: string
+}
+
+export async function addImageAtCurrentPlayhead(
+  url: string,
+  name: string,
+  options?: AddImageAtPlayheadOptions
+) {
   const { playbackTime, aspectRatio, videos, images, addImage } = useManifestStore.getState()
   const start = playbackTime
   const end = start + 5
@@ -32,8 +40,9 @@ export async function addImageAtCurrentPlayhead(url: string, name: string) {
     row = findFreeVisualOverlayRow(start, end)
   }
   const isMainTrack = row === 0
-  const [rw, rh] = ASPECT_RATIOS[aspectRatio]
-  const crop = await computeMediaCropForAspect(url, 'image', aspectRatio, rw, rh, aspectRatio)
+  const cropLabel = options?.importCropAspect ?? aspectRatio
+  const [rw, rh] = ASPECT_RATIOS[cropLabel] ?? ASPECT_RATIOS[aspectRatio]
+  const crop = await computeMediaCropForAspect(url, 'image', aspectRatio, rw, rh, cropLabel)
   addImage(
     new ImageClass(
       `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -61,11 +70,19 @@ export async function addImageAtCurrentPlayhead(url: string, name: string) {
       undefined,
       undefined,
       undefined,
+      undefined,
+      undefined,
       row
     )
   )
 }
 
+export async function addSolidShapePresetAtPlayhead(color: string, name: string, shape: SolidShapeKind) {
+  await addImageAtCurrentPlayhead(createSolidShapeDataUrl(color, shape), name, {
+    importCropAspect: '1:1',
+  })
+}
+
 export async function addSolidColorPresetAtPlayhead(color: string, name: string) {
-  await addImageAtCurrentPlayhead(createSolidColorDataUrl(color), name)
+  await addSolidShapePresetAtPlayhead(color, name, 'square')
 }
