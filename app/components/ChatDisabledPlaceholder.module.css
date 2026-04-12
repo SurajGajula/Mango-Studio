@@ -29,5 +29,22 @@
   font-size: 0.85rem;
   color: #666;
   line-height: 1.5;
-  max-width: 220px;
+  max-width: 240px;
+}
+
+.authButton {
+  margin-top: 0.35rem;
+  background: #fff;
+  color: #000;
+  border: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.55rem 1.1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.authButton:hover {
+  opacity: 0.9;
 }

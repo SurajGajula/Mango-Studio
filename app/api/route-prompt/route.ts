@@ -99,7 +99,7 @@ export interface TransitionInstruction {
   type: 'image' | 'video'
   id: string
   animation?: 'none' | 'pulse' | 'shake' | 'jitter' | 'last-frame-hold'
-  transition?: 'none' | 'split' | 'fade' | 'slide-in' | 'circle' | 'rotate' | 'flash'
+  transition?: 'none' | 'split' | 'fade' | 'morph' | 'slide-in' | 'circle' | 'rotate' | 'flash'
   zoomIntensity?: number
   transitionDuration?: number
   animationDuration?: number

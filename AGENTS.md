@@ -14,7 +14,7 @@ Mango Studio is a Next.js 16 (App Router, Turbopack) web-based video editor with
 
 ### Signing in
 
-Use the **account panel** in the top row for **Sign in with Google** (personal Gmail) or email/password. AI chat stays disabled until you are signed in.
+When AI chat is disabled, use **Sign up / Log in** in the right chat panel to open the auth modal (Google or email/password). The signed-in **account panel** (left) shows your email, Pro, and sign out.
 
 ### Lint
 

@@ -114,6 +114,18 @@ const TRANSITION_OPTIONS: { value: TransitionMode; label: string; desc: string; 
     ),
   },
   {
+    value: 'morph',
+    label: 'Motion blur',
+    desc: 'WebGL: two textures, per-pixel mix, noise + luma-flow distortion (animation None only); otherwise crossfade',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="9" cy="12" r="5" opacity="0.45" />
+        <circle cx="15" cy="12" r="5" opacity="0.45" />
+        <path d="M11 12h2" opacity="0.6" />
+      </svg>
+    ),
+  },
+  {
     value: 'slide-in',
     label: 'Slide In',
     desc: 'This item slides in from a direction, on top of the previous item',
@@ -191,7 +203,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
   const previousItem = selectedIdx > 0 ? allMainItems[selectedIdx - 1] : null
   
   // Max duration depends on transition type
-  const isTransitionAffectingPrevious = ['split', 'fade', 'slide-in', 'circle', 'rotate', 'flash'].includes(currentTransition)
+  const isTransitionAffectingPrevious = ['split', 'fade', 'morph', 'slide-in', 'circle', 'rotate', 'flash'].includes(currentTransition)
   const isLastFrameHold =
     mode === 'animation' &&
     currentAnimation === 'last-frame-hold' &&

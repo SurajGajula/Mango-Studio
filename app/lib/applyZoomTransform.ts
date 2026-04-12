@@ -2,6 +2,7 @@ import type { AnimationMode, SlideTransitionEasing, TransitionMode } from '@/app
 import { drawWithAnimation } from './transforms/animationUtils'
 import { applySplit } from './transforms/split'
 import { applyFade } from './transforms/fade'
+import { applyMorph } from './transforms/morph'
 import { applyFlash } from './transforms/flash'
 import { applySlide } from './transforms/slide'
 import { applyCircle } from './transforms/circle'
@@ -116,11 +117,11 @@ export function applyZoomTransform(
         applySlide(params)
       }
     }
+  } else if (transition === 'morph' && prevEl && prevParams && progress < 1) {
+    applyMorph(params)
   } else {
-    // Draw the current element with its animation
     drawWithAnimation(params, imgEl, animation ?? 'none', progress, elapsedTime, zoomIntensity !== undefined ? zoomIntensity : 0.5, itemDuration, animationDuration)
 
-    // Handle transition overlay if active
     if (transition && transition !== 'none' && prevEl && prevParams && progress < 1) {
       if (transition === 'fade') {
         applyFade(params)

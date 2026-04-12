@@ -1,7 +1,7 @@
 import type { MediaKeyframe } from './mediaKeyframe'
 
 export type AnimationMode = 'none' | 'pulse' | 'shake' | 'jitter' | 'last-frame-hold'
-export type TransitionMode = 'none' | 'split' | 'fade' | 'slide-in' | 'circle' | 'rotate' | 'flash'
+export type TransitionMode = 'none' | 'split' | 'fade' | 'morph' | 'slide-in' | 'circle' | 'rotate' | 'flash'
 export type SlideTransitionEasing = 'smooth' | 'ease-in' | 'ease-out' | 'linear'
 
 export class ImageClass {

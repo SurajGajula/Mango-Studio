@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, memo } from 'react'
+import { useMemo, memo, useRef, useLayoutEffect } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { wrapTextToLines } from '@/app/lib/textUtils'
@@ -50,6 +50,21 @@ function TextOverlayComponent({
 
   const isSelected = selectedTextId === text.id
   const isEditing = editingTextId === text.id
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const editFocusInitializedForId = useRef<string | null>(null)
+
+  useLayoutEffect(() => {
+    if (!isEditing) {
+      editFocusInitializedForId.current = null
+      return
+    }
+    const el = textareaRef.current
+    if (!el || editFocusInitializedForId.current === text.id) return
+    editFocusInitializedForId.current = text.id
+    el.focus()
+    const len = el.value.length
+    el.setSelectionRange(len, len)
+  }, [isEditing, text.id])
 
   const displayContent = useMemo(() => {
     if (isEditing) return null
@@ -130,15 +145,7 @@ function TextOverlayComponent({
             textShadow: (text.style === 'negative' || text.style === 'highlight') ? 'none' : undefined,
           }}
           onChange={(e) => { editingContentRef.current = e.target.value; setEditingContent(e.target.value) }}
-          ref={(el) => {
-            if (el) {
-              setTimeout(() => {
-                el.focus()
-                const len = el.value.length
-                el.setSelectionRange(len, len)
-              }, 0)
-            }
-          }}
+          ref={textareaRef}
           onBlur={() => {
             updateText(text.id, { content: editingContentRef.current })
             pushHistory()

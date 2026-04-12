@@ -227,7 +227,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'set_transitions',
-    description: 'Set the animation (none, pulse, shake, or jitter) or transition (none, split, fade, slide-in, circle, rotate, or flash) on one or more images or videos. Use this when the user asks to set, apply, add, or remove animations or transitions on timeline images or videos — for example "set pulse on images 2 to 25", "add shake to image 1", "add split transition", "add fade transition", "add slide in from left", "add circle transition", "add rotate transition", "add white flash transition", "add black flash transition", or "remove animations from all images". For consolidated transitions like flash, slide-in, circle, and split, you should also set the corresponding parameters (transitionColor, transitionDirection, transitionAxis, transitionSlideEasing for slide-in speed curve, transitionCircleEasing for circle expand speed) if specified. Use the image/video ids from the manifest.',
+    description: 'Set the animation (none, pulse, shake, or jitter) or transition (none, split, fade, morph, slide-in, circle, rotate, or flash) on one or more images or videos. Use this when the user asks to set, apply, add, or remove animations or transitions on timeline images or videos — for example "set pulse on images 2 to 25", "add shake to image 1", "add split transition", "add fade transition", "add morph or motion blur transition", "add slide in from left", "add circle transition", "add rotate transition", "add white flash transition", "add black flash transition", or "remove animations from all images". For consolidated transitions like flash, slide-in, circle, and split, you should also set the corresponding parameters (transitionColor, transitionDirection, transitionAxis, transitionSlideEasing for slide-in speed curve, transitionCircleEasing for circle expand speed) if specified. Use the image/video ids from the manifest.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -251,7 +251,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
               },
               transition: {
                 type: Type.STRING,
-                description: 'The transition mode to apply: "none", "split", "fade", "slide-in", "circle", "rotate", or "flash".',
+                description: 'The transition mode to apply: "none", "split", "fade", "morph" (WebGL: two textures, per-pixel mix, noise + luma-flow distortion; animation none only, otherwise crossfade), "slide-in", "circle", "rotate", or "flash".',
               },
               zoomIntensity: {
                 type: Type.NUMBER,
@@ -452,7 +452,7 @@ export const systemInstruction =
   '- add_effect: when the user asks to add visual effects (like "crt-dither", "flashing-black-vignette", "black-and-white", "vivid-sharp", or "pixel-glitch-scan") over a specific time range; include intensity (0.0–1.0) if specified for flashing-black-vignette, black-and-white, vivid-sharp, or pixel-glitch-scan\n' +
     '- replace_with_solid: when the user asks to replace timeline images or videos with a solid/flat color (white, black, hex, named CSS colors) without uploading a file — e.g. "replace videos 3–16 with white", "blank frames", "solid red background clip"\n' +
     '- replace_images: ONLY when the user has attached image/video files AND asks to replace timeline items with those uploads\n' +
-  '- set_transitions: when the user asks to set, apply, add, or remove animations (none, pulse, shake, or jitter) or transitions (none, split, fade, slide-in, circle, rotate, or flash) on images or videos; include zoomIntensity (0.05–1.0) if specified, transitionDuration if specified, transitionColor if specified (for flash), transitionDirection if specified (for slide-in), transitionAxis if specified (for split), transitionSlideEasing if specified (for slide-in), or transitionCircleEasing if specified (for circle)\n' +
+  '- set_transitions: when the user asks to set, apply, add, or remove animations (none, pulse, shake, or jitter) or transitions (none, split, fade, morph, slide-in, circle, rotate, or flash) on images or videos; include zoomIntensity (0.05–1.0) if specified, transitionDuration if specified, transitionColor if specified (for flash), transitionDirection if specified (for slide-in), transitionAxis if specified (for split), transitionSlideEasing if specified (for slide-in), or transitionCircleEasing if specified (for circle)\n' +
   '- set_crop: when the user asks to set or change the aspect ratio of images or videos (e.g. "make images 2-25 16:9"); cropAspect must be one of "16:9", "4:3", "1:1", "3:4", "9:16", or "none"\n' +
   '- no_op: for anything else\n' +
   'Always call exactly one function. Compute exact numeric values from the timeline data provided.\n' +

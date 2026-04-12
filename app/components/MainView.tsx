@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect } from 'react'
 import ChatWindow from './ChatWindow'
 import ChatDisabledPlaceholder from './ChatDisabledPlaceholder'
 import AccountPanel from './AccountPanel'
+import AuthModal from './modals/AuthModal'
 import Timeline from './Timeline'
 import PreviewArea from './PreviewArea'
 import TransitionsPanel from './panels/TransitionsPanel'
@@ -29,6 +30,7 @@ export default function MainView() {
   const [speedItemId, setSpeedItemId] = useState<string | null>(null)
   const [pitchItemId, setPitchItemId] = useState<string | null>(null)
   const [localPersistReady, setLocalPersistReady] = useState(false)
+  const [authModalOpen, setAuthModalOpen] = useState(false)
   const { user, loading } = useAuth()
   const videos = useManifestStore((s) => s.videos)
   const images = useManifestStore((s) => s.images)
@@ -55,6 +57,10 @@ export default function MainView() {
 
   useGuestProjectPersistence(!user && localPersistReady)
   useUserProjectPersistence(user && localPersistReady ? user : null)
+
+  useEffect(() => {
+    if (user) setAuthModalOpen(false)
+  }, [user])
 
   useEffect(() => {
     if (rightPanel === 'chat' || rightPanel === 'effects') return
@@ -200,10 +206,11 @@ export default function MainView() {
           ) : user ? (
             <ChatWindow />
           ) : (
-            <ChatDisabledPlaceholder />
+            <ChatDisabledPlaceholder onOpenAuth={() => setAuthModalOpen(true)} />
           )}
         </div>
       </div>
+      {authModalOpen && <AuthModal onClose={() => setAuthModalOpen(false)} />}
       <div className={styles.timelineContainer}>
         <Timeline
           onOpenTransitions={onOpenTransitions}
