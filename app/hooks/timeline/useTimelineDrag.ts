@@ -23,6 +23,43 @@ function timelineSnapThresholdSeconds(visibleDuration: number): number {
   return Math.max(TIMELINE_SNAP_MIN_SEC, Math.min(TIMELINE_SNAP_MAX_SEC, scaled))
 }
 
+function toTimeDelta(
+  clientX: number,
+  initialMouseX: number,
+  timelineWidth: number,
+  totalWithPadding: number
+): number {
+  return ((clientX - initialMouseX) / timelineWidth) * totalWithPadding
+}
+
+function snapStartOrEnd(
+  start: number,
+  duration: number,
+  targets: number[],
+  threshold: number
+): number {
+  const snappedStart = snapToMarkers(start, targets, threshold)
+  if (snappedStart !== start) return snappedStart
+  const end = start + duration
+  const snappedEnd = snapToMarkers(end, targets, threshold)
+  if (snappedEnd !== end) return snappedEnd - duration
+  return start
+}
+
+function clampMinDuration(start: number, end: number, min: number): { start: number; end: number } {
+  return {
+    start: Math.min(start, end - min),
+    end: Math.max(end, start + min),
+  }
+}
+
+function applyBounds(value: number, min?: number, max?: number): number {
+  let v = value
+  if (min !== undefined) v = Math.max(min, v)
+  if (max !== undefined) v = Math.min(max, v)
+  return v
+}
+
 interface UseTimelineDragProps {
   videos: VideoClass[]
   images: ImageClass[]
@@ -509,6 +546,80 @@ export function useTimelineDrag({
     [setIsPlaying, computePreviewForDrag, timelineRowRef]
   )
 
+  type DragHandle = 'move' | 'start' | 'end'
+  type DragBounds = {
+    minStart?: number
+    maxStart?: number
+    minEnd?: number
+    maxEnd?: number
+  }
+  type VisualDragInput = {
+    handle: DragHandle
+    initialStartTime: number
+    initialEndTime: number
+    currentStartTime: number
+    timeDelta: number
+    targets: number[]
+    minDuration: number
+    bounds?: DragBounds
+  }
+
+  const computeVisualItemDrag = useCallback(
+    ({
+      handle,
+      initialStartTime,
+      initialEndTime,
+      currentStartTime,
+      timeDelta,
+      targets,
+      minDuration,
+      bounds,
+    }: VisualDragInput) => {
+      const duration = initialEndTime - initialStartTime
+      if (handle === 'move') {
+        let newStart = snapStartOrEnd(initialStartTime + timeDelta, duration, targets, snapThresholdSec)
+        newStart = applyBounds(newStart, bounds?.minStart, bounds?.maxStart)
+        let newEnd = newStart + duration
+        if (bounds?.minEnd !== undefined && newEnd < bounds.minEnd) {
+          newEnd = bounds.minEnd
+          newStart = newEnd - duration
+        }
+        if (bounds?.maxEnd !== undefined && newEnd > bounds.maxEnd) {
+          newEnd = bounds.maxEnd
+          newStart = newEnd - duration
+        }
+        return { startTime: newStart, endTime: newEnd }
+      }
+
+      if (handle === 'start') {
+        const boundedStart = applyBounds(initialStartTime + timeDelta, bounds?.minStart, bounds?.maxStart)
+        let newStart = clampMinDuration(boundedStart, initialEndTime, minDuration).start
+        const snapped = snapToMarkers(newStart, targets, snapThresholdSec)
+        const maxAllowedStart = clampMinDuration(
+          bounds?.maxStart ?? initialEndTime,
+          initialEndTime,
+          minDuration
+        ).start
+        const minAllowedStart = bounds?.minStart ?? Number.NEGATIVE_INFINITY
+        if (snapped !== newStart && snapped < maxAllowedStart && snapped >= minAllowedStart) {
+          newStart = snapped
+        }
+        return { startTime: newStart }
+      }
+
+      const boundedEnd = applyBounds(initialEndTime + timeDelta, bounds?.minEnd, bounds?.maxEnd)
+      let newEnd = clampMinDuration(currentStartTime, boundedEnd, minDuration).end
+      const snapped = snapToMarkers(newEnd, targets, snapThresholdSec)
+      const minAllowedEnd = clampMinDuration(currentStartTime, bounds?.minEnd ?? currentStartTime, minDuration).end
+      const maxAllowedEnd = bounds?.maxEnd ?? Number.POSITIVE_INFINITY
+      if (snapped !== newEnd && snapped > minAllowedEnd && snapped <= maxAllowedEnd) {
+        newEnd = snapped
+      }
+      return { endTime: newEnd }
+    },
+    [snapThresholdSec]
+  )
+
   const handleTrimStart = useCallback((videoId: string, handle: TrimHandle, e: React.MouseEvent) => {
     e.stopPropagation()
     e.preventDefault()
@@ -535,8 +646,7 @@ export function useTimelineDrag({
     const video = videos.find((v) => v.id === trimDragging.videoId)
     if (!video) return
     const { originalDuration, trimStart: initialTrimStart, trimEnd: initialTrimEnd, initialTimestamp, initialMouseX, timelineWidth, totalWithPadding } = trimStartRef.current
-    const mouseDeltaX = e.clientX - initialMouseX
-    const mouseDeltaTime = (mouseDeltaX / timelineWidth) * totalWithPadding
+    const mouseDeltaTime = toTimeDelta(e.clientX, initialMouseX, timelineWidth, totalWithPadding)
     const playbackSpeed = video.playbackSpeed ?? 1
     const targets = getSnapTargets(trimDragging.videoId)
 
@@ -613,8 +723,7 @@ export function useTimelineDrag({
   const handleAudioTrimMove = useCallback((e: MouseEvent) => {
     if (!audioTrimDragging || !audioTrimRef.current) return
     const { trimStart: initialTrimStart, trimEnd: initialTrimEnd, originalDuration, fileOffset, initialMouseX, timelineWidth, totalWithPadding } = audioTrimRef.current
-    const mouseDeltaX = e.clientX - initialMouseX
-    const mouseDeltaTime = (mouseDeltaX / timelineWidth) * totalWithPadding
+    const mouseDeltaTime = toTimeDelta(e.clientX, initialMouseX, timelineWidth, totalWithPadding)
     const minDuration = 0.5
     const audio = audios.find(a => a.id === audioTrimDragging.audioId)
     if (!audio) return
@@ -721,42 +830,25 @@ export function useTimelineDrag({
     const image = images.find((img) => img.id === imageId)
     if (!image) return
     const totalWithPadding = totalDuration + effectivePadding * 2
-    const mouseDelta = e.clientX - initialMouseX
-    const timeDelta = (mouseDelta / timelineWidth) * totalWithPadding
+    const timeDelta = toTimeDelta(e.clientX, initialMouseX, timelineWidth, totalWithPadding)
     const targets = getSnapTargets(imageId)
 
-    if (handle === 'move') {
-      let newStart = initialStartTime + timeDelta
-      const dur = initialEndTime - initialStartTime
-      const snappedStart = snapToMarkers(newStart, targets, snapThresholdSec)
-      if (snappedStart !== newStart) {
-        newStart = snappedStart
-      } else {
-        const currentEnd = newStart + dur
-        const snappedEnd = snapToMarkers(currentEnd, targets, snapThresholdSec)
-        if (snappedEnd !== currentEnd) {
-          newStart = snappedEnd - dur
-        }
-      }
-      if (newStart < 0) newStart = 0
-      updateImage(imageId, { startTime: newStart, endTime: newStart + dur })
-    } else if (handle === 'start') {
-      let newStart = Math.max(0, Math.min(initialStartTime + timeDelta, initialEndTime - 0.1))
-      const snapped = snapToMarkers(newStart, targets, snapThresholdSec)
-      if (snapped !== newStart && snapped < initialEndTime - 0.1) {
-        newStart = snapped
-      }
-      const newDur = Math.max(0.1, initialEndTime - newStart)
-      updateImage(imageId, { startTime: newStart, endTime: newStart + newDur })
-    } else if (handle === 'end') {
-      let newEnd = Math.max(image.startTime + 0.1, initialEndTime + timeDelta)
-      const snapped = snapToMarkers(newEnd, targets, snapThresholdSec)
-      if (snapped !== newEnd && snapped > image.startTime + 0.1) {
-        newEnd = snapped
-      }
-      updateImage(imageId, { endTime: newEnd })
-    }
-  }, [imageDragging, images, totalDuration, effectivePadding, updateImage, getSnapTargets, snapThresholdSec])
+    const updates = computeVisualItemDrag({
+      handle,
+      initialStartTime,
+      initialEndTime,
+      currentStartTime: image.startTime,
+      timeDelta,
+      targets,
+      minDuration: 0.1,
+      bounds: {
+        minStart: 0,
+        maxStart: initialEndTime - 0.1,
+        minEnd: image.startTime + 0.1,
+      },
+    })
+    updateImage(imageId, updates)
+  }, [imageDragging, images, totalDuration, effectivePadding, updateImage, getSnapTargets, computeVisualItemDrag])
 
   const handleImageDragEnd = useCallback(() => {
     setImageDragging(null)
@@ -828,47 +920,34 @@ export function useTimelineDrag({
     if (!textDragging || !textDragRef.current) return
     const { textId, handle } = textDragging
     const { initialMouseX, initialStartTime, initialEndTime, timelineWidth, totalWithPadding } = textDragRef.current
-    const timeDelta = ((e.clientX - initialMouseX) / timelineWidth) * totalWithPadding
+    const timeDelta = toTimeDelta(e.clientX, initialMouseX, timelineWidth, totalWithPadding)
     const others = texts.filter((t) => t.id !== textId).sort((a, b) => a.startTime - b.startTime)
     const prevEnd = others.filter((t) => t.endTime <= initialStartTime).reduce((max, t) => Math.max(max, t.endTime), 0)
     const nextStart = others.filter((t) => t.startTime >= initialEndTime).reduce((min, t) => Math.min(min, t.startTime), Infinity)
     const targets = getSnapTargets(textId)
 
-    if (handle === 'move') {
-      const dur = initialEndTime - initialStartTime
-      let newStart = initialStartTime + timeDelta
-      const snappedStart = snapToMarkers(newStart, targets, snapThresholdSec)
-      if (snappedStart !== newStart) {
-        newStart = snappedStart
-      } else {
-        const currentEnd = newStart + dur
-        const snappedEnd = snapToMarkers(currentEnd, targets, snapThresholdSec)
-        if (snappedEnd !== currentEnd) {
-          newStart = snappedEnd - dur
-        }
-      }
-      let newEnd = newStart + dur
-      if (newStart < prevEnd) { newStart = prevEnd; newEnd = newStart + dur }
-      if (newEnd > nextStart) { newEnd = nextStart; newStart = newEnd - dur }
-      if (newStart < 0) { newStart = 0; newEnd = dur }
-      updateText(textId, { startTime: newStart, endTime: newEnd })
-    } else if (handle === 'start') {
-      let newStart = Math.max(prevEnd, Math.min(initialStartTime + timeDelta, initialEndTime - 0.1))
-      const snapped = snapToMarkers(newStart, targets, snapThresholdSec)
-      if (snapped !== newStart && snapped < initialEndTime - 0.1 && snapped >= prevEnd) {
-        newStart = snapped
-      }
-      updateText(textId, { startTime: newStart })
-    } else if (handle === 'end') {
-      const currentStart = texts.find((t) => t.id === textId)?.startTime ?? initialStartTime
-      let newEnd = Math.min(nextStart, Math.max(currentStart + 0.1, initialEndTime + timeDelta))
-      const snapped = snapToMarkers(newEnd, targets, snapThresholdSec)
-      if (snapped !== newEnd && snapped > currentStart + 0.1 && snapped <= nextStart) {
-        newEnd = snapped
-      }
-      updateText(textId, { endTime: newEnd })
+    const currentStart = texts.find((t) => t.id === textId)?.startTime ?? initialStartTime
+    const updates = computeVisualItemDrag({
+      handle,
+      initialStartTime,
+      initialEndTime,
+      currentStartTime: currentStart,
+      timeDelta,
+      targets,
+      minDuration: 0.1,
+      bounds: {
+        minStart: prevEnd,
+        maxStart: initialEndTime - 0.1,
+        minEnd: currentStart + 0.1,
+        maxEnd: nextStart,
+      },
+    })
+    if (handle === 'move' && updates.startTime !== undefined && updates.endTime !== undefined && updates.startTime < 0) {
+      updateText(textId, { startTime: 0, endTime: initialEndTime - initialStartTime })
+      return
     }
-  }, [textDragging, texts, updateText, getSnapTargets, snapThresholdSec])
+    updateText(textId, updates)
+  }, [textDragging, texts, updateText, getSnapTargets, computeVisualItemDrag])
 
   const handleTextDragEnd = useCallback(() => {
     setTextDragging(null)
@@ -921,42 +1000,27 @@ export function useTimelineDrag({
     if (!effectDragging || !effectDragRef.current) return
     const { effectId, handle } = effectDragging
     const { initialMouseX, initialStartTime, initialEndTime, timelineWidth, totalWithPadding } = effectDragRef.current
-    const timeDelta = ((e.clientX - initialMouseX) / timelineWidth) * totalWithPadding
+    const timeDelta = toTimeDelta(e.clientX, initialMouseX, timelineWidth, totalWithPadding)
     const effect = useManifestStore.getState().effects.find((f) => f.id === effectId)
     if (!effect) return
     const targets = getSnapTargets(effectId)
 
-    if (handle === 'move') {
-      const dur = initialEndTime - initialStartTime
-      let newStart = initialStartTime + timeDelta
-      const snappedStart = snapToMarkers(newStart, targets, snapThresholdSec)
-      if (snappedStart !== newStart) {
-        newStart = snappedStart
-      } else {
-        const currentEnd = newStart + dur
-        const snappedEnd = snapToMarkers(currentEnd, targets, snapThresholdSec)
-        if (snappedEnd !== currentEnd) {
-          newStart = snappedEnd - dur
-        }
-      }
-      if (newStart < 0) newStart = 0
-      updateEffect(effectId, { startTime: newStart, endTime: newStart + dur })
-    } else if (handle === 'start') {
-      let newStart = Math.max(0, Math.min(initialStartTime + timeDelta, initialEndTime - 0.1))
-      const snapped = snapToMarkers(newStart, targets, snapThresholdSec)
-      if (snapped !== newStart && snapped < initialEndTime - 0.1) {
-        newStart = snapped
-      }
-      updateEffect(effectId, { startTime: newStart })
-    } else if (handle === 'end') {
-      let newEnd = Math.max(effect.startTime + 0.1, initialEndTime + timeDelta)
-      const snapped = snapToMarkers(newEnd, targets, snapThresholdSec)
-      if (snapped !== newEnd && snapped > effect.startTime + 0.1) {
-        newEnd = snapped
-      }
-      updateEffect(effectId, { endTime: newEnd })
-    }
-  }, [effectDragging, updateEffect, getSnapTargets, snapThresholdSec])
+    const updates = computeVisualItemDrag({
+      handle,
+      initialStartTime,
+      initialEndTime,
+      currentStartTime: effect.startTime,
+      timeDelta,
+      targets,
+      minDuration: 0.1,
+      bounds: {
+        minStart: 0,
+        maxStart: initialEndTime - 0.1,
+        minEnd: effect.startTime + 0.1,
+      },
+    })
+    updateEffect(effectId, updates)
+  }, [effectDragging, updateEffect, getSnapTargets, computeVisualItemDrag])
 
   const handleEffectDragEnd = useCallback(() => {
     setEffectDragging(null)

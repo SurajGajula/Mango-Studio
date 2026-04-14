@@ -120,7 +120,11 @@
   flex: 1;
 }
 
-.historyButton {
+.historyButton,
+.transitionsButton,
+.deleteButton,
+.addTextButton,
+.addOverlayButton {
   width: 2rem;
   height: 2rem;
   border: none;
@@ -134,36 +138,18 @@
   transition: all 0.15s ease;
 }
 
-.historyButton:hover:not(:disabled) {
+.historyButton:hover:not(:disabled),
+.transitionsButton:hover:not(:disabled),
+.addTextButton:hover:not(:disabled),
+.addOverlayButton:hover:not(:disabled) {
   background-color: #444444;
   color: #ffffff;
 }
 
-.historyButton:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
-.transitionsButton {
-  width: 2rem;
-  height: 2rem;
-  border: none;
-  border-radius: 4px;
-  background-color: #333333;
-  color: #888888;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.15s ease;
-}
-
-.transitionsButton:hover:not(:disabled) {
-  background-color: #444444;
-  color: #ffffff;
-}
-
-.transitionsButton:disabled {
+.historyButton:disabled,
+.transitionsButton:disabled,
+.deleteButton:disabled,
+.addTextButton:disabled {
   opacity: 0.35;
   cursor: not-allowed;
 }
@@ -184,8 +170,8 @@
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 }
 
-.cropMenuItem {
-  padding: 0.35rem 0.65rem;
+.cropMenuItem,
+.contextMenuItem {
   background: none;
   border: none;
   border-radius: 4px;
@@ -198,23 +184,14 @@
   white-space: nowrap;
 }
 
-.cropMenuItem:hover {
-  background-color: #2e2e2e;
-  color: #ffffff;
+.cropMenuItem {
+  padding: 0.35rem 0.65rem;
 }
 
-.deleteButton {
-  width: 2rem;
-  height: 2rem;
-  border: none;
-  border-radius: 4px;
-  background-color: #333333;
-  color: #888888;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.15s ease;
+.cropMenuItem:hover,
+.contextMenuItem:hover {
+  background-color: #2e2e2e;
+  color: #ffffff;
 }
 
 .deleteButton:hover:not(:disabled) {
@@ -222,35 +199,9 @@
   color: #ff6b6b;
 }
 
-.deleteButton:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
 .addTextButton {
-  width: 2rem;
-  height: 2rem;
-  border: none;
-  border-radius: 4px;
-  background-color: #333333;
-  color: #888888;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   font-weight: 600;
   font-size: 0.85rem;
-  transition: all 0.15s ease;
-}
-
-.addTextButton:hover:not(:disabled) {
-  background-color: #444444;
-  color: #ffffff;
-}
-
-.addTextButton:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
 }
 
 .exportButton {
@@ -333,29 +284,19 @@
   user-select: none;
 }
 
-.addOverlayButton {
-  width: 2rem;
-  height: 2rem;
-  border: none;
-  border-radius: 4px;
-  background-color: #333333;
-  color: #888888;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.15s ease;
-}
-
-.addOverlayButton:hover {
-  background-color: #444444;
-  color: #ffffff;
-}
-
-.overlayRow {
+.overlayRow,
+.effectRow,
+.textRow,
+.timelineRow,
+.audioRow {
   position: relative;
   height: 40px;
   min-height: 40px;
+}
+
+.overlayRow,
+.effectRow,
+.textRow {
   background-color: transparent;
 }
 
@@ -365,20 +306,6 @@
   bottom: 0;
   background-color: #1a1a1a;
   border-radius: 4px;
-}
-
-.effectRow {
-  position: relative;
-  height: 40px;
-  min-height: 40px;
-  background-color: transparent;
-}
-
-.textRow {
-  position: relative;
-  height: 40px;
-  min-height: 40px;
-  background-color: transparent;
 }
 
 .overlayItem {
@@ -570,9 +497,6 @@
 }
 
 .timelineRow {
-  position: relative;
-  height: 40px;
-  min-height: 40px;
   width: 100%;
 }
 
@@ -712,9 +636,6 @@
 
 
 .audioRow {
-  position: relative;
-  height: 40px;
-  min-height: 40px;
   background: transparent;
   overflow: hidden;
   flex-shrink: 0;
@@ -805,24 +726,9 @@
 
 .contextMenuItem {
   padding: 0.5rem 0.75rem;
-  background: none;
-  border: none;
-  border-radius: 4px;
-  color: #cccccc;
-  font-size: 0.75rem;
-  font-weight: 500;
-  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  text-align: left;
-  transition: background-color 0.12s ease, color 0.12s ease;
-  white-space: nowrap;
-}
-
-.contextMenuItem:hover {
-  background-color: #2e2e2e;
-  color: #ffffff;
 }
 
 .contextMenuItem:disabled {
