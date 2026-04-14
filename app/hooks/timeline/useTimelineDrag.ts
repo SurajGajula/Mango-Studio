@@ -35,13 +35,11 @@ interface UseTimelineDragProps {
   setIsPlaying: (playing: boolean) => void
   trimVideo: (id: string, start: number, end: number, ts?: number) => void
   updateImage: (id: string, updates: Partial<ImageClass>) => void
-  updateVideo: (id: string, updates: Partial<VideoClass>) => void
   updateText: (id: string, updates: Partial<TextClass>) => void
   updateEffect: (id: string, updates: Partial<EffectClass>) => void
   trimAudio: (id: string, start: number, end: number, ts?: number) => void
   moveItemToRow: (id: string, targetRow: number, newTime?: number) => void
   insertRow: (atIndex: number) => void
-  deleteRow: (atIndex: number) => void
   pushHistory: () => void
 }
 
@@ -57,22 +55,18 @@ export function useTimelineDrag({
   setIsPlaying,
   trimVideo,
   updateImage,
-  updateVideo,
   updateText,
   updateEffect,
   trimAudio,
   moveItemToRow,
   insertRow,
-  deleteRow,
   pushHistory,
 }: UseTimelineDragProps) {
   const snapThresholdSec = useMemo(() => timelineSnapThresholdSeconds(visibleDuration), [visibleDuration])
 
   const [trimDragging, setTrimDragging] = useState<{ videoId: string; handle: TrimHandle } | null>(null)
   const [audioTrimDragging, setAudioTrimDragging] = useState<{ audioId: string; handle: 'start' | 'end' } | null>(null)
-  const [audioBodyDragging, setAudioBodyDragging] = useState<{ audioId: string } | null>(null)
   const [imageDragging, setImageDragging] = useState<{ imageId: string; handle: 'move' | 'start' | 'end' } | null>(null)
-  const [overlayVideoDragging, setOverlayVideoDragging] = useState<{ videoId: string } | null>(null)
   const [textDragging, setTextDragging] = useState<{ textId: string; handle: 'move' | 'start' | 'end' } | null>(null)
   const [effectDragging, setEffectDragging] = useState<{ effectId: string; handle: 'move' | 'start' | 'end' } | null>(null)
   type ActiveDragState = {
@@ -104,10 +98,8 @@ export function useTimelineDrag({
 
   const trimStartRef = useRef<any>(null)
   const audioTrimRef = useRef<any>(null)
-  const audioBodyDragRef = useRef<any>(null)
   const imageDragRef = useRef<any>(null)
   const timelineHandleHistoryPausedRef = useRef(false)
-  const overlayVideoDragRef = useRef<any>(null)
   const textDragRef = useRef<any>(null)
   const effectDragRef = useRef<any>(null)
   const holdMoveCleanupRef = useRef<(() => void) | null>(null)
@@ -258,7 +250,7 @@ export function useTimelineDrag({
           itemType === 'video' ||
           itemType === 'text' ||
           itemType === 'effect'
-        const canUseTopOverlayAudioLane = itemType === 'audio' && initialRow >= 1
+        const canUseTopOverlayAudioLane = itemType === 'audio' && initialRow >= 0
 
         let foundRow = false
         const y = clientY
@@ -686,44 +678,6 @@ export function useTimelineDrag({
     [scheduleHoldMoveDrag, timelineRowRef]
   )
 
-  const handleAudioBodyDragMove = useCallback((e: MouseEvent) => {
-    if (!audioBodyDragging || !audioBodyDragRef.current) return
-    const { initialStartTime, initialTrimStart, initialTrimEnd, initialOrigDuration, initialEffectiveDuration, initialMouseX, timelineWidth, totalWithPadding, totalDuration: td } = audioBodyDragRef.current
-    const mouseDeltaTime = ((e.clientX - initialMouseX) / timelineWidth) * totalWithPadding
-    const audio = audios.find(a => a.id === audioBodyDragging.audioId)
-    if (!audio) return
-    const playbackSpeed = audio.playbackSpeed ?? 1
-    const targets = getSnapTargets(audioBodyDragging.audioId)
-
-    let newStartTime = Math.max(0, initialStartTime + mouseDeltaTime)
-    const activeDur = (initialOrigDuration - initialTrimStart - initialTrimEnd) / playbackSpeed
-    
-    const snappedStart = snapToMarkers(newStartTime, targets, snapThresholdSec)
-    if (snappedStart !== newStartTime) {
-      newStartTime = snappedStart
-    } else {
-      const currentEndTime = newStartTime + activeDur
-      const snappedEnd = snapToMarkers(currentEndTime, targets, snapThresholdSec)
-      if (snappedEnd !== currentEndTime) {
-        newStartTime = snappedEnd - activeDur
-      }
-    }
-
-    const newActiveDuration = Math.min(initialEffectiveDuration, Math.max(0, td - newStartTime))
-    const newTrimEnd = Math.max(0, initialOrigDuration - initialTrimStart - newActiveDuration * playbackSpeed)
-    trimAudio(audioBodyDragging.audioId, initialTrimStart, newTrimEnd, newStartTime)
-  }, [audioBodyDragging, audios, trimAudio, getSnapTargets, snapThresholdSec])
-
-  const handleAudioBodyDragEnd = useCallback(() => {
-    setAudioBodyDragging(null)
-    audioBodyDragRef.current = null
-    if (timelineHandleHistoryPausedRef.current) {
-      useManifestStore.getState().resumeHistory()
-      timelineHandleHistoryPausedRef.current = false
-    }
-    pushHistory()
-  }, [pushHistory])
-
   const handleImageDragStart = useCallback(
     (imageId: string, handle: 'move' | 'start' | 'end', e: React.MouseEvent) => {
       if (handle === 'move') {
@@ -832,37 +786,6 @@ export function useTimelineDrag({
     },
     [scheduleHoldMoveDrag, timelineRowRef]
   )
-
-  const handleOverlayVideoDragMove = useCallback((e: MouseEvent) => {
-    if (!overlayVideoDragging || !overlayVideoDragRef.current) return
-    const { videoId } = overlayVideoDragging
-    const { initialMouseX, initialTimestamp, timelineWidth, totalWithPadding } = overlayVideoDragRef.current
-    const timeDelta = ((e.clientX - initialMouseX) / timelineWidth) * totalWithPadding
-    const video = videos.find(v => v.id === videoId)
-    if (!video) return
-    const targets = getSnapTargets(videoId)
-
-    let newTimestamp = Math.max(0, initialTimestamp + timeDelta)
-    const snappedStart = snapToMarkers(newTimestamp, targets, snapThresholdSec)
-    if (snappedStart !== newTimestamp) {
-      newTimestamp = snappedStart
-    } else {
-      const dur = video.duration ?? 0
-      const currentEndTime = newTimestamp + dur
-      const snappedEnd = snapToMarkers(currentEndTime, targets, snapThresholdSec)
-      if (snappedEnd !== currentEndTime) {
-        newTimestamp = snappedEnd - dur
-      }
-    }
-    if (newTimestamp < 0) newTimestamp = 0
-    updateVideo(videoId, { timestamp: newTimestamp })
-  }, [overlayVideoDragging, updateVideo, videos, getSnapTargets, snapThresholdSec])
-
-  const handleOverlayVideoDragEnd = useCallback(() => {
-    setOverlayVideoDragging(null)
-    overlayVideoDragRef.current = null
-    pushHistory()
-  }, [pushHistory])
 
   const handleTextDragStart = useCallback(
     (textId: string, handle: 'move' | 'start' | 'end', e: React.MouseEvent) => {
@@ -1068,17 +991,6 @@ export function useTimelineDrag({
   }, [audioTrimDragging, handleAudioTrimMove, handleAudioTrimEnd])
 
   useEffect(() => {
-    if (audioBodyDragging) {
-      document.addEventListener('mousemove', handleAudioBodyDragMove)
-      document.addEventListener('mouseup', handleAudioBodyDragEnd)
-      return () => {
-        document.removeEventListener('mousemove', handleAudioBodyDragMove)
-        document.removeEventListener('mouseup', handleAudioBodyDragEnd)
-      }
-    }
-  }, [audioBodyDragging, handleAudioBodyDragMove, handleAudioBodyDragEnd])
-
-  useEffect(() => {
     if (imageDragging) {
       document.addEventListener('mousemove', handleImageDragMove)
       document.addEventListener('mouseup', handleImageDragEnd)
@@ -1088,17 +1000,6 @@ export function useTimelineDrag({
       }
     }
   }, [imageDragging, handleImageDragMove, handleImageDragEnd])
-
-  useEffect(() => {
-    if (overlayVideoDragging) {
-      document.addEventListener('mousemove', handleOverlayVideoDragMove)
-      document.addEventListener('mouseup', handleOverlayVideoDragEnd)
-      return () => {
-        document.removeEventListener('mousemove', handleOverlayVideoDragMove)
-        document.removeEventListener('mouseup', handleOverlayVideoDragEnd)
-      }
-    }
-  }, [overlayVideoDragging, handleOverlayVideoDragMove, handleOverlayVideoDragEnd])
 
   useEffect(() => {
     if (textDragging) {
@@ -1169,12 +1070,10 @@ export function useTimelineDrag({
     activeDrag,
     dragPreview,
     holdDragPreview,
-    trimDragging, setTrimDragging,
-    audioTrimDragging, setAudioTrimDragging,
-    audioBodyDragging, setAudioBodyDragging,
-    imageDragging, setImageDragging,
-    overlayVideoDragging, setOverlayVideoDragging,
-    textDragging, setTextDragging,
+    trimDragging,
+    audioTrimDragging,
+    imageDragging,
+    textDragging,
     handleTrimStart,
     handleAudioTrimStart,
     handleAudioBodyDragStart,

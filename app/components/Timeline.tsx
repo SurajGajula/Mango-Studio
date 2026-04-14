@@ -56,7 +56,6 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
   const selectedAudioId = useSelectionStore((state) => state.selectedAudioId)
   const selectedEffectId = useSelectionStore((state) => state.selectedEffectId)
 
-  const updateVideo = useManifestStore((state) => state.updateVideo)
   const updateImage = useManifestStore((state) => state.updateImage)
   const addText = useManifestStore((state) => state.addText)
   const updateText = useManifestStore((state) => state.updateText)
@@ -132,13 +131,11 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     setIsPlaying,
     trimVideo,
     updateImage,
-    updateVideo,
     updateText,
     updateEffect,
     trimAudio,
     moveItemToRow: useManifestStore.getState().moveItemToRow,
     insertRow: useManifestStore.getState().insertRow,
-    deleteRow: useManifestStore.getState().deleteRow,
     pushHistory,
   })
 
@@ -211,6 +208,19 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     if (totalWithPadding === 0) return 0
     return (timeWithPadding / totalWithPadding) * 100
   }, [effectivePadding, totalDuration])
+
+  const getDragPreviewTop = useCallback(
+    (targetRow: number, itemType: 'video' | 'image' | 'text' | 'audio' | 'effect') => {
+      const container = timelineRowRef.current
+      if (!container) return 0
+      const visualRow = itemType === 'audio' && targetRow === 0 ? -1 : targetRow
+      const rowEl = Array.from(container.children).find(
+        (child) => child.getAttribute('data-row-index') === String(visualRow)
+      )
+      return rowEl instanceof HTMLElement ? rowEl.offsetTop : 0
+    },
+    []
+  )
 
   const handleAccountMediaDragOverCapture = useCallback((e: React.DragEvent) => {
     if (accountMediaDragActive(e.dataTransfer)) {
@@ -544,17 +554,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
                           style={{
                             left: `${getContentPosition(ui.targetTime)}%`,
                             width: `${(ui.duration / (totalDuration + effectivePadding * 2)) * 100}%`,
-                            top: (() => {
-                              const container = timelineRowRef.current
-                              if (!container) return 0
-                              const rowEls = Array.from(container.children).filter(
-                                (child) => child.getAttribute('data-row-index') === String(ui.targetRow)
-                              )
-                              if (rowEls.length > 0) {
-                                return (rowEls[0] as HTMLElement).offsetTop
-                              }
-                              return 0
-                            })(),
+                            top: getDragPreviewTop(ui.targetRow, ui.itemType),
                             height: '40px',
                             opacity: ui.isValid ? 0.5 : 0.2,
                             backgroundColor: ui.isValid ? '#ffffff' : '#ff4a4a',
@@ -568,17 +568,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
                             style={{
                               left: `${getContentPosition(0)}%`,
                               width: `${(totalDuration / (totalDuration + effectivePadding * 2)) * 100}%`,
-                              top: (() => {
-                                const container = timelineRowRef.current
-                                if (!container) return 0
-                                const rowEls = Array.from(container.children).filter(
-                                  (child) => child.getAttribute('data-row-index') === String(ui.targetRow)
-                                )
-                                if (rowEls.length > 0) {
-                                  return (rowEls[0] as HTMLElement).offsetTop - 4
-                                }
-                                return 0
-                              })(),
+                              top: getDragPreviewTop(ui.targetRow, ui.itemType) - 4,
                             }}
                           />
                         )}
