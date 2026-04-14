@@ -20,6 +20,7 @@ interface ManifestItem {
   zoomIntensity?: number
   transitionDuration?: number
   animationDuration?: number
+  transitionFlashMode?: 'solid' | 'negative'
   cropAspect?: string
   originalDuration?: number
   trimStart?: number
@@ -93,6 +94,7 @@ export interface AddEffectInstruction {
   startTime: number
   endTime: number
   intensity?: number
+  contrast?: number
 }
 
 export interface TransitionInstruction {
@@ -104,6 +106,7 @@ export interface TransitionInstruction {
   transitionDuration?: number
   animationDuration?: number
   transitionColor?: string
+  transitionFlashMode?: 'solid' | 'negative'
   transitionDirection?: 'left' | 'right' | 'top' | 'bottom'
   transitionAxis?: 'horizontal' | 'vertical'
   transitionSlideEasing?: 'smooth' | 'ease-in' | 'ease-out' | 'linear'

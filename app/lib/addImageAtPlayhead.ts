@@ -22,13 +22,14 @@ export type AddImageAtPlayheadOptions = {
   importCropAspect?: string
 }
 
-export async function addImageAtCurrentPlayhead(
+export async function addImageAtTimelineTime(
   url: string,
   name: string,
+  startTime: number,
   options?: AddImageAtPlayheadOptions
 ) {
-  const { playbackTime, aspectRatio, videos, images, addImage } = useManifestStore.getState()
-  const start = playbackTime
+  const { aspectRatio, videos, images, addImage } = useManifestStore.getState()
+  const start = Math.max(0, startTime)
   const end = start + 5
 
   const mediaItems = [
@@ -75,6 +76,15 @@ export async function addImageAtCurrentPlayhead(
       row
     )
   )
+}
+
+export async function addImageAtCurrentPlayhead(
+  url: string,
+  name: string,
+  options?: AddImageAtPlayheadOptions
+) {
+  const { playbackTime } = useManifestStore.getState()
+  await addImageAtTimelineTime(url, name, playbackTime, options)
 }
 
 export async function addSolidShapePresetAtPlayhead(color: string, name: string, shape: SolidShapeKind) {

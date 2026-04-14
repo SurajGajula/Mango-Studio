@@ -133,6 +133,18 @@ export function findActiveAndNextItems(items: MainItem[], time: number) {
   const nextItem = activeIdx !== -1 && activeIdx < items.length - 1 
     ? items[activeIdx + 1] 
     : (items.find(it => it.startTime > time) || null)
+
+  // Flash transitions are centered on the cut, so during the first half of the
+  // new clip we still treat the transition pair as previous -> current.
+  if (activeItem && activeIdx > 0 && activeItem.item.transition === 'flash') {
+    const previousItem = items[activeIdx - 1]
+    const rawTransDur = Math.max(0.1, activeItem.item.transitionDuration ?? 1.0)
+    const transDur = Math.min(rawTransDur, previousItem.duration, activeItem.duration)
+    const halfDur = transDur * 0.5
+    if (time >= activeItem.startTime && time < activeItem.startTime + halfDur) {
+      return { activeItem: previousItem, nextItem: activeItem }
+    }
+  }
   
   return { activeItem, nextItem }
 }
@@ -144,9 +156,17 @@ export function checkTransition(activeItem: MainItem | null, nextItem: MainItem 
   if (!isTransitionType) return { transitionActive: false, progress: 0 }
 
   const rawTransDur = Math.max(0.1, nextItem.item.transitionDuration ?? 1.0)
-  const transDur = Math.min(rawTransDur, activeItem.duration)
+  const transDur = Math.min(rawTransDur, activeItem.duration, nextItem.duration)
+  if (nextItem.item.transition === 'flash') {
+    const halfDur = transDur * 0.5
+    const start = nextItem.startTime - halfDur
+    const end = nextItem.startTime + halfDur
+    const transitionActive = time >= start && time <= end
+    const progress = transDur > 0 ? Math.max(0, Math.min(1, (time - start) / transDur)) : 1
+    return { transitionActive, progress }
+  }
+
   const timeUntilNext = nextItem.startTime - time
-  
   const transitionActive = timeUntilNext >= 0 && timeUntilNext <= transDur
   const progress = transDur > 0 ? Math.max(0, Math.min(1, 1 - (timeUntilNext / transDur))) : 1
 

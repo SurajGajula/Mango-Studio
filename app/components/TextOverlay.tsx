@@ -1,9 +1,9 @@
 'use client'
 
-import { useMemo, memo, useRef, useLayoutEffect } from 'react'
+import { useMemo, memo, useRef, useLayoutEffect, Fragment } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
-import { wrapTextToLines } from '@/app/lib/textUtils'
+import { getKeyboardVisibleWordCount, wrapTextToLines } from '@/app/lib/textUtils'
 import { TextClass } from '@/app/models/TextClass'
 import styles from './PreviewArea.module.css'
 
@@ -66,29 +66,61 @@ function TextOverlayComponent({
     el.setSelectionRange(len, len)
   }, [isEditing, text.id])
 
-  const displayContent = useMemo(() => {
-    if (isEditing) return null
-    let content = text.content || 'Text'
-    
-    if (text.animation === 'keyboard') {
-      const words = content.split(/\s+/)
-      const duration = text.endTime - text.startTime
-      if (duration > 0 && words.length > 0) {
-        const wordDuration = duration / words.length
-        const elapsed = playbackTime - text.startTime
-        const visibleCount = Math.max(1, Math.min(words.length, Math.floor(elapsed / wordDuration) + 1))
-        content = words.slice(0, visibleCount).join(' ')
-      }
-    }
-    return content
-  }, [text.content, text.animation, text.startTime, text.endTime, playbackTime, isEditing])
+  const baseContent = text.content || 'Text'
+
+  const keyboardVisibleCount = useMemo(() => {
+    if (isEditing || text.animation !== 'keyboard') return null
+    const words = baseContent.split(/\s+/).filter((w) => w.length > 0)
+    if (words.length === 0) return null
+    return getKeyboardVisibleWordCount(baseContent, text.startTime, text.endTime, playbackTime)
+  }, [isEditing, text.animation, baseContent, text.startTime, text.endTime, playbackTime])
 
   const lines = useMemo(() => {
-    if (isEditing || !displayContent) return []
+    if (isEditing) return []
     const mCtx = getMeasureCtx()
     mCtx.font = `${text.fontWeight} ${text.fontSize * xScale}px ${text.fontFamily}`
-    return wrapTextToLines(mCtx, displayContent, text.width * xScale)
-  }, [displayContent, text.fontWeight, text.fontSize, xScale, text.fontFamily, text.width, getMeasureCtx, isEditing])
+    return wrapTextToLines(mCtx, baseContent, text.width * xScale)
+  }, [baseContent, text.fontWeight, text.fontSize, xScale, text.fontFamily, text.width, getMeasureCtx, isEditing])
+
+  const keyboardNodes = useMemo(() => {
+    if (keyboardVisibleCount === null) return null
+    let nextWordIndex = 0
+    return lines.map((line, li) => {
+      const parts = line.split(' ')
+      const partWordIndex = parts.map((w) => (w === '' ? null : nextWordIndex++))
+      const row: React.ReactNode[] = []
+      for (let p = 0; p < parts.length; p++) {
+        const w = parts[p]
+        if (p > 0) {
+          let j = p
+          while (j < parts.length && parts[j] === '') j++
+          const spVis =
+            j < parts.length &&
+            partWordIndex[j] !== null &&
+            partWordIndex[j]! < keyboardVisibleCount
+          row.push(
+            <span key={`${li}-sp-${p}`} style={{ visibility: spVis ? 'visible' : 'hidden' }}>
+              {' '}
+            </span>
+          )
+        }
+        if (w !== '' && partWordIndex[p] !== null) {
+          const idx = partWordIndex[p]!
+          row.push(
+            <span key={`${li}-w-${p}`} style={{ visibility: idx < keyboardVisibleCount ? 'visible' : 'hidden' }}>
+              {w}
+            </span>
+          )
+        }
+      }
+      return (
+        <Fragment key={li}>
+          {li > 0 ? '\n' : null}
+          {row}
+        </Fragment>
+      )
+    })
+  }, [lines, keyboardVisibleCount])
 
   return (
     <div
@@ -157,25 +189,18 @@ function TextOverlayComponent({
           }}
           onClick={(e) => e.stopPropagation()}
         />
-      ) : lines.join('\n')}
+      ) : keyboardNodes ?? lines.join('\n')}
     </div>
   )
 }
 
 export default memo(TextOverlayComponent, (prev, next) => {
-  // Only re-render if playbackTime actually changes the visible content for keyboard animation
   if (prev.text.animation === 'keyboard') {
-    const words = prev.text.content.split(/\s+/)
-    const duration = prev.text.endTime - prev.text.startTime
-    const wordDuration = duration / words.length
-    
-    const prevElapsed = prev.playbackTime - prev.text.startTime
-    const nextElapsed = next.playbackTime - next.text.startTime
-    
-    const prevVisible = Math.max(1, Math.min(words.length, Math.floor(prevElapsed / wordDuration) + 1))
-    const nextVisible = Math.max(1, Math.min(words.length, Math.floor(nextElapsed / wordDuration) + 1))
-    
-    if (prevVisible !== nextVisible) return false
+    const prevC = prev.text.content || 'Text'
+    const nextC = next.text.content || 'Text'
+    const prevV = getKeyboardVisibleWordCount(prevC, prev.text.startTime, prev.text.endTime, prev.playbackTime)
+    const nextV = getKeyboardVisibleWordCount(nextC, next.text.startTime, next.text.endTime, next.playbackTime)
+    if (prevV !== nextV) return false
   }
   
   // If not keyboard animation or no change in visible words, check other props

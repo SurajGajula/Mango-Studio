@@ -437,31 +437,52 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
             )}
 
             {mode === 'transition' && currentTransition === 'flash' && (
-              <div className={styles.durationControl}>
-                <label className={styles.sectionLabel}>Flash Color</label>
-                <div className={styles.colorPresets}>
-                  {[
-                    { name: 'White', color: '#FFFFFF' },
-                    { name: 'Black', color: '#000000' },
-                    { name: 'Red', color: '#FF0000' },
-                    { name: 'Yellow', color: '#FFFF00' }
-                  ].map(preset => (
-                    <button 
-                      key={preset.color}
-                      className={`${styles.colorChip} ${selectedItem.transitionColor === preset.color ? styles.chipActive : ''}`}
-                      style={{ backgroundColor: preset.color }}
-                      onClick={() => commitDiscreteChange({ transitionColor: preset.color })}
-                      title={preset.name}
-                    />
-                  ))}
-                  <input 
-                    type="color" 
-                    value={selectedItem.transitionColor || '#FFFFFF'} 
-                    onChange={(e) => commitDiscreteChange({ transitionColor: e.target.value })}
-                    className={styles.colorPicker}
-                  />
+              <>
+                <div className={styles.durationControl}>
+                  <label className={styles.sectionLabel}>Flash Type</label>
+                  <div className={styles.segmentedControl}>
+                    <button
+                      className={`${styles.segmentButton} ${(selectedItem.transitionFlashMode ?? 'solid') === 'solid' ? styles.segmentActive : ''}`}
+                      onClick={() => commitDiscreteChange({ transitionFlashMode: 'solid' })}
+                    >
+                      Solid color
+                    </button>
+                    <button
+                      className={`${styles.segmentButton} ${(selectedItem.transitionFlashMode ?? 'solid') === 'negative' ? styles.segmentActive : ''}`}
+                      onClick={() => commitDiscreteChange({ transitionFlashMode: 'negative' })}
+                    >
+                      Negative
+                    </button>
+                  </div>
                 </div>
-              </div>
+                {(selectedItem.transitionFlashMode ?? 'solid') === 'solid' && (
+                  <div className={styles.durationControl}>
+                    <label className={styles.sectionLabel}>Flash Color</label>
+                    <div className={styles.colorPresets}>
+                      {[
+                        { name: 'White', color: '#FFFFFF' },
+                        { name: 'Black', color: '#000000' },
+                        { name: 'Red', color: '#FF0000' },
+                        { name: 'Yellow', color: '#FFFF00' }
+                      ].map(preset => (
+                        <button
+                          key={preset.color}
+                          className={`${styles.colorChip} ${selectedItem.transitionColor === preset.color ? styles.chipActive : ''}`}
+                          style={{ backgroundColor: preset.color }}
+                          onClick={() => commitDiscreteChange({ transitionColor: preset.color })}
+                          title={preset.name}
+                        />
+                      ))}
+                      <input
+                        type="color"
+                        value={selectedItem.transitionColor || '#FFFFFF'}
+                        onChange={(e) => commitDiscreteChange({ transitionColor: e.target.value })}
+                        className={styles.colorPicker}
+                      />
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
             {showIntensitySlider && (

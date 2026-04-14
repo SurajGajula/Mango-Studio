@@ -95,6 +95,7 @@ export default function EffectsPanel({ onClose }: Props) {
   const activeType: EffectType | null = activeEffect?.type ?? null
 
   const intensitySliderHistory = useSliderHistorySession()
+  const contrastSliderHistory = useSliderHistorySession()
 
   const handleSelect = (value: EffectType) => {
     const start = playbackTime
@@ -116,6 +117,12 @@ export default function EffectsPanel({ onClose }: Props) {
     if (activeEffect) {
       const newIntensity = parseFloat(e.target.value)
       updateEffect(activeEffect.id, { intensity: newIntensity })
+    }
+  }
+
+  const handleContrastChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (activeEffect) {
+      updateEffect(activeEffect.id, { contrast: parseFloat(e.target.value) })
     }
   }
 
@@ -143,7 +150,46 @@ export default function EffectsPanel({ onClose }: Props) {
           ))}
         </div>
 
-        {(activeEffect?.type === 'flashing-black-vignette' || activeEffect?.type === 'black-and-white' || activeEffect?.type === 'vivid-sharp' || activeEffect?.type === 'pixel-glitch-scan') && (
+        {activeEffect?.type === 'flashing-black-vignette' && (
+          <>
+            <div className={styles.durationControl} style={{ marginTop: '2rem' }}>
+              <div className={styles.durationHeader}>
+                <span className={styles.durationLabel}>Vignette intensity</span>
+                <span className={styles.durationValue}>{((activeEffect.intensity ?? 0.5) * 100).toFixed(0)}%</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={activeEffect.intensity ?? 0.5}
+                onPointerDown={intensitySliderHistory}
+                onChange={handleIntensityChange}
+                className={styles.durationSlider}
+              />
+            </div>
+            <div className={styles.durationControl} style={{ marginTop: '1rem' }}>
+              <div className={styles.durationHeader}>
+                <span className={styles.durationLabel}>Dark filter</span>
+                <span className={styles.durationValue}>{((activeEffect.contrast ?? 0.5) * 100).toFixed(0)}%</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={activeEffect.contrast ?? 0.5}
+                onPointerDown={contrastSliderHistory}
+                onChange={handleContrastChange}
+                className={styles.durationSlider}
+              />
+            </div>
+          </>
+        )}
+
+        {(activeEffect?.type === 'black-and-white' ||
+          activeEffect?.type === 'vivid-sharp' ||
+          activeEffect?.type === 'pixel-glitch-scan') && (
           <div className={styles.durationControl} style={{ marginTop: '2rem' }}>
             <div className={styles.durationHeader}>
               <span className={styles.durationLabel}>
@@ -151,9 +197,7 @@ export default function EffectsPanel({ onClose }: Props) {
                   ? 'Desaturation'
                   : activeEffect.type === 'vivid-sharp'
                     ? 'Sharpness'
-                    : activeEffect.type === 'pixel-glitch-scan'
-                      ? 'Block size'
-                      : 'Vignette Intensity'}
+                    : 'Block size'}
               </span>
               <span className={styles.durationValue}>{((activeEffect.intensity ?? 0.5) * 100).toFixed(0)}%</span>
             </div>

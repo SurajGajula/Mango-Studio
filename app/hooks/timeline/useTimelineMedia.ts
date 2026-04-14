@@ -1,54 +1,21 @@
 import { useCallback } from 'react'
-import { VideoClass } from '@/app/models/VideoClass'
-import { ImageClass } from '@/app/models/ImageClass'
-import { AudioClass } from '@/app/models/AudioClass'
-import { ASPECT_RATIOS, computeMediaCropForAspect, resolveVideoMetadata } from '@/app/lib/mediaUtils'
 import { addImageAtCurrentPlayhead } from '@/app/lib/addImageAtPlayhead'
-import { findFreeAudioOverlayRow, findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
+import { addAudioToTimelineAtPlayhead, addVideoToTimelineAtPlayhead } from '@/app/lib/timelineMediaInsert'
 import { getOrCreateObjectURLForFile } from '@/app/lib/fileObjectUrlCache'
-import { useSelectionStore } from '@/app/stores/selectionStore'
-import { useManifestStore } from '@/app/stores/manifestStore'
-import { AspectRatio } from '@/app/stores/manifest/types'
 
-interface UseTimelineMediaProps {
-  videos: VideoClass[]
-  images: ImageClass[]
-  playbackTime: number
-  aspectRatio: AspectRatio
-  addVideo: (video: VideoClass) => void
-  addAudioToManifest: (audio: AudioClass) => void
-  setAudio: (audio: AudioClass) => void
-  updateAudio: (id: string, updates: Partial<AudioClass>) => void
-  audios: AudioClass[]
-}
-
-export function useTimelineMedia({
-  videos,
-  images,
-  playbackTime,
-  aspectRatio,
-  addVideo,
-  addAudioToManifest,
-  setAudio,
-  updateAudio,
-  audios,
-}: UseTimelineMediaProps) {
-  const setSelectedAudioId = useSelectionStore((state) => state.setSelectedAudioId)
-  const setSelectedVideoId = useSelectionStore((state) => state.setSelectedVideoId)
-  const setSelectedImageId = useSelectionStore((state) => state.setSelectedImageId)
-  const setSelectedTextId = useSelectionStore((state) => state.setSelectedTextId)
-
-  const findFreeRow = useCallback((
-    items: Array<{ startTime: number; endTime: number; row: number }>,
-    start: number,
-    end: number
-  ): number => {
-    let row = 0
-    while (true) {
-      const rowItems = items.filter((i) => i.row === row)
-      const hasOverlap = rowItems.some((i) => start < i.endTime && end > i.startTime)
-      if (!hasOverlap) return row
-      row++
+export function useTimelineMedia() {
+  const uploadToAccountLibrary = useCallback(async (file: File, durationSeconds?: number) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (durationSeconds !== undefined) {
+      formData.append('durationSeconds', String(durationSeconds))
+    }
+    const response = await fetch('/api/media/upload', {
+      method: 'POST',
+      body: formData,
+    })
+    if (response.ok) {
+      window.dispatchEvent(new Event('account-media-updated'))
     }
   }, [])
 
@@ -59,123 +26,38 @@ export function useTimelineMedia({
     for (const file of Array.from(files)) {
       if (file.type.startsWith('video/')) {
         const blobUrl = getOrCreateObjectURLForFile(file)
-        const { duration } = await resolveVideoMetadata(blobUrl)
-        const id = `video-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
-        const title = file.name.replace(/\.[^.]+$/, '').substring(0, 50)
-        const start = playbackTime
-        const end = start + duration
-        
-        const currentVideos = useManifestStore.getState().videos
-        const currentImages = useManifestStore.getState().images
-        
-        const mediaItems = [
-          ...currentImages.map((img) => ({ startTime: img.startTime, endTime: img.endTime, row: img.row })),
-          ...currentVideos.map((v) => ({ startTime: v.timestamp, endTime: v.timestamp + (v.duration ?? 0), row: v.row })),
-        ]
-        let row = findFreeRow(mediaItems, start, end)
-        if (row > 0) {
-          row = findFreeVisualOverlayRow(start, end)
+        const videoElement = document.createElement('video')
+        videoElement.src = blobUrl
+        await new Promise<void>((resolve, reject) => {
+          videoElement.onloadedmetadata = () => resolve()
+          videoElement.onerror = () => reject(new Error('Unable to read video metadata'))
+        })
+        const duration = Number(videoElement.duration) || 0
+        if (duration > 600) {
+          alert('Video uploads must be under 10 minutes.')
+          continue
         }
-        const isMainTrack = row === 0
-        const [rw, rh] = ASPECT_RATIOS[aspectRatio]
-        const crop = await computeMediaCropForAspect(blobUrl, 'video', aspectRatio, rw, rh, aspectRatio)
-        const x = crop.x
-        const y = crop.y
-        const width = crop.width
-        const height = crop.height
-        const cropAspect = crop.cropAspect
-        const cropSx = crop.cropSx
-        const cropSy = crop.cropSy
-        const cropSw = crop.cropSw
-        const cropSh = crop.cropSh
-        addVideo(new VideoClass(
-          id,
-          title,
-          blobUrl,
-          duration,
-          start,
-          undefined, undefined, undefined,
-          0, 0,
-          undefined,
-          !isMainTrack,
-          x, y, width, height,
-          1,
-          'none',
-          'none',
-          0.5,
-          1.0, // transitionDuration
-          1.0, // animationDuration
-          undefined, undefined, undefined,
-          undefined,
-          undefined,
-          row,
-          true,
-          cropAspect,
-          cropSx, cropSy, cropSw, cropSh,
-          undefined, undefined, undefined,
-          1
-        ))
+        await uploadToAccountLibrary(file, duration)
+        const title = file.name.replace(/\.[^.]+$/, '').substring(0, 50)
+        await addVideoToTimelineAtPlayhead(blobUrl, title)
       } else if (file.type.startsWith('image/')) {
-        const url = getOrCreateObjectURLForFile(file)
-        await addImageAtCurrentPlayhead(url, file.name)
+        const blobUrl = getOrCreateObjectURLForFile(file)
+        await uploadToAccountLibrary(file)
+        await addImageAtCurrentPlayhead(blobUrl, file.name)
       } else if (file.type.startsWith('audio/')) {
         const blobUrl = getOrCreateObjectURLForFile(file)
-        const audioId = `audio-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
         try {
           const arrayBuffer = await file.arrayBuffer()
           const audioCtx = new AudioContext()
           const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer)
           await audioCtx.close()
           const audioDuration = audioBuffer.duration
-
-          // Get the latest audios from the store to handle multiple files in one batch
-          const currentAudios = useManifestStore.getState().audios
-
-          const hasMainAudio = currentAudios.some((a) => !a.isOverlay)
-          const mainAudio = currentAudios.find((a) => !a.isOverlay)
-          let isOverlay = hasMainAudio
-          let startTime = isOverlay ? playbackTime : 0
-          let endTime = startTime + audioDuration
-
-          const rangesOverlap = (a0: number, a1: number, b0: number, b1: number) =>
-            a0 < b1 - 1e-3 && a1 > b0 + 1e-3
-
-          if (mainAudio && isOverlay && rangesOverlap(startTime, endTime, mainAudio.startTime, mainAudio.endTime)) {
-            const othersForRow = currentAudios
-              .filter((a) => a.id !== mainAudio.id)
-              .map((a) => ({ startTime: a.startTime, endTime: a.endTime, row: a.row }))
-            const demotedRow = Math.max(1, findFreeAudioOverlayRow(mainAudio.startTime, mainAudio.endTime))
-            updateAudio(mainAudio.id, { isOverlay: true, row: demotedRow })
-            isOverlay = false
-            startTime = playbackTime
-            endTime = startTime + audioDuration
+          if (audioDuration > 600) {
+            alert('Audio uploads must be under 10 minutes.')
+            continue
           }
-
-          const row = isOverlay ? Math.max(1, findFreeAudioOverlayRow(startTime, endTime)) : 0
-
-          const audioInstance = new AudioClass(
-            audioId,
-            file.name,
-            blobUrl,
-            startTime,
-            endTime,
-            [],
-            undefined,
-            0,
-            0,
-            audioDuration,
-            1,
-            isOverlay,
-            row,
-            1
-          )
-
-          if (!isOverlay) setAudio(audioInstance)
-          addAudioToManifest(audioInstance)
-          setSelectedAudioId(audioId)
-          setSelectedVideoId(null)
-          setSelectedImageId(null)
-          setSelectedTextId(null)
+          await uploadToAccountLibrary(file, audioDuration)
+          await addAudioToTimelineAtPlayhead(blobUrl, file.name, audioDuration)
         } catch {
         }
       }
@@ -183,17 +65,7 @@ export function useTimelineMedia({
 
     e.target.value = ''
   }, [
-    playbackTime,
-    aspectRatio,
-    addVideo,
-    addAudioToManifest,
-    setAudio,
-    updateAudio,
-    setSelectedAudioId,
-    setSelectedVideoId,
-    setSelectedImageId,
-    setSelectedTextId,
-    findFreeRow,
+    uploadToAccountLibrary,
   ])
 
   return { handleFileSelect }

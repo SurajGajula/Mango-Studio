@@ -11,6 +11,13 @@ function clampByte(n: number): number {
   return n < 0 ? 0 : n > 255 ? 255 : n
 }
 
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  if (x <= edge0) return 0
+  if (x >= edge1) return 1
+  const u = (x - edge0) / (edge1 - edge0)
+  return u * u * (3 - 2 * u)
+}
+
 function getVividScratch(w: number, h: number): HTMLCanvasElement {
   if (!vividScratch) {
     vividScratch = document.createElement('canvas')
@@ -317,9 +324,48 @@ function applyFlashingBlackVignette(
   ctx: CanvasRenderingContext2D,
   rx: number, ry: number, rw: number, rh: number,
   playbackTime: number,
-  intensity: number = 0.5
+  intensity: number = 0.5,
+  contrast: number = 0.5
 ): void {
   if (rw <= 0 || rh <= 0) return
+
+  const strength = Math.max(0, Math.min(1, contrast))
+  if (strength > 0.001) {
+    const iw = Math.max(1, Math.round(rw))
+    const ih = Math.max(1, Math.round(rh))
+    const snap = getBwScratch(iw, ih)
+    const sctx = snap.getContext('2d', { willReadFrequently: true })
+    if (!sctx) return
+    const source = ctx.canvas
+    sctx.setTransform(1, 0, 0, 1, 0, 0)
+    sctx.clearRect(0, 0, iw, ih)
+    sctx.drawImage(source, rx, ry, rw, rh, 0, 0, iw, ih)
+    try {
+      const img = sctx.getImageData(0, 0, iw, ih)
+      const d = img.data
+      for (let i = 0; i < d.length; i += 4) {
+        const r = d[i] / 255
+        const g = d[i + 1] / 255
+        const b = d[i + 2] / 255
+        const l = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        const shadowW = 1 - smoothstep(0.24, 0.82, l)
+        const toe = strength * shadowW * (0.26 + 0.44 * (1 - l))
+        const mult = 1 - toe
+        d[i] = clampByte(d[i] * mult)
+        d[i + 1] = clampByte(d[i + 1] * mult)
+        d[i + 2] = clampByte(d[i + 2] * mult)
+      }
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(rx, ry, rw, rh)
+      ctx.clip()
+      ctx.clearRect(rx, ry, rw, rh)
+      ctx.putImageData(img, rx, ry)
+      ctx.restore()
+    } catch {
+      return
+    }
+  }
 
   const V_WIDTH = 480
   const scale = rw / V_WIDTH
@@ -333,10 +379,8 @@ function applyFlashingBlackVignette(
   ctx.translate(rx, ry)
   ctx.scale(scale, scale)
 
-  const flashSpeed = 50 // rad/s (faster flash)
+  const flashSpeed = 50
   const flashCycle = (Math.sin(playbackTime * flashSpeed) + 1) / 2
-  // intensity 0: no vignette (opacity 0)
-  // intensity 1: full range 0.2 to 0.7
   const opacity = (0.2 + flashCycle * 0.5) * intensity
 
   const grad = ctx.createRadialGradient(
@@ -400,12 +444,13 @@ export function applyEffect(
   width: number,
   height: number,
   playbackTime: number,
-  intensity: number = 0.5
+  intensity: number = 0.5,
+  contrast: number = 0.5
 ): void {
   if (type === 'crt-dither') {
     applyCrtDither(ctx, x, y, width, height, playbackTime)
   } else if (type === 'flashing-black-vignette') {
-    applyFlashingBlackVignette(ctx, x, y, width, height, playbackTime, intensity)
+    applyFlashingBlackVignette(ctx, x, y, width, height, playbackTime, intensity, contrast)
   } else if (type === 'black-and-white') {
     applyBlackAndWhite(ctx, x, y, width, height, intensity)
   } else if (type === 'vivid-sharp') {

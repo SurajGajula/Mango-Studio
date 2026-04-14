@@ -1,4 +1,4 @@
-import type { AnimationMode, SlideTransitionEasing, TransitionMode } from './ImageClass'
+import type { AnimationMode, FlashTransitionMode, SlideTransitionEasing, TransitionMode } from './ImageClass'
 import type { MediaKeyframe } from './mediaKeyframe'
 
 export class VideoClass {
@@ -25,6 +25,7 @@ export class VideoClass {
   transitionDuration?: number
   animationDuration?: number
   transitionColor?: string
+  transitionFlashMode?: FlashTransitionMode
   transitionDirection?: 'left' | 'right' | 'top' | 'bottom'
   transitionAxis?: 'horizontal' | 'vertical'
   transitionSlideEasing?: SlideTransitionEasing
@@ -88,7 +89,8 @@ export class VideoClass {
     speedEnd?: number,
     speedEasing?: 'linear' | 'ease',
     keyframes?: MediaKeyframe[],
-    zoom?: any
+    zoom?: any,
+    transitionFlashMode?: FlashTransitionMode
   ) {
     this.id = id
     this.title = title
@@ -154,6 +156,7 @@ export class VideoClass {
     }
 
     this.transitionColor = transitionColor ?? this.transitionColor ?? '#FFFFFF'
+    this.transitionFlashMode = transitionFlashMode ?? this.transitionFlashMode ?? 'solid'
     this.transitionDirection = transitionDirection ?? this.transitionDirection ?? 'left'
     this.transitionAxis = transitionAxis ?? this.transitionAxis ?? 'horizontal'
     this.transitionSlideEasing = transitionSlideEasing ?? this.transitionSlideEasing ?? 'smooth'
@@ -221,7 +224,8 @@ export class VideoClass {
       updates.speedEnd ?? this.speedEnd,
       updates.speedEasing ?? this.speedEasing,
       updates.keyframes ?? this.keyframes,
-      undefined
+      undefined,
+      updates.transitionFlashMode ?? this.transitionFlashMode
     )
   }
 }

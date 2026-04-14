@@ -446,6 +446,7 @@ export class VideoRenderingEngine {
               activeItem.animationDuration,
               curParams,
               nextItem.transitionColor,
+              nextItem.transitionFlashMode,
               nextItem.transitionDirection,
               nextItem.transitionAxis,
               nextItem.transitionSlideEasing,
@@ -483,7 +484,7 @@ export class VideoRenderingEngine {
               .sort((a, b) => a.row - b.row || a.startTime - b.startTime)
             for (let i = 0; i < activeEffects.length; i++) {
               const eff = activeEffects[i]
-              applyEffect(bufferCtx, eff.type, cr.x, cr.y, cr.width, cr.height, newTime, eff.intensity)
+              applyEffect(bufferCtx, eff.type, cr.x, cr.y, cr.width, cr.height, newTime, eff.intensity, eff.contrast)
             }
           }
 
@@ -616,7 +617,7 @@ export class VideoRenderingEngine {
     } else {
       // Normal playback without expensive motion blur
       this.lastTransformStates.delete(videoClip.id)
-      applyZoomTransform(ctx, videoClip.animation, videoClip.transition, progress, videoEl, drawX, drawY, drawWidth, drawHeight, kf.cropSx, kf.cropSy, kf.cropSw, kf.cropSh, kf.zoomIntensity, videoClip.duration, videoClip.animationDuration, currentTime - videoClip.timestamp, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, videoClip.transitionColor, videoClip.transitionDirection, videoClip.transitionAxis, videoClip.transitionSlideEasing, videoClip.transitionCircleEasing)
+      applyZoomTransform(ctx, videoClip.animation, videoClip.transition, progress, videoEl, drawX, drawY, drawWidth, drawHeight, kf.cropSx, kf.cropSy, kf.cropSw, kf.cropSh, kf.zoomIntensity, videoClip.duration, videoClip.animationDuration, currentTime - videoClip.timestamp, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, videoClip.transitionColor, videoClip.transitionFlashMode, videoClip.transitionDirection, videoClip.transitionAxis, videoClip.transitionSlideEasing, videoClip.transitionCircleEasing)
     }
   }
 
@@ -651,7 +652,7 @@ export class VideoRenderingEngine {
             const dh = (image.height ?? logicalH) * yScale
             ctx.save(); ctx.globalAlpha = image.opacity
             runWithPlacementRotation(ctx, dx, dy, dw, dh, image.rotation, (ox, oy) => {
-              applyZoomTransform(ctx, 'none', 'none', 0, prevBitmap, ox, oy, dw, dh, kLast.cropSx, kLast.cropSy, kLast.cropSw, kLast.cropSh, 0, undefined, 0, 0, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, image.transitionColor, image.transitionDirection, image.transitionAxis, image.transitionSlideEasing, image.transitionCircleEasing)
+              applyZoomTransform(ctx, 'none', 'none', 0, prevBitmap, ox, oy, dw, dh, kLast.cropSx, kLast.cropSy, kLast.cropSw, kLast.cropSh, 0, undefined, 0, 0, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, image.transitionColor, image.transitionFlashMode, image.transitionDirection, image.transitionAxis, image.transitionSlideEasing, image.transitionCircleEasing)
             })
             ctx.restore()
             return
@@ -667,7 +668,7 @@ export class VideoRenderingEngine {
       const dh = (image.height ?? logicalH) * yScale
       ctx.save(); ctx.globalAlpha = image.opacity
       runWithPlacementRotation(ctx, dx, dy, dw, dh, image.rotation, (ox, oy) => {
-        applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, ox, oy, dw, dh, kImg.cropSx, kImg.cropSy, kImg.cropSw, kImg.cropSh, kImg.zoomIntensity, image.duration, image.animationDuration, currentTime - image.startTime, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, image.transitionColor, image.transitionDirection, image.transitionAxis, image.transitionSlideEasing, image.transitionCircleEasing)
+        applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, ox, oy, dw, dh, kImg.cropSx, kImg.cropSy, kImg.cropSw, kImg.cropSh, kImg.zoomIntensity, image.duration, image.animationDuration, currentTime - image.startTime, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, image.transitionColor, image.transitionFlashMode, image.transitionDirection, image.transitionAxis, image.transitionSlideEasing, image.transitionCircleEasing)
       })
       ctx.restore()
     })
@@ -718,7 +719,7 @@ export class VideoRenderingEngine {
         const oh = (image.height ?? logicalH) * yScale
         ctx.save(); ctx.globalAlpha = image.opacity
         runWithPlacementRotation(ctx, ox, oy, ow, oh, image.rotation, (px, py) => {
-          applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, px, py, ow, oh, kOvImg.cropSx, kOvImg.cropSy, kOvImg.cropSw, kOvImg.cropSh, kOvImg.zoomIntensity, image.duration, image.animationDuration, currentTime - image.startTime, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, image.transitionColor, image.transitionDirection, image.transitionAxis, image.transitionSlideEasing, image.transitionCircleEasing)
+          applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, px, py, ow, oh, kOvImg.cropSx, kOvImg.cropSy, kOvImg.cropSw, kOvImg.cropSh, kOvImg.zoomIntensity, image.duration, image.animationDuration, currentTime - image.startTime, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, image.transitionColor, image.transitionFlashMode, image.transitionDirection, image.transitionAxis, image.transitionSlideEasing, image.transitionCircleEasing)
         })
         ctx.restore()
       } else {
@@ -729,7 +730,7 @@ export class VideoRenderingEngine {
         const progress = calculateAnimationProgress(video, currentTime, video.timestamp)
         const kOvVid = resolveMediaKeyframeTransform(video, elapsed, video.duration ?? 0)
         ctx.save(); ctx.globalAlpha = video.opacity
-        applyZoomTransform(ctx, video.animation, video.transition, progress, vEl, cr.x + video.x * xScale, cr.y + video.y * yScale, video.width * xScale, video.height * yScale, kOvVid.cropSx, kOvVid.cropSy, kOvVid.cropSw, kOvVid.cropSh, kOvVid.zoomIntensity, video.duration, video.animationDuration, currentTime - video.timestamp, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, video.transitionColor, video.transitionDirection, video.transitionAxis, video.transitionSlideEasing, video.transitionCircleEasing)
+        applyZoomTransform(ctx, video.animation, video.transition, progress, vEl, cr.x + video.x * xScale, cr.y + video.y * yScale, video.width * xScale, video.height * yScale, kOvVid.cropSx, kOvVid.cropSy, kOvVid.cropSw, kOvVid.cropSh, kOvVid.zoomIntensity, video.duration, video.animationDuration, currentTime - video.timestamp, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, video.transitionColor, video.transitionFlashMode, video.transitionDirection, video.transitionAxis, video.transitionSlideEasing, video.transitionCircleEasing)
         ctx.restore()
       }
     }

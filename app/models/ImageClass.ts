@@ -3,6 +3,7 @@ import type { MediaKeyframe } from './mediaKeyframe'
 export type AnimationMode = 'none' | 'pulse' | 'shake' | 'jitter' | 'last-frame-hold'
 export type TransitionMode = 'none' | 'split' | 'fade' | 'morph' | 'slide-in' | 'circle' | 'rotate' | 'flash'
 export type SlideTransitionEasing = 'smooth' | 'ease-in' | 'ease-out' | 'linear'
+export type FlashTransitionMode = 'solid' | 'negative'
 
 export class ImageClass {
   id: string
@@ -23,6 +24,7 @@ export class ImageClass {
   transitionDuration?: number
   animationDuration?: number
   transitionColor?: string
+  transitionFlashMode?: FlashTransitionMode
   transitionDirection?: 'left' | 'right' | 'top' | 'bottom'
   transitionAxis?: 'horizontal' | 'vertical'
   transitionSlideEasing?: SlideTransitionEasing
@@ -67,7 +69,8 @@ export class ImageClass {
     row?: number,
     rotation?: number,
     keyframes?: MediaKeyframe[],
-    zoom?: any
+    zoom?: any,
+    transitionFlashMode?: FlashTransitionMode
   ) {
     this.id = id
     this.name = name
@@ -129,6 +132,7 @@ export class ImageClass {
     }
 
     this.transitionColor = transitionColor ?? this.transitionColor ?? '#FFFFFF'
+    this.transitionFlashMode = transitionFlashMode ?? this.transitionFlashMode ?? 'solid'
     this.transitionDirection = transitionDirection ?? this.transitionDirection ?? 'left'
     this.transitionAxis = transitionAxis ?? this.transitionAxis ?? 'horizontal'
     this.transitionSlideEasing = transitionSlideEasing ?? this.transitionSlideEasing ?? 'smooth'
@@ -176,7 +180,8 @@ export class ImageClass {
       updates.row ?? this.row,
       updates.rotation ?? this.rotation,
       updates.keyframes ?? this.keyframes,
-      undefined
+      undefined,
+      updates.transitionFlashMode ?? this.transitionFlashMode
     )
   }
 

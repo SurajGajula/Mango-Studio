@@ -8,6 +8,7 @@ import { TextClass } from '@/app/models/TextClass'
 import { formatTime } from '@/app/lib/timeUtils'
 import { findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
 import VideoReplaceModal from './modals/VideoReplaceModal'
+import ReplaceFromLibraryModal from './modals/ReplaceFromLibraryModal'
 import ExportModal from './modals/ExportModal'
 import PlaybackControls from './PlaybackControls'
 import UnifiedRow from './tracks/UnifiedRow'
@@ -21,6 +22,10 @@ import { useTimelineExport } from '@/app/hooks/timeline/useTimelineExport'
 import { useTimelineMedia } from '@/app/hooks/timeline/useTimelineMedia'
 import { useTimelineReplace } from '@/app/hooks/timeline/useTimelineReplace'
 import { useTimelineDrag } from '@/app/hooks/timeline/useTimelineDrag'
+import { accountMediaDragActive, parseAccountMediaDragData } from '@/app/lib/accountMediaDrag'
+import { addImageAtTimelineTime } from '@/app/lib/addImageAtPlayhead'
+import { clientXToTimelineTime } from '@/app/lib/timelineDropTime'
+import { addAudioToTimelineAtTime, addVideoToTimelineAtTime } from '@/app/lib/timelineMediaInsert'
 import styles from './tracks/Timeline.module.css'
 
 interface TimelineProps {
@@ -51,7 +56,6 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
   const selectedAudioId = useSelectionStore((state) => state.selectedAudioId)
   const selectedEffectId = useSelectionStore((state) => state.selectedEffectId)
 
-  const addVideo = useManifestStore((state) => state.addVideo)
   const updateVideo = useManifestStore((state) => state.updateVideo)
   const updateImage = useManifestStore((state) => state.updateImage)
   const addText = useManifestStore((state) => state.addText)
@@ -65,10 +69,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
   const replaceVideoWithImage = useManifestStore((state) => state.replaceVideoWithImage)
   const pushHistory = useManifestStore((state) => state.pushHistory)
   const trimAudio = useManifestStore((state) => state.trimAudio)
-  const addAudioToManifest = useManifestStore((state) => state.addAudio)
-  const updateAudio = useManifestStore((state) => state.updateAudio)
 
-  const setAudio = useAudioStore((state) => state.setAudio)
   const audioUrl = useAudioStore((state) => state.audioUrl)
   const timelineRowRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -85,6 +86,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
   const totalTimelineWidth = totalDuration > 0 ? ((totalDuration + effectivePadding * 2) / visibleDuration) * 100 : 100
 
   const [timelineScrollPortWidth, setTimelineScrollPortWidth] = useState(0)
+  const [replaceLibraryTargetId, setReplaceLibraryTargetId] = useState<string | null>(null)
   useLayoutEffect(() => {
     const el = scrollContainerRef.current
     if (!el) return
@@ -171,19 +173,19 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     setIsPlaying,
   })
 
-  const { handleFileSelect } = useTimelineMedia({
-    videos,
-    images,
-    playbackTime,
-    aspectRatio,
-    addVideo,
-    addAudioToManifest,
-    setAudio,
-    updateAudio,
-    audios,
-  })
+  const { handleFileSelect } = useTimelineMedia()
 
-  const { replaceTargetId, setReplaceTargetId, replaceVideoData, setReplaceVideoData, isReplacingClip, handleReplaceSelect, handleConfirmReplaceVideo, handleVideoDoubleClick } = useTimelineReplace({
+  const {
+    replaceTargetId,
+    setReplaceTargetId,
+    replaceVideoData,
+    setReplaceVideoData,
+    isReplacingClip,
+    handleReplaceSelect,
+    applyReplaceFromUrl,
+    handleConfirmReplaceVideo,
+    handleVideoDoubleClick,
+  } = useTimelineReplace({
     videos,
     images,
     replaceImageWithVideo,
@@ -209,6 +211,39 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     if (totalWithPadding === 0) return 0
     return (timeWithPadding / totalWithPadding) * 100
   }, [effectivePadding, totalDuration])
+
+  const handleAccountMediaDragOverCapture = useCallback((e: React.DragEvent) => {
+    if (accountMediaDragActive(e.dataTransfer)) {
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'copy'
+    }
+  }, [])
+
+  const handleAccountMediaDropCapture = useCallback(
+    async (e: React.DragEvent) => {
+      const payload = parseAccountMediaDragData(e.dataTransfer)
+      if (!payload) return
+      e.preventDefault()
+      e.stopPropagation()
+      const scrollEl = scrollContainerRef.current
+      const t = scrollEl
+        ? clientXToTimelineTime(e.clientX, scrollEl, totalDuration, effectivePadding)
+        : 0
+      const url = `/api/media/asset/${payload.id}`
+      try {
+        if (payload.kind === 'video') {
+          await addVideoToTimelineAtTime(url, payload.name, t)
+        } else if (payload.kind === 'audio') {
+          await addAudioToTimelineAtTime(url, payload.name, t)
+        } else {
+          await addImageAtTimelineTime(url, payload.name, t)
+        }
+      } catch (err) {
+        console.error(err)
+      }
+    },
+    [totalDuration, effectivePadding]
+  )
 
   const handleTimelineDeselect = useCallback(() => {
     setSelectedVideoId(null)
@@ -346,6 +381,19 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
         exportResult={exportResult}
         onClose={closeExportModal}
       />
+      <ReplaceFromLibraryModal
+        open={replaceLibraryTargetId !== null}
+        onClose={() => setReplaceLibraryTargetId(null)}
+        onPick={async (asset) => {
+          if (!replaceLibraryTargetId) return
+          await applyReplaceFromUrl(
+            replaceLibraryTargetId,
+            `/api/media/asset/${asset.id}`,
+            asset.name,
+            asset.kind
+          )
+        }}
+      />
       {replaceVideoData && (
         <VideoReplaceModal
           key={`${replaceVideoData.targetId}-${replaceVideoData.url}-${replaceVideoData.windowDuration}-${replaceVideoData.playbackSpeed}-${replaceVideoData.speedStart ?? ''}-${replaceVideoData.speedEnd ?? ''}-${replaceVideoData.speedEasing ?? ''}`}
@@ -385,7 +433,11 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
           style={{ display: 'none' }}
         />
         {videos.length === 0 && images.length === 0 ? (
-          <div className={styles.emptyState}>
+          <div
+            className={styles.emptyState}
+            onDragOverCapture={handleAccountMediaDragOverCapture}
+            onDropCapture={handleAccountMediaDropCapture}
+          >
             <p>No content yet. Generate a video in the chat or</p>
             <button
               className={styles.uploadVideoButton}
@@ -393,6 +445,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
             >
               upload a file
             </button>
+            <p className={styles.emptyStateDragHint}>Drag media from the library here to start.</p>
           </div>
         ) : (
           <div className={styles.timelineWrapper}>
@@ -411,7 +464,13 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
             />
             <div className={styles.timelineRowContainer}>
               <div className={styles.playheadLine} />
-              <div ref={scrollContainerRef} className={styles.scrollContainer} onScroll={handleScroll}>
+              <div
+                ref={scrollContainerRef}
+                className={styles.scrollContainer}
+                onScroll={handleScroll}
+                onDragOverCapture={handleAccountMediaDragOverCapture}
+                onDropCapture={handleAccountMediaDropCapture}
+              >
                 <div
                   ref={timelineRowRef}
                   className={`${styles.timelineContent} ${activeDrag || holdDragPreview ? styles.draggingActive : ''}`}
@@ -541,6 +600,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
                 setReplaceTargetId(id)
                 replaceInputRef.current?.click()
               }}
+              onReplaceFromLibrary={(id) => setReplaceLibraryTargetId(id)}
             />
           </div>
         )}

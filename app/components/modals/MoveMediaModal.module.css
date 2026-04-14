@@ -1,0 +1,177 @@
+.modalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.modalContent {
+  background: #111;
+  border: 1px solid #222;
+  border-radius: 12px;
+  padding: 2rem 2.25rem;
+  width: 90%;
+  max-width: 440px;
+  color: white;
+  position: relative;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.closeButton {
+  position: absolute;
+  top: 1rem;
+  right: 1.25rem;
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 2rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.closeButton:hover {
+  color: #999;
+}
+
+.header {
+  margin-bottom: 1rem;
+  padding-right: 1.5rem;
+}
+
+.header h2 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+  color: #fff;
+}
+
+.header p {
+  color: #888;
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.header strong {
+  color: #ccc;
+  font-weight: 600;
+}
+
+.list {
+  flex: 1;
+  min-height: 120px;
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid #222;
+  border-radius: 8px;
+  background: #0d0d0d;
+  margin-bottom: 1rem;
+}
+
+.folderOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-bottom: 1px solid #1a1a1a;
+  background: transparent;
+  color: #ddd;
+  font-size: 0.82rem;
+  padding: 0.55rem 0.75rem;
+  cursor: pointer;
+}
+
+.folderOption:last-child {
+  border-bottom: none;
+}
+
+.folderOption:hover:not(:disabled) {
+  background: #151515;
+}
+
+.folderOptionSelected {
+  background: #1a1a1a;
+  color: #fff;
+}
+
+.folderOptionCurrent {
+  color: #888;
+}
+
+.badge {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #666;
+  flex-shrink: 0;
+}
+
+.errorText {
+  color: #ff7f7f;
+  font-size: 0.8rem;
+  margin: 0 0 0.75rem 0;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
+.cancelButton {
+  background: transparent;
+  border: 1px solid #333;
+  color: #aaa;
+  padding: 0.55rem 1rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.cancelButton:hover:not(:disabled) {
+  border-color: #555;
+  color: #fff;
+}
+
+.submitButton {
+  background: #fff;
+  color: #000;
+  border: none;
+  padding: 0.55rem 1.1rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.submitButton:hover:not(:disabled) {
+  opacity: 0.92;
+}
+
+.submitButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

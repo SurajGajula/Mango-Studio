@@ -29,22 +29,10 @@ export function applyRotate(params: TransformParams): void {
   drawWithAnimation(params, imgEl, animation ?? 'none', 1.0, elapsedTime, zoomIntensity, animationDuration)
   ctx.restore()
 
-  // 2. Draw the rotation sequence on top
   ctx.save()
 
-  /**
-   * CALCULATE DYNAMIC SCALE:
-   * A rectangle rotated at 45, 90, 135, etc. degrees leaves gaps at its original corners.
-   * To fill a 16:9 frame while rotated 90 degrees, we need a scale of at least 1.78x.
-   * We use |sin(angle)| to peak the zoom at 90° and 270°, exactly when the gaps are largest.
-   */
-  const peakZoom = 1.2 // How much extra to zoom at the most tilted angles
-  const dynamicScale = 1 + Math.abs(Math.sin(currentAngle)) * peakZoom
-
   if (ease < 0.5) {
-    // Outgoing item rotating 0 -> 180
     ctx.translate(pCenterX, pCenterY)
-    ctx.scale(dynamicScale, dynamicScale)
     ctx.rotate(currentAngle)
     ctx.translate(-pCenterX, -pCenterY)
     
@@ -58,9 +46,7 @@ export function applyRotate(params: TransformParams): void {
       prevAnimationDuration
     )
   } else {
-    // Incoming item rotating 180 -> 360
     ctx.translate(centerX, centerY)
-    ctx.scale(dynamicScale, dynamicScale)
     ctx.rotate(currentAngle)
     ctx.translate(-centerX, -centerY)
     

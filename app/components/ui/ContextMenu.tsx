@@ -16,6 +16,7 @@ interface ContextMenuProps {
   onOpenSpeed?: (id: string) => void
   onOpenPitch?: (id: string) => void
   onReplace?: (id: string) => void
+  onReplaceFromLibrary?: (id: string) => void
   playbackTime: number
 }
 
@@ -27,6 +28,7 @@ export default function ContextMenu({
   onOpenSpeed,
   onOpenPitch,
   onReplace,
+  onReplaceFromLibrary,
   playbackTime,
 }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
@@ -288,7 +290,21 @@ export default function ContextMenu({
                 <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
               </svg>
             </div>
-            Replace Source
+            Replace from file
+          </button>
+          <button
+            className={styles.contextMenuItem}
+            onClick={() => handleAction(() => onReplaceFromLibrary?.(itemId))}
+          >
+            <div className={styles.contextMenuIcon}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="7" height="7" rx="1" />
+                <rect x="14" y="3" width="7" height="7" rx="1" />
+                <rect x="3" y="14" width="7" height="7" rx="1" />
+                <rect x="14" y="14" width="7" height="7" rx="1" />
+              </svg>
+            </div>
+            Replace from library
           </button>
           <button
             className={styles.contextMenuItem}

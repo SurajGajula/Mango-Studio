@@ -5,7 +5,7 @@ import { AudioClass } from '@/app/models/AudioClass'
 import { EffectClass } from '@/app/models/EffectClass'
 import { FFmpeg } from '@ffmpeg/ffmpeg'
 import { fetchFile, toBlobURL } from '@ffmpeg/util'
-import { wrapTextToLines } from '@/app/lib/textUtils'
+import { getKeyboardVisibleWordCount, wrapTextToLines } from '@/app/lib/textUtils'
 import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
 import { runWithPlacementRotation } from '@/app/lib/placementRotation'
 import { applyEffect } from '@/app/lib/applyEffect'
@@ -405,6 +405,7 @@ export async function exportVideo(
               activeItem.animationDuration,
               curParams,
               nextItem.transitionColor,
+              nextItem.transitionFlashMode,
               nextItem.transitionDirection,
               nextItem.transitionAxis,
               nextItem.transitionSlideEasing,
@@ -490,14 +491,16 @@ export async function exportVideo(
           const text = entry.text
           const fontPx = text.fontSize * xScale; const lineHeight = fontPx * 1.2; ctx.save()
           ctx.font = `${text.fontWeight} ${fontPx}px ${resolveCanvasFont(text.fontFamily)}`
-          let content = text.content
-          if (text.animation === 'keyboard') {
-            const words = content.split(/\s+/); const duration = text.endTime - text.startTime
-            if (duration > 0 && words.length > 0) { content = words.slice(0, Math.min(words.length, Math.floor((t - text.startTime) / (duration / words.length)) + 1)).join(' ') }
-          }
+          const content = text.content
+          const words = content.split(/\s+/).filter((w) => w.length > 0)
+          const keyboardVisible =
+            text.animation === 'keyboard' && words.length > 0
+              ? getKeyboardVisibleWordCount(content, text.startTime, text.endTime, t)
+              : null
           const lines = wrapTextToLines(ctx, content, text.width * xScale)
           const textX = text.textAlign === 'center' ? text.x * xScale + (text.width * xScale) / 2 : (text.textAlign === 'right' ? text.x * xScale + text.width * xScale : text.x * xScale)
-          ctx.textAlign = text.textAlign as CanvasTextAlign; ctx.textBaseline = 'top'; ctx.globalAlpha = text.opacity
+          const savedAlign = text.textAlign as CanvasTextAlign
+          ctx.textAlign = savedAlign; ctx.textBaseline = 'top'; ctx.globalAlpha = text.opacity
           if (text.style === 'negative') {
             ctx.globalCompositeOperation = 'difference'
             ctx.fillStyle = '#ffffff'
@@ -510,9 +513,53 @@ export async function exportVideo(
             ctx.shadowColor = '#000000'; ctx.shadowBlur = fontPx * 0.12; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0
             ctx.fillStyle = text.color
           }
-          lines.forEach((line, i) => ctx.fillText(line, textX, text.y * yScale + i * lineHeight))
+          const drawTextLines = () => {
+            if (keyboardVisible === null) {
+              lines.forEach((line, i) => ctx.fillText(line, textX, text.y * yScale + i * lineHeight))
+              return
+            }
+            ctx.textAlign = 'left'
+            let nextWordIndex = 0
+            for (let i = 0; i < lines.length; i++) {
+              const line = lines[i]
+              const y = text.y * yScale + i * lineHeight
+              const parts = line.split(' ')
+              const partWordIndex = parts.map((w) => (w === '' ? null : nextWordIndex++))
+              const lineWidth = ctx.measureText(line).width
+              const startX =
+                savedAlign === 'center'
+                  ? textX - lineWidth / 2
+                  : savedAlign === 'right'
+                    ? textX - lineWidth
+                    : textX
+              let x = startX
+              for (let p = 0; p < parts.length; p++) {
+                const w = parts[p]
+                if (p > 0) {
+                  let j = p
+                  while (j < parts.length && parts[j] === '') j++
+                  const spVis =
+                    j < parts.length &&
+                    partWordIndex[j] !== null &&
+                    partWordIndex[j]! < keyboardVisible
+                  const sp = ' '
+                  const spW = ctx.measureText(sp).width
+                  if (spVis) ctx.fillText(sp, x, y)
+                  x += spW
+                }
+                if (w !== '' && partWordIndex[p] !== null) {
+                  if (partWordIndex[p]! < keyboardVisible) {
+                    ctx.fillText(w, x, y)
+                  }
+                  x += ctx.measureText(w).width
+                }
+              }
+            }
+            ctx.textAlign = savedAlign
+          }
+          drawTextLines()
           if (text.style !== 'negative' && text.style !== 'highlight') {
-            lines.forEach((line, i) => ctx.fillText(line, textX, text.y * yScale + i * lineHeight))
+            drawTextLines()
           }
           ctx.restore()
         }
@@ -523,7 +570,7 @@ export async function exportVideo(
           .filter((e) => t >= e.startTime && t < e.endTime)
           .sort((a, b) => a.row - b.row || a.startTime - b.startTime)
         for (let ei = 0; ei < activeEffects.length; ei++) {
-          applyEffect(ctx, activeEffects[ei].type, 0, 0, width, height, t, activeEffects[ei].intensity)
+          applyEffect(ctx, activeEffects[ei].type, 0, 0, width, height, t, activeEffects[ei].intensity, activeEffects[ei].contrast)
         }
       }
     }

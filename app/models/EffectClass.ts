@@ -12,6 +12,7 @@ export class EffectClass {
   endTime: number
   row: number
   intensity: number
+  contrast: number
   createdAt: Date
 
   constructor(
@@ -21,6 +22,7 @@ export class EffectClass {
     endTime: number,
     row: number = 0,
     intensity: number = 0.5,
+    contrast: number = 0.5,
     createdAt?: Date
   ) {
     this.id = id
@@ -29,6 +31,7 @@ export class EffectClass {
     this.endTime = endTime
     this.row = row
     this.intensity = intensity
+    this.contrast = contrast
     this.createdAt = createdAt || new Date()
   }
 
@@ -40,6 +43,7 @@ export class EffectClass {
       updates.endTime !== undefined ? updates.endTime : this.endTime,
       updates.row !== undefined ? updates.row : this.row,
       updates.intensity !== undefined ? updates.intensity : this.intensity,
+      updates.contrast !== undefined ? updates.contrast : this.contrast,
       updates.createdAt !== undefined ? updates.createdAt : this.createdAt
     )
   }

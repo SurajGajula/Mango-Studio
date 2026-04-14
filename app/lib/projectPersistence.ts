@@ -218,7 +218,9 @@ function reviveVideo(o: Record<string, unknown>): VideoClass {
     o.speedStart as number | undefined,
     o.speedEnd as number | undefined,
     o.speedEasing as 'linear' | 'ease' | undefined,
-    o.keyframes as VideoClass['keyframes']
+    o.keyframes as VideoClass['keyframes'],
+    undefined,
+    o.transitionFlashMode as VideoClass['transitionFlashMode']
   )
 }
 
@@ -255,7 +257,9 @@ function reviveImage(o: Record<string, unknown>): ImageClass {
     o.transitionCircleEasing as ImageClass['transitionCircleEasing'],
     row,
     o.rotation as number | undefined,
-    o.keyframes as ImageClass['keyframes']
+    o.keyframes as ImageClass['keyframes'],
+    undefined,
+    o.transitionFlashMode as ImageClass['transitionFlashMode']
   )
 }
 
@@ -315,6 +319,7 @@ function reviveEffect(o: Record<string, unknown>): EffectClass {
     Number(o.endTime),
     o.row as number | undefined,
     o.intensity as number | undefined,
+    o.contrast !== undefined && o.contrast !== null ? Number(o.contrast) : undefined,
     o.createdAt ? new Date(String(o.createdAt)) : undefined
   )
 }

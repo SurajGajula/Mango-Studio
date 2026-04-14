@@ -115,10 +115,224 @@
 }
 
 .mediaSectionLabel {
-  margin: 0 0 0.5rem 0;
+  margin: 0;
   font-size: 0.65rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: #555;
+  line-height: 1;
+}
+
+.mediaSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  min-height: 1.5rem;
+}
+
+.mediaActions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.mediaActionButton {
+  border: 1px solid #333;
+  background: #131313;
+  color: #aaa;
+  font-size: 0.65rem;
+  border-radius: 4px;
+  padding: 0.25rem 0.45rem;
+  cursor: pointer;
+}
+
+.mediaActionButton:hover {
+  background: #191919;
+  color: #fff;
+}
+
+.searchInput {
+  width: 100%;
+  margin-bottom: 0.5rem;
+  background: #111;
+  border: 1px solid #2b2b2b;
+  color: #d2d2d2;
+  border-radius: 4px;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.72rem;
+}
+
+.folderTrail {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.trailButton {
+  border: 1px solid #2b2b2b;
+  background: #101010;
+  color: #a8a8a8;
+  border-radius: 4px;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.64rem;
+  cursor: pointer;
+}
+
+.trailButton:hover {
+  color: #fff;
+}
+
+.trailDropTarget {
+  border-color: #555;
+  background: #1a1a1a;
+  color: #fff;
+}
+
+.libraryList {
+  border: 1px solid #222;
+  border-radius: 6px;
+  background: #0d0d0d;
+  max-height: 340px;
+  overflow: auto;
+  margin-bottom: 0.6rem;
+}
+
+.libraryRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid #181818;
+}
+
+.libraryRow:last-child {
+  border-bottom: none;
+}
+
+.libraryRow[draggable='true'] {
+  cursor: grab;
+}
+
+.libraryRow[draggable='true']:active {
+  cursor: grabbing;
+}
+
+.libraryRowDrop {
+  outline: 1px dashed #444;
+  background: #141414;
+}
+
+.libraryPrimaryButton {
+  border: none;
+  background: transparent;
+  color: #ddd;
+  text-align: left;
+  cursor: pointer;
+  font-size: 0.72rem;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.libraryPrimaryButton:hover {
+  color: #fff;
+}
+
+.libraryAssetName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.72rem;
+  color: #ddd;
+  user-select: none;
+}
+
+.libraryRowActions {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.rowActionButton {
+  border: 1px solid #292929;
+  background: #141414;
+  color: #9d9d9d;
+  border-radius: 4px;
+  font-size: 0.62rem;
+  cursor: pointer;
+  padding: 0.2rem 0.35rem;
+}
+
+.rowActionButton:hover {
+  color: #fff;
+}
+
+.statusText {
+  color: #777;
+  font-size: 0.7rem;
+  margin: 0;
+  padding: 0.5rem;
+}
+
+.errorText {
+  color: #ff7f7f;
+  font-size: 0.7rem;
+  margin: 0;
+  padding: 0.5rem;
+}
+
+.shapesDropdown {
+  margin-top: 0.5rem;
+  border-top: 1px solid #222;
+  padding-top: 0.65rem;
+}
+
+.shapesToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 0.5rem;
+  padding: 0.45rem 0.55rem;
+  background: #121212;
+  border: 1px solid #2b2b2b;
+  border-radius: 6px;
+  color: #c4c4c4;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.shapesToggle:hover {
+  border-color: #3a3a3a;
+  color: #fff;
+}
+
+.shapesChevron {
+  flex-shrink: 0;
+  color: #888;
+  transition: transform 0.15s ease;
+}
+
+.shapesChevronOpen {
+  transform: rotate(180deg);
+}
+
+.shapesPanel {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.35rem 0.15rem;
+  border: 1px solid #222;
+  border-radius: 6px;
+  background: #0d0d0d;
 }
