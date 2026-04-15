@@ -2,23 +2,9 @@ import { useCallback } from 'react'
 import { addImageAtCurrentPlayhead } from '@/app/lib/addImageAtPlayhead'
 import { addAudioToTimelineAtPlayhead, addVideoToTimelineAtPlayhead } from '@/app/lib/timelineMediaInsert'
 import { getOrCreateObjectURLForFile } from '@/app/lib/fileObjectUrlCache'
+import { uploadToAccountLibrary, validateMediaDuration } from '@/app/lib/timeline'
 
 export function useTimelineMedia() {
-  const uploadToAccountLibrary = useCallback(async (file: File, durationSeconds?: number) => {
-    const formData = new FormData()
-    formData.append('file', file)
-    if (durationSeconds !== undefined) {
-      formData.append('durationSeconds', String(durationSeconds))
-    }
-    const response = await fetch('/api/media/upload', {
-      method: 'POST',
-      body: formData,
-    })
-    if (response.ok) {
-      window.dispatchEvent(new Event('account-media-updated'))
-    }
-  }, [])
-
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files) return
@@ -33,8 +19,7 @@ export function useTimelineMedia() {
           videoElement.onerror = () => reject(new Error('Unable to read video metadata'))
         })
         const duration = Number(videoElement.duration) || 0
-        if (duration > 600) {
-          alert('Video uploads must be under 10 minutes.')
+        if (!validateMediaDuration(duration, 'Video')) {
           continue
         }
         await uploadToAccountLibrary(file, duration)
@@ -52,8 +37,7 @@ export function useTimelineMedia() {
           const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer)
           await audioCtx.close()
           const audioDuration = audioBuffer.duration
-          if (audioDuration > 600) {
-            alert('Audio uploads must be under 10 minutes.')
+          if (!validateMediaDuration(audioDuration, 'Audio')) {
             continue
           }
           await uploadToAccountLibrary(file, audioDuration)
@@ -64,9 +48,7 @@ export function useTimelineMedia() {
     }
 
     e.target.value = ''
-  }, [
-    uploadToAccountLibrary,
-  ])
+  }, [])
 
   return { handleFileSelect }
 }

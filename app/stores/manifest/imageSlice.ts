@@ -63,31 +63,12 @@ export const createImageSlice = (set: any, get: any) => ({
     const image = state.images.find((img: ImageClass) => img.id === id)
     if (!image) return
 
-    const isMainTrack = image.row === 0
-    const oldDuration = image.duration
-    const newDuration = updates.endTime !== undefined && updates.startTime !== undefined 
-      ? updates.endTime - updates.startTime 
-      : (updates.endTime !== undefined ? updates.endTime - image.startTime : (updates.startTime !== undefined ? image.endTime - updates.startTime : image.duration))
-    
-    const durationDelta = newDuration - oldDuration
-    const timestampDelta = (updates.startTime ?? image.startTime) - image.startTime
-    const totalDelta = durationDelta + timestampDelta
-
     set((state: ManifestStore) => ({
       images: state.images.map((img) => {
         if (img.id === id) {
           return img.copy(updates)
         }
-        if (isMainTrack && img.row === 0 && img.startTime > image.startTime) {
-          return img.copy({ startTime: img.startTime + totalDelta, endTime: img.endTime + totalDelta })
-        }
         return img
-      }),
-      videos: state.videos.map((v) => {
-        if (isMainTrack && v.row === 0 && v.timestamp > image.startTime) {
-          return v.copy({ timestamp: v.timestamp + totalDelta })
-        }
-        return v
       })
     }))
     get().pushHistory()

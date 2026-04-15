@@ -4,6 +4,17 @@ const MOVE_HOLD_MS = 280
 const HOLD_PREVIEW_MOVE_SLOP_PX = 8
 import { snapToMarkers } from '@/app/lib/snapToMarkers'
 import { findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
+import {
+  applyBounds,
+  clampMinDuration,
+  getMaxOverlayRow,
+  overlapsAny,
+  resolveTargetRow,
+  shiftItemsForwardInRow as buildRowShiftPlan,
+  shouldRippleExpansionInRow as shouldRippleForWindow,
+  snapStartOrEnd,
+  toTimeDelta,
+} from '@/app/lib/timeline'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
@@ -23,41 +34,14 @@ function timelineSnapThresholdSeconds(visibleDuration: number): number {
   return Math.max(TIMELINE_SNAP_MIN_SEC, Math.min(TIMELINE_SNAP_MAX_SEC, scaled))
 }
 
-function toTimeDelta(
-  clientX: number,
-  initialMouseX: number,
-  timelineWidth: number,
-  totalWithPadding: number
-): number {
-  return ((clientX - initialMouseX) / timelineWidth) * totalWithPadding
-}
-
-function snapStartOrEnd(
-  start: number,
-  duration: number,
-  targets: number[],
-  threshold: number
-): number {
-  const snappedStart = snapToMarkers(start, targets, threshold)
-  if (snappedStart !== start) return snappedStart
-  const end = start + duration
-  const snappedEnd = snapToMarkers(end, targets, threshold)
-  if (snappedEnd !== end) return snappedEnd - duration
-  return start
-}
-
-function clampMinDuration(start: number, end: number, min: number): { start: number; end: number } {
-  return {
-    start: Math.min(start, end - min),
-    end: Math.max(end, start + min),
-  }
-}
-
-function applyBounds(value: number, min?: number, max?: number): number {
-  let v = value
-  if (min !== undefined) v = Math.max(min, v)
-  if (max !== undefined) v = Math.min(max, v)
-  return v
+type TimelineInterval = { start: number; end: number }
+type TimelineItemType = 'video' | 'image' | 'text' | 'audio' | 'effect'
+type RowItem = {
+  type: TimelineItemType
+  id: string
+  start: number
+  end: number
+  shift?: (amount: number) => void
 }
 
 interface UseTimelineDragProps {
@@ -217,6 +201,135 @@ export function useTimelineDrag({
     return Array.from(targets)
   }, [videos, images, texts, audios])
 
+  const getRowItems = useCallback(
+    (row: number, excludeType?: TimelineItemType, excludeId?: string, includeShift = false): RowItem[] => {
+      const st = useManifestStore.getState()
+      const items: RowItem[] = []
+
+      st.videos.forEach((v) => {
+        if (v.row !== row) return
+        if (excludeType === 'video' && v.id === excludeId) return
+        items.push({
+          type: 'video',
+          id: v.id,
+          start: v.timestamp,
+          end: v.timestamp + (v.duration ?? 0),
+          shift: includeShift ? (amount: number) => st.updateVideo(v.id, { timestamp: v.timestamp + amount }) : undefined,
+        })
+      })
+      st.images.forEach((img) => {
+        if (img.row !== row) return
+        if (excludeType === 'image' && img.id === excludeId) return
+        items.push({
+          type: 'image',
+          id: img.id,
+          start: img.startTime,
+          end: img.endTime,
+          shift: includeShift
+            ? (amount: number) => st.updateImage(img.id, { startTime: img.startTime + amount, endTime: img.endTime + amount })
+            : undefined,
+        })
+      })
+      st.texts.forEach((t) => {
+        if (t.row !== row) return
+        if (excludeType === 'text' && t.id === excludeId) return
+        items.push({
+          type: 'text',
+          id: t.id,
+          start: t.startTime,
+          end: t.endTime,
+          shift: includeShift
+            ? (amount: number) => st.updateText(t.id, { startTime: t.startTime + amount, endTime: t.endTime + amount })
+            : undefined,
+        })
+      })
+      st.effects.forEach((e) => {
+        if (e.row !== row) return
+        if (excludeType === 'effect' && e.id === excludeId) return
+        items.push({
+          type: 'effect',
+          id: e.id,
+          start: e.startTime,
+          end: e.endTime,
+          shift: includeShift
+            ? (amount: number) => st.updateEffect(e.id, { startTime: e.startTime + amount, endTime: e.endTime + amount })
+            : undefined,
+        })
+      })
+      st.audios.forEach((a) => {
+        if (a.row !== row) return
+        if (excludeType === 'audio' && a.id === excludeId) return
+        items.push({
+          type: 'audio',
+          id: a.id,
+          start: a.startTime,
+          end: a.endTime,
+          shift: includeShift
+            ? (amount: number) => st.updateAudio(a.id, { startTime: a.startTime + amount, endTime: a.endTime + amount })
+            : undefined,
+        })
+      })
+      return items
+    },
+    []
+  )
+
+  const getIntervalsForRow = useCallback(
+    (row: number, itemId: string, mode: 'audioOnly' | 'nonAudio' | 'all'): TimelineInterval[] => {
+      return getRowItems(row)
+        .filter((item) => item.id !== itemId)
+        .filter((item) => (mode === 'all' ? true : mode === 'audioOnly' ? item.type === 'audio' : item.type !== 'audio'))
+        .map((item) => ({ start: item.start, end: item.end }))
+    },
+    [getRowItems]
+  )
+
+  const shiftItemsForwardInRow = useCallback(
+    (
+      row: number,
+      fromTime: number,
+      delta: number,
+      excludeType: TimelineItemType,
+      excludeId: string
+    ) => {
+      if (delta <= 0) return
+      const threshold = 0.01
+      const items = getRowItems(row, excludeType, excludeId, true).filter(
+        (item): item is RowItem & { shift: (amount: number) => void } => typeof item.shift === 'function'
+      )
+      const plan = buildRowShiftPlan(
+        items.map((item) => ({ id: item.id, startTime: item.start, endTime: item.end })),
+        fromTime,
+        delta,
+        threshold
+      )
+      const byId = new Map(items.map((item) => [item.id, item]))
+      plan.forEach(({ id, shiftAmount }) => {
+        byId.get(id)?.shift(shiftAmount)
+      })
+    },
+    [getRowItems]
+  )
+
+  const shouldRippleExpansionInRow = useCallback(
+    (
+      row: number,
+      fromTime: number,
+      toTime: number,
+      excludeType: TimelineItemType,
+      excludeId: string
+    ): boolean => {
+      const threshold = 0.01
+      const items = getRowItems(row, excludeType, excludeId).map((item) => ({
+        id: item.id,
+        startTime: item.start,
+        endTime: item.end,
+      }))
+      return shouldRippleForWindow(fromTime, toTime, items, threshold)
+    },
+    [getRowItems]
+  )
+
   const computePreviewForDrag = useCallback(
     (
       drag: ActiveDragState,
@@ -230,8 +343,7 @@ export function useTimelineDrag({
       const timelineWidth = rect.width
       const totalWithPadding = totalDuration + effectivePadding * 2
 
-      const mouseDeltaX = clientX - pressClientX
-      const timeDelta = (mouseDeltaX / timelineWidth) * totalWithPadding
+      const timeDelta = toTimeDelta(clientX, pressClientX, timelineWidth, totalWithPadding)
       let targetTime = Math.max(0, initialStartTime + timeDelta)
     
     // Snapping
@@ -259,125 +371,12 @@ export function useTimelineDrag({
 
       if (lockTargetRowToInitial) {
         targetRow = initialRow
-        isInsertion = false
       } else {
         const st = useManifestStore.getState()
-        let maxOverlayRow = 0
-        const bump = (r: number) => {
-          if (r > maxOverlayRow) maxOverlayRow = r
-        }
-        st.videos.forEach((v) => {
-          if (v.row > 0) bump(v.row)
-        })
-        st.images.forEach((img) => {
-          if (img.row > 0) bump(img.row)
-        })
-        st.texts.forEach((t) => {
-          if (t.row > 0) bump(t.row)
-        })
-        st.audios.forEach((a) => {
-          if (a.row > 0) bump(a.row)
-        })
-        st.effects.forEach((e) => {
-          if (e.row > 0) bump(e.row)
-        })
-
-        const overlayVisualItem =
-          itemType === 'image' ||
-          itemType === 'video' ||
-          itemType === 'text' ||
-          itemType === 'effect'
-        const canUseTopOverlayAudioLane = itemType === 'audio' && initialRow >= 0
-
-        let foundRow = false
-        const y = clientY
-
-        const firstRow = rowElements[0]
-        if (firstRow) {
-          const firstRowRect = firstRow.getBoundingClientRect()
-          if (y < firstRowRect.top) {
-            const firstRowIndexAttr = firstRow.getAttribute('data-row-index')
-            if (firstRowIndexAttr) {
-              const firstIdx = parseInt(firstRowIndexAttr)
-              if (firstIdx !== -1) {
-                targetRow = firstIdx + 1
-                isInsertion = true
-                foundRow = true
-              } else if (itemType === 'audio' && initialRow === 0) {
-                targetRow = 0
-                foundRow = true
-              } else if (overlayVisualItem || canUseTopOverlayAudioLane) {
-                targetRow = maxOverlayRow + 1
-                isInsertion = false
-                foundRow = true
-              }
-            }
-          }
-        }
-
-        if (!foundRow) {
-          for (let i = 0; i < rowElements.length; i++) {
-            const row = rowElements[i]
-            const rowRect = row.getBoundingClientRect()
-            const rowIndexAttr = row.getAttribute('data-row-index')
-            const rowIndex = rowIndexAttr ? parseInt(rowIndexAttr) : -1
-
-            if (y >= rowRect.top && y <= rowRect.bottom) {
-              if (rowIndex === -1 && itemType === 'audio') {
-                targetRow = 0
-                foundRow = true
-                break
-              }
-              if (rowIndex === -1 && overlayVisualItem) {
-                targetRow = maxOverlayRow + 1
-                isInsertion = false
-                foundRow = true
-                break
-              }
-              if (rowIndex !== -1) {
-                targetRow = rowIndex
-                foundRow = true
-                break
-              }
-            }
-
-            if (i < rowElements.length - 1) {
-              const nextRow = rowElements[i + 1]
-              const nextRowRect = nextRow.getBoundingClientRect()
-              if (y > rowRect.bottom && y < nextRowRect.top) {
-                const nextRowIndexAttr = nextRow.getAttribute('data-row-index')
-                if (nextRowIndexAttr) {
-                  const nextIdx = parseInt(nextRowIndexAttr)
-                  if (nextIdx !== -1) {
-                    targetRow = nextIdx + 1
-                    isInsertion = true
-                    foundRow = true
-                    break
-                  }
-                }
-              }
-            }
-          }
-        }
-
-        if (!foundRow) {
-          const firstUnified = rowElements.find((el) => {
-            const a = el.getAttribute('data-row-index')
-            return a !== null && parseInt(a, 10) > 0
-          })
-          if ((overlayVisualItem || canUseTopOverlayAudioLane) && firstUnified) {
-            const ur = firstUnified.getBoundingClientRect()
-            if (y < ur.top) {
-              targetRow = maxOverlayRow + 1
-              isInsertion = false
-              foundRow = true
-            }
-          }
-        }
-
-        if (!foundRow) {
-          targetRow = initialRow
-        }
+        const maxOverlayRow = getMaxOverlayRow(st)
+        const resolved = resolveTargetRow(rowElements, clientY, itemType, initialRow, maxOverlayRow)
+        targetRow = resolved.targetRow
+        isInsertion = resolved.isInsertion
       }
 
       if (
@@ -386,43 +385,23 @@ export function useTimelineDrag({
         targetRow === 0
       ) {
         targetRow = findFreeVisualOverlayRow(targetTime, targetTime + duration)
-        isInsertion = false
       }
 
       const myStart = targetTime
       const myEnd = targetTime + duration
       const threshold = 0.01
 
-      if (!isInsertion && targetRow !== 0 && targetRow !== -1 && itemType !== 'audio') {
-        const itemsOnRow = [
-          ...videos.filter((v) => v.row === targetRow && v.id !== itemId).map((v) => ({ start: v.timestamp, end: v.timestamp + (v.duration ?? 0) })),
-          ...images.filter((img) => img.row === targetRow && img.id !== itemId).map((img) => ({ start: img.startTime, end: img.endTime })),
-          ...texts.filter((t) => t.row === targetRow && t.id !== itemId).map((t) => ({ start: t.startTime, end: t.endTime })),
-          ...audios.filter((a) => a.row === targetRow && a.id !== itemId).map((a) => {
-            const activeDur = (a.originalDuration - a.trimStart - a.trimEnd) / (a.playbackSpeed ?? 1)
-            return { start: a.startTime, end: a.startTime + activeDur }
-          }),
-          ...useManifestStore.getState().effects.filter((e) => e.row === targetRow && e.id !== itemId).map((e) => ({ start: e.startTime, end: e.endTime })),
-        ]
-
-        for (const other of itemsOnRow) {
-          if (myStart < other.end - threshold && myEnd > other.start + threshold) {
-            isValid = false
-            break
-          }
+      if (!isInsertion && targetRow >= 0 && itemType !== 'audio') {
+        const intervals = getIntervalsForRow(targetRow, itemId, 'nonAudio')
+        if (overlapsAny(myStart, myEnd, intervals, threshold)) {
+          isValid = false
         }
       }
 
       if (!isInsertion && itemType === 'audio' && targetRow >= 0) {
-        for (const a of audios) {
-          if (a.id === itemId || a.row !== targetRow) continue
-          const activeDur = (a.originalDuration - a.trimStart - a.trimEnd) / (a.playbackSpeed ?? 1)
-          const oStart = a.startTime
-          const oEnd = a.startTime + activeDur
-          if (myStart < oEnd - threshold && myEnd > oStart + threshold) {
-            isValid = false
-            break
-          }
+        const intervals = getIntervalsForRow(targetRow, itemId, 'audioOnly')
+        if (overlapsAny(myStart, myEnd, intervals, threshold)) {
+          isValid = false
         }
       }
 
@@ -450,7 +429,14 @@ export function useTimelineDrag({
 
       return { targetRow, targetTime, isInsertion, isValid }
     },
-    [timelineRowRef, totalDuration, effectivePadding, snapThresholdSec, getSnapTargets, videos, images, texts, audios]
+    [
+      timelineRowRef,
+      totalDuration,
+      effectivePadding,
+      snapThresholdSec,
+      getSnapTargets,
+      getIntervalsForRow,
+    ]
   )
 
   const calculateDragState = useCallback(
@@ -620,6 +606,75 @@ export function useTimelineDrag({
     [snapThresholdSec]
   )
 
+  const endDragWithHistory = useCallback(
+    (clearDragging: () => void, clearRef: () => void) => {
+      clearDragging()
+      clearRef()
+      if (timelineHandleHistoryPausedRef.current) {
+        useManifestStore.getState().resumeHistory()
+        timelineHandleHistoryPausedRef.current = false
+      }
+      pushHistory()
+    },
+    [pushHistory]
+  )
+
+  type VisualMoveDraft = {
+    itemId: string
+    itemType: 'image' | 'text' | 'effect'
+    initialStartTime: number
+    initialRow: number
+    duration: number
+  }
+
+  const scheduleVisualMoveStart = useCallback(
+    (e: React.MouseEvent, getDraft: () => VisualMoveDraft | null) => {
+      if (e.button !== 0) return
+      scheduleHoldMoveDrag(e, () => {
+        const draft = getDraft()
+        if (!draft || !timelineRowRef.current) return null
+        return {
+          ...draft,
+          handle: 'move' as const,
+        }
+      })
+    },
+    [scheduleHoldMoveDrag, timelineRowRef]
+  )
+
+  type VisualEdgeDragItem = { startTime: number; endTime: number }
+  type VisualEdgeDragSnapshot = {
+    initialMouseX: number
+    initialStartTime: number
+    initialEndTime: number
+    timelineWidth: number
+  }
+
+  const beginVisualEdgeDrag = useCallback(
+    <T extends VisualEdgeDragItem>(
+      e: React.MouseEvent,
+      handle: 'start' | 'end',
+      getItem: () => T | undefined,
+      setDragging: () => void,
+      setDragRef: (base: VisualEdgeDragSnapshot) => void
+    ) => {
+      e.stopPropagation()
+      e.preventDefault()
+      const item = getItem()
+      if (!item || !timelineRowRef.current) return
+      useManifestStore.getState().pauseHistory()
+      timelineHandleHistoryPausedRef.current = true
+      setDragging()
+      setDragRef({
+        initialMouseX: e.clientX,
+        initialStartTime: item.startTime,
+        initialEndTime: item.endTime,
+        timelineWidth: timelineRowRef.current.getBoundingClientRect().width,
+      })
+    },
+    [timelineRowRef]
+  )
+
   const handleTrimStart = useCallback((videoId: string, handle: TrimHandle, e: React.MouseEvent) => {
     e.stopPropagation()
     e.preventDefault()
@@ -683,9 +738,29 @@ export function useTimelineDrag({
         newTrimEnd = originalDuration - initialTrimStart - (snapped - initialTimestamp) * playbackSpeed
       }
       newTrimEnd = Math.max(0, Math.min(newTrimEnd, originalDuration - initialTrimStart - (0.5 * playbackSpeed)))
+      const oldEnd = video.timestamp + (video.duration ?? 0)
+      const newDuration = (originalDuration - initialTrimStart - newTrimEnd) / playbackSpeed
+      const newEnd = video.timestamp + newDuration
       trimVideo(trimDragging.videoId, initialTrimStart, newTrimEnd)
+      if (
+        video.row >= 0 &&
+        newEnd > oldEnd &&
+        shouldRippleExpansionInRow(video.row, oldEnd, newEnd, 'video', trimDragging.videoId)
+      ) {
+        shiftItemsForwardInRow(video.row, oldEnd, newEnd - oldEnd, 'video', trimDragging.videoId)
+      }
     }
-  }, [trimDragging, videos, images, trimVideo, timelineRowRef, getSnapTargets, snapThresholdSec])
+  }, [
+    trimDragging,
+    videos,
+    images,
+    trimVideo,
+    timelineRowRef,
+    getSnapTargets,
+    snapThresholdSec,
+    shiftItemsForwardInRow,
+    shouldRippleExpansionInRow,
+  ])
 
   const handleTrimEnd = useCallback(() => {
     setTrimDragging(null)
@@ -790,37 +865,30 @@ export function useTimelineDrag({
   const handleImageDragStart = useCallback(
     (imageId: string, handle: 'move' | 'start' | 'end', e: React.MouseEvent) => {
       if (handle === 'move') {
-        if (e.button !== 0) return
-        scheduleHoldMoveDrag(e, () => {
+        scheduleVisualMoveStart(e, () => {
           const image = useManifestStore.getState().images.find((o) => o.id === imageId)
-          if (!image || !timelineRowRef.current) return null
-          const duration = image.endTime - image.startTime
+          if (!image) return null
           return {
             itemId: imageId,
             itemType: 'image' as const,
-            handle,
             initialStartTime: image.startTime,
             initialRow: image.row,
-            duration,
+            duration: image.endTime - image.startTime,
           }
         })
         return
       }
-      e.stopPropagation()
-      e.preventDefault()
-      const image = images.find((o) => o.id === imageId)
-      if (!image || !timelineRowRef.current) return
-      useManifestStore.getState().pauseHistory()
-      timelineHandleHistoryPausedRef.current = true
-      setImageDragging({ imageId, handle })
-      imageDragRef.current = {
-        initialMouseX: e.clientX,
-        initialStartTime: image.startTime,
-        initialEndTime: image.endTime,
-        timelineWidth: timelineRowRef.current.getBoundingClientRect().width,
-      }
+      beginVisualEdgeDrag(
+        e,
+        handle,
+        () => images.find((o) => o.id === imageId),
+        () => setImageDragging({ imageId, handle }),
+        (base) => {
+          imageDragRef.current = base
+        }
+      )
     },
-    [images, timelineRowRef, scheduleHoldMoveDrag]
+    [images, scheduleVisualMoveStart, beginVisualEdgeDrag]
   )
 
   const handleImageDragMove = useCallback((e: MouseEvent) => {
@@ -847,18 +915,36 @@ export function useTimelineDrag({
         minEnd: image.startTime + 0.1,
       },
     })
+    if (
+      handle === 'end' &&
+      image.row >= 0 &&
+      updates.endTime !== undefined &&
+      updates.endTime > initialEndTime &&
+      shouldRippleExpansionInRow(image.row, initialEndTime, updates.endTime, 'image', imageId)
+    ) {
+      shiftItemsForwardInRow(image.row, initialEndTime, updates.endTime - initialEndTime, 'image', imageId)
+    }
     updateImage(imageId, updates)
-  }, [imageDragging, images, totalDuration, effectivePadding, updateImage, getSnapTargets, computeVisualItemDrag])
+  }, [
+    imageDragging,
+    images,
+    totalDuration,
+    effectivePadding,
+    updateImage,
+    getSnapTargets,
+    computeVisualItemDrag,
+    shiftItemsForwardInRow,
+    shouldRippleExpansionInRow,
+  ])
 
   const handleImageDragEnd = useCallback(() => {
-    setImageDragging(null)
-    imageDragRef.current = null
-    if (timelineHandleHistoryPausedRef.current) {
-      useManifestStore.getState().resumeHistory()
-      timelineHandleHistoryPausedRef.current = false
-    }
-    pushHistory()
-  }, [pushHistory])
+    endDragWithHistory(
+      () => setImageDragging(null),
+      () => {
+        imageDragRef.current = null
+      }
+    )
+  }, [endDragWithHistory])
 
   const handleOverlayVideoDragStart = useCallback(
     (videoId: string, e: React.MouseEvent) => {
@@ -882,38 +968,33 @@ export function useTimelineDrag({
   const handleTextDragStart = useCallback(
     (textId: string, handle: 'move' | 'start' | 'end', e: React.MouseEvent) => {
       if (handle === 'move') {
-        if (e.button !== 0) return
-        scheduleHoldMoveDrag(e, () => {
+        scheduleVisualMoveStart(e, () => {
           const text = useManifestStore.getState().texts.find((t) => t.id === textId)
-          if (!text || !timelineRowRef.current) return null
-          const duration = text.endTime - text.startTime
+          if (!text) return null
           return {
             itemId: textId,
             itemType: 'text' as const,
-            handle,
             initialStartTime: text.startTime,
             initialRow: text.row,
-            duration,
+            duration: text.endTime - text.startTime,
           }
         })
         return
       }
-      e.stopPropagation()
-      e.preventDefault()
-      const text = texts.find((t) => t.id === textId)
-      if (!text || !timelineRowRef.current) return
-      useManifestStore.getState().pauseHistory()
-      timelineHandleHistoryPausedRef.current = true
-      setTextDragging({ textId, handle })
-      textDragRef.current = {
-        initialMouseX: e.clientX,
-        initialStartTime: text.startTime,
-        initialEndTime: text.endTime,
-        timelineWidth: timelineRowRef.current.getBoundingClientRect().width,
-        totalWithPadding: totalDuration + effectivePadding * 2,
-      }
+      beginVisualEdgeDrag(
+        e,
+        handle,
+        () => texts.find((t) => t.id === textId),
+        () => setTextDragging({ textId, handle }),
+        (base) => {
+          textDragRef.current = {
+            ...base,
+            totalWithPadding: totalDuration + effectivePadding * 2,
+          }
+        }
+      )
     },
-    [texts, timelineRowRef, totalDuration, effectivePadding, scheduleHoldMoveDrag]
+    [texts, totalDuration, effectivePadding, scheduleVisualMoveStart, beginVisualEdgeDrag]
   )
 
   const handleTextDragMove = useCallback((e: MouseEvent) => {
@@ -926,7 +1007,9 @@ export function useTimelineDrag({
     const nextStart = others.filter((t) => t.startTime >= initialEndTime).reduce((min, t) => Math.min(min, t.startTime), Infinity)
     const targets = getSnapTargets(textId)
 
-    const currentStart = texts.find((t) => t.id === textId)?.startTime ?? initialStartTime
+    const textItem = texts.find((t) => t.id === textId)
+    if (!textItem) return
+    const currentStart = textItem.startTime
     const updates = computeVisualItemDrag({
       handle,
       initialStartTime,
@@ -942,58 +1025,65 @@ export function useTimelineDrag({
         maxEnd: nextStart,
       },
     })
-    if (handle === 'move' && updates.startTime !== undefined && updates.endTime !== undefined && updates.startTime < 0) {
-      updateText(textId, { startTime: 0, endTime: initialEndTime - initialStartTime })
-      return
+    if (
+      handle === 'end' &&
+      textItem.row >= 0 &&
+      updates.endTime !== undefined &&
+      updates.endTime > initialEndTime &&
+      shouldRippleExpansionInRow(textItem.row, initialEndTime, updates.endTime, 'text', textId)
+    ) {
+      shiftItemsForwardInRow(textItem.row, initialEndTime, updates.endTime - initialEndTime, 'text', textId)
     }
     updateText(textId, updates)
-  }, [textDragging, texts, updateText, getSnapTargets, computeVisualItemDrag])
+  }, [
+    textDragging,
+    texts,
+    updateText,
+    getSnapTargets,
+    computeVisualItemDrag,
+    shiftItemsForwardInRow,
+    shouldRippleExpansionInRow,
+  ])
 
   const handleTextDragEnd = useCallback(() => {
-    setTextDragging(null)
-    textDragRef.current = null
-    if (timelineHandleHistoryPausedRef.current) {
-      useManifestStore.getState().resumeHistory()
-      timelineHandleHistoryPausedRef.current = false
-    }
-    pushHistory()
-  }, [pushHistory])
+    endDragWithHistory(
+      () => setTextDragging(null),
+      () => {
+        textDragRef.current = null
+      }
+    )
+  }, [endDragWithHistory])
 
   const handleEffectDragStart = useCallback(
     (effectId: string, handle: 'move' | 'start' | 'end', e: React.MouseEvent) => {
       if (handle === 'move') {
-        if (e.button !== 0) return
-        scheduleHoldMoveDrag(e, () => {
+        scheduleVisualMoveStart(e, () => {
           const effect = useManifestStore.getState().effects.find((f) => f.id === effectId)
-          if (!effect || !timelineRowRef.current) return null
-          const duration = effect.endTime - effect.startTime
+          if (!effect) return null
           return {
             itemId: effectId,
             itemType: 'effect' as const,
-            handle,
             initialStartTime: effect.startTime,
             initialRow: effect.row,
-            duration,
+            duration: effect.endTime - effect.startTime,
           }
         })
         return
       }
-      e.stopPropagation()
-      e.preventDefault()
-      const effect = useManifestStore.getState().effects.find((f) => f.id === effectId)
-      if (!effect || !timelineRowRef.current) return
-      useManifestStore.getState().pauseHistory()
-      timelineHandleHistoryPausedRef.current = true
-      setEffectDragging({ effectId, handle })
-      effectDragRef.current = {
-        initialMouseX: e.clientX,
-        initialStartTime: effect.startTime,
-        initialEndTime: effect.endTime,
-        timelineWidth: timelineRowRef.current.getBoundingClientRect().width,
-        totalWithPadding: totalDuration + effectivePadding * 2,
-      }
+      beginVisualEdgeDrag(
+        e,
+        handle,
+        () => useManifestStore.getState().effects.find((f) => f.id === effectId),
+        () => setEffectDragging({ effectId, handle }),
+        (base) => {
+          effectDragRef.current = {
+            ...base,
+            totalWithPadding: totalDuration + effectivePadding * 2,
+          }
+        }
+      )
     },
-    [totalDuration, effectivePadding, timelineRowRef, scheduleHoldMoveDrag]
+    [totalDuration, effectivePadding, scheduleVisualMoveStart, beginVisualEdgeDrag]
   )
 
   const handleEffectDragMove = useCallback((e: MouseEvent) => {
@@ -1019,73 +1109,55 @@ export function useTimelineDrag({
         minEnd: effect.startTime + 0.1,
       },
     })
+    if (
+      handle === 'end' &&
+      effect.row >= 0 &&
+      updates.endTime !== undefined &&
+      updates.endTime > initialEndTime &&
+      shouldRippleExpansionInRow(effect.row, initialEndTime, updates.endTime, 'effect', effectId)
+    ) {
+      shiftItemsForwardInRow(effect.row, initialEndTime, updates.endTime - initialEndTime, 'effect', effectId)
+    }
     updateEffect(effectId, updates)
-  }, [effectDragging, updateEffect, getSnapTargets, computeVisualItemDrag])
+  }, [
+    effectDragging,
+    updateEffect,
+    getSnapTargets,
+    computeVisualItemDrag,
+    shiftItemsForwardInRow,
+    shouldRippleExpansionInRow,
+  ])
 
   const handleEffectDragEnd = useCallback(() => {
-    setEffectDragging(null)
-    effectDragRef.current = null
-    if (timelineHandleHistoryPausedRef.current) {
-      useManifestStore.getState().resumeHistory()
-      timelineHandleHistoryPausedRef.current = false
-    }
-    pushHistory()
-  }, [pushHistory])
-
-  useEffect(() => {
-    if (trimDragging) {
-      document.addEventListener('mousemove', handleTrimMove)
-      document.addEventListener('mouseup', handleTrimEnd)
-      return () => {
-        document.removeEventListener('mousemove', handleTrimMove)
-        document.removeEventListener('mouseup', handleTrimEnd)
+    endDragWithHistory(
+      () => setEffectDragging(null),
+      () => {
+        effectDragRef.current = null
       }
-    }
-  }, [trimDragging, handleTrimMove, handleTrimEnd])
+    )
+  }, [endDragWithHistory])
 
-  useEffect(() => {
-    if (audioTrimDragging) {
-      document.addEventListener('mousemove', handleAudioTrimMove)
-      document.addEventListener('mouseup', handleAudioTrimEnd)
+  const useDocumentDragListeners = (
+    active: boolean,
+    onMove: (e: MouseEvent) => void,
+    onEnd: () => void
+  ) => {
+    useEffect(() => {
+      if (!active) return
+      document.addEventListener('mousemove', onMove)
+      document.addEventListener('mouseup', onEnd)
       return () => {
-        document.removeEventListener('mousemove', handleAudioTrimMove)
-        document.removeEventListener('mouseup', handleAudioTrimEnd)
+        document.removeEventListener('mousemove', onMove)
+        document.removeEventListener('mouseup', onEnd)
       }
-    }
-  }, [audioTrimDragging, handleAudioTrimMove, handleAudioTrimEnd])
+    }, [active, onMove, onEnd])
+  }
 
-  useEffect(() => {
-    if (imageDragging) {
-      document.addEventListener('mousemove', handleImageDragMove)
-      document.addEventListener('mouseup', handleImageDragEnd)
-      return () => {
-        document.removeEventListener('mousemove', handleImageDragMove)
-        document.removeEventListener('mouseup', handleImageDragEnd)
-      }
-    }
-  }, [imageDragging, handleImageDragMove, handleImageDragEnd])
-
-  useEffect(() => {
-    if (textDragging) {
-      document.addEventListener('mousemove', handleTextDragMove)
-      document.addEventListener('mouseup', handleTextDragEnd)
-      return () => {
-        document.removeEventListener('mousemove', handleTextDragMove)
-        document.removeEventListener('mouseup', handleTextDragEnd)
-      }
-    }
-  }, [textDragging, handleTextDragMove, handleTextDragEnd])
-
-  useEffect(() => {
-    if (effectDragging) {
-      document.addEventListener('mousemove', handleEffectDragMove)
-      document.addEventListener('mouseup', handleEffectDragEnd)
-      return () => {
-        document.removeEventListener('mousemove', handleEffectDragMove)
-        document.removeEventListener('mouseup', handleEffectDragEnd)
-      }
-    }
-  }, [effectDragging, handleEffectDragMove, handleEffectDragEnd])
+  useDocumentDragListeners(Boolean(trimDragging), handleTrimMove, handleTrimEnd)
+  useDocumentDragListeners(Boolean(audioTrimDragging), handleAudioTrimMove, handleAudioTrimEnd)
+  useDocumentDragListeners(Boolean(imageDragging), handleImageDragMove, handleImageDragEnd)
+  useDocumentDragListeners(Boolean(textDragging), handleTextDragMove, handleTextDragEnd)
+  useDocumentDragListeners(Boolean(effectDragging), handleEffectDragMove, handleEffectDragEnd)
 
   const handleDragMove = useCallback((e: MouseEvent) => {
     if (!activeDrag) return
@@ -1119,16 +1191,7 @@ export function useTimelineDrag({
     pushHistory()
   }, [activeDrag, dragPreview, moveItemToRow, insertRow, pushHistory])
 
-  useEffect(() => {
-    if (activeDrag) {
-      document.addEventListener('mousemove', handleDragMove)
-      document.addEventListener('mouseup', handleDragEnd)
-      return () => {
-        document.removeEventListener('mousemove', handleDragMove)
-        document.removeEventListener('mouseup', handleDragEnd)
-      }
-    }
-  }, [activeDrag, handleDragMove, handleDragEnd])
+  useDocumentDragListeners(Boolean(activeDrag), handleDragMove, handleDragEnd)
 
   return {
     activeDrag,

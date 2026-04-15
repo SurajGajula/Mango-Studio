@@ -1,12 +1,18 @@
 import { useState, useCallback } from 'react'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
-import { resolveVideoMetadata, computeCropForAspect, computeCanvasCropPlacement, ASPECT_RATIOS, computeVideoCropForAspect, withoutCanvasPlacement } from '@/app/lib/mediaUtils'
+import { resolveVideoMetadata, withoutCanvasPlacement } from '@/app/lib/mediaUtils'
 import { extractVideoClip } from '@/app/lib/videoExporter'
 import { timelineClipSourceSpanSeconds } from '@/app/lib/renderUtils'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { generateId } from '@/app/lib/idUtils'
 import { getOrCreateObjectURLForFile } from '@/app/lib/fileObjectUrlCache'
+import {
+  normalizeClipSpeedWindow,
+  resolveImagePatch,
+  resolveVideoPatch,
+  runHistoryTransaction,
+} from '@/app/lib/timeline'
 
 interface UseTimelineReplaceProps {
   videos: VideoClass[]
@@ -40,6 +46,15 @@ export function useTimelineReplace({
   } | null>(null)
   const [isReplacingClip, setIsReplacingClip] = useState(false)
 
+  const closeReplaceTarget = useCallback(() => {
+    setReplaceTargetId(null)
+  }, [])
+
+  const clearReplaceFlow = useCallback(() => {
+    setReplaceVideoData(null)
+    setReplaceTargetId(null)
+  }, [])
+
   const uploadReplacementToLibrary = useCallback(async (file: File, durationSeconds?: number) => {
     try {
       const formData = new FormData()
@@ -68,45 +83,17 @@ export function useTimelineReplace({
       if (image) {
         if (sourceKind === 'image') {
           const { aspectRatio, updateImage } = useManifestStore.getState()
-          if (image.cropAspect) {
-            const ratio = ASPECT_RATIOS[image.cropAspect]
-            if (ratio) {
-              const tempImage = new ImageClass('tmp', '', url, 0, 1)
-              const patch = await computeCropForAspect(tempImage, aspectRatio, ratio[0], ratio[1], image.cropAspect)
-              updateImage(image.id, {
-                ...withoutCanvasPlacement(patch),
-                url,
-                name: title,
-                x: image.x,
-                y: image.y,
-                width: image.width,
-                height: image.height,
-              })
-            } else {
-              const patch = await computeCanvasCropPlacement(url, 'image', aspectRatio)
-              updateImage(image.id, {
-                ...withoutCanvasPlacement(patch),
-                url,
-                name: title,
-                x: image.x,
-                y: image.y,
-                width: image.width,
-                height: image.height,
-              })
-            }
-          } else {
-            const patch = await computeCanvasCropPlacement(url, 'image', aspectRatio)
-            updateImage(image.id, {
-              ...withoutCanvasPlacement(patch),
-              url,
-              name: title,
-              x: image.x,
-              y: image.y,
-              width: image.width,
-              height: image.height,
-            })
-          }
-          setReplaceTargetId(null)
+          const patch = await resolveImagePatch(url, aspectRatio, image.cropAspect, true)
+          updateImage(image.id, {
+            ...withoutCanvasPlacement(patch),
+            url,
+            name: title,
+            x: image.x,
+            y: image.y,
+            width: image.width,
+            height: image.height,
+          })
+          closeReplaceTarget()
         } else {
           const { duration, width, height } = await resolveVideoMetadata(url)
           const windowDuration = image.duration
@@ -123,15 +110,7 @@ export function useTimelineReplace({
           }
 
           const { aspectRatio } = useManifestStore.getState()
-          let patch: Partial<VideoClass> = {}
-          if (image.cropAspect) {
-            const ratio = ASPECT_RATIOS[image.cropAspect]
-            if (ratio) {
-              patch = await computeVideoCropForAspect(new VideoClass(generateId('v'), '', url), aspectRatio, ratio[0], ratio[1], image.cropAspect)
-            }
-          } else {
-            patch = await computeCanvasCropPlacement(url, 'video', aspectRatio)
-          }
+          const patch = await resolveVideoPatch(new VideoClass(generateId('v'), '', url), url, aspectRatio, image.cropAspect, false)
 
           if (duration === sourceWindowDuration) {
             const videoInstance = new VideoClass(
@@ -177,7 +156,7 @@ export function useTimelineReplace({
               speedEnd
             )
             replaceImageWithVideo(targetId, videoInstance)
-            setReplaceTargetId(null)
+            closeReplaceTarget()
           } else {
             setReplaceVideoData({
               targetId,
@@ -199,15 +178,7 @@ export function useTimelineReplace({
       } else if (video) {
         if (sourceKind === 'image') {
           const { aspectRatio } = useManifestStore.getState()
-          let patch: Partial<ImageClass> = {}
-          if (video.cropAspect) {
-            const ratio = ASPECT_RATIOS[video.cropAspect]
-            if (ratio) {
-              patch = await computeCropForAspect(new ImageClass('tmp', '', url, 0, 1), aspectRatio, ratio[0], ratio[1], video.cropAspect)
-            }
-          } else {
-            patch = await computeCanvasCropPlacement(url, 'image', aspectRatio)
-          }
+          const patch = await resolveImagePatch(url, aspectRatio, video.cropAspect, false)
 
           const imageInstance = new ImageClass(
             generateId('image'),
@@ -240,7 +211,7 @@ export function useTimelineReplace({
             video.row
           )
           replaceVideoWithImage(targetId, imageInstance)
-          setReplaceTargetId(null)
+          closeReplaceTarget()
         } else {
           const { duration, width, height } = await resolveVideoMetadata(url)
           const storeInner = useManifestStore.getState()
@@ -258,61 +229,49 @@ export function useTimelineReplace({
           let speedStart = pendingForClip ? pendingForClip.speedStart : (v.speedStart ?? playbackSpeed)
           let speedEnd = pendingForClip ? pendingForClip.speedEnd : (v.speedEnd ?? playbackSpeed)
           const clipSpeedEasing = pendingForClip ? pendingForClip.speedEasing : (v.speedEasing ?? 'linear')
-          let sourceWindowDuration = timelineClipSourceSpanSeconds(
+          const normalized = normalizeClipSpeedWindow(
             windowDuration,
+            duration,
             playbackSpeed,
             speedStart,
             speedEnd,
             clipSpeedEasing
           )
-
-          if (duration < sourceWindowDuration) {
-            const scale = duration / sourceWindowDuration
-            playbackSpeed = playbackSpeed * scale
-            speedStart = speedStart * scale
-            speedEnd = speedEnd * scale
-            sourceWindowDuration = duration
-          }
+          playbackSpeed = normalized.playbackSpeed
+          speedStart = normalized.speedStart
+          speedEnd = normalized.speedEnd
+          const sourceWindowDuration = normalized.sourceWindowDuration
 
           if (duration === sourceWindowDuration) {
             const { aspectRatio } = storeInner
-            let patch: Partial<VideoClass> = {}
-            if (v.cropAspect) {
-              const ratio = ASPECT_RATIOS[v.cropAspect]
-              if (ratio) {
-                patch = await computeVideoCropForAspect(v.copy({ url }), aspectRatio, ratio[0], ratio[1], v.cropAspect)
-              }
-            } else {
-              patch = await computeCanvasCropPlacement(url, 'video', aspectRatio)
-            }
+            const patch = await resolveVideoPatch(v.copy({ url }), url, aspectRatio, v.cropAspect, false)
             const ps = playbackSpeed
             const ss = speedStart ?? ps
             const se = speedEnd ?? ps
             const span = duration
             const timelineDur = windowDuration
-            storeInner.pauseHistory()
-            storeInner.updateVideo(targetId, {
-              ...withoutCanvasPlacement(patch),
-              url,
-              title,
-              originalDuration: duration,
-              trimStart: 0,
-              trimEnd: 0,
-              duration: timelineDur,
-              sourceDuration: span,
-              playbackSpeed: ps,
-              speedStart: ss,
-              speedEnd: se,
-              speedEasing: clipSpeedEasing,
-              muted: true,
-              x: v.x,
-              y: v.y,
-              width: v.width,
-              height: v.height,
+            runHistoryTransaction((historyStore) => {
+              historyStore.updateVideo(targetId, {
+                ...withoutCanvasPlacement(patch),
+                url,
+                title,
+                originalDuration: duration,
+                trimStart: 0,
+                trimEnd: 0,
+                duration: timelineDur,
+                sourceDuration: span,
+                playbackSpeed: ps,
+                speedStart: ss,
+                speedEnd: se,
+                speedEasing: clipSpeedEasing,
+                muted: true,
+                x: v.x,
+                y: v.y,
+                width: v.width,
+                height: v.height,
+              })
             })
-            storeInner.resumeHistory()
-            storeInner.pushHistory()
-            setReplaceTargetId(null)
+            closeReplaceTarget()
           } else {
             setReplaceVideoData({
               targetId,
@@ -334,7 +293,11 @@ export function useTimelineReplace({
         }
       }
     },
-    [replaceImageWithVideo, replaceVideoWithImage]
+    [
+      replaceImageWithVideo,
+      replaceVideoWithImage,
+      closeReplaceTarget,
+    ]
   )
 
   const handleReplaceSelect = useCallback(
@@ -407,21 +370,13 @@ export function useTimelineReplace({
           if (!image) return
 
           const { aspectRatio } = useManifestStore.getState()
-          let patch: Partial<VideoClass> = {}
-          if (image.cropAspect) {
-            const ratio = ASPECT_RATIOS[image.cropAspect]
-            if (ratio) {
-              patch = await computeVideoCropForAspect(
-                new VideoClass(generateId('v'), '', finalUrl),
-                aspectRatio,
-                ratio[0],
-                ratio[1],
-                image.cropAspect
-              )
-            }
-          } else {
-            patch = await computeCanvasCropPlacement(finalUrl, 'video', aspectRatio)
-          }
+          const patch = await resolveVideoPatch(
+            new VideoClass(generateId('v'), '', finalUrl),
+            finalUrl,
+            aspectRatio,
+            image.cropAspect,
+            false
+          )
 
           const videoInstance = new VideoClass(
             generateId('video'),
@@ -472,53 +427,42 @@ export function useTimelineReplace({
           if (!video) return
 
           const { aspectRatio } = useManifestStore.getState()
-          let patch: Partial<VideoClass> = {}
-          if (video.cropAspect) {
-            const ratio = ASPECT_RATIOS[video.cropAspect]
-            if (ratio) {
-              patch = await computeVideoCropForAspect(video.copy({ url: finalUrl }), aspectRatio, ratio[0], ratio[1], video.cropAspect)
-            }
-          } else {
-            patch = await computeCanvasCropPlacement(finalUrl, 'video', aspectRatio)
-          }
+          const patch = await resolveVideoPatch(video.copy({ url: finalUrl }), finalUrl, aspectRatio, video.cropAspect, false)
 
-          const store = useManifestStore.getState()
           const ps = replaceVideoData.playbackSpeed ?? 1
           const ss = replaceVideoData.speedStart ?? ps
           const se = replaceVideoData.speedEnd ?? ps
           const spanForClip = finalOriginalDuration - finalTrimStart - finalTrimEnd
-          store.pauseHistory()
-          store.updateVideo(video.id, {
-            ...withoutCanvasPlacement(patch),
-            url: finalUrl,
-            title: replaceVideoData.title,
-            originalDuration: finalOriginalDuration,
-            trimStart: finalTrimStart,
-            trimEnd: finalTrimEnd,
-            duration: W,
-            sourceDuration: spanForClip,
-            playbackSpeed: ps,
-            speedStart: ss,
-            speedEnd: se,
-            speedEasing: replaceVideoData.speedEasing ?? 'linear',
-            sourceUrl,
-            sourceTrimStart,
-            muted: true,
-            x: video.x,
-            y: video.y,
-            width: video.width,
-            height: video.height,
+          runHistoryTransaction((store) => {
+            store.updateVideo(video.id, {
+              ...withoutCanvasPlacement(patch),
+              url: finalUrl,
+              title: replaceVideoData.title,
+              originalDuration: finalOriginalDuration,
+              trimStart: finalTrimStart,
+              trimEnd: finalTrimEnd,
+              duration: W,
+              sourceDuration: spanForClip,
+              playbackSpeed: ps,
+              speedStart: ss,
+              speedEnd: se,
+              speedEasing: replaceVideoData.speedEasing ?? 'linear',
+              sourceUrl,
+              sourceTrimStart,
+              muted: true,
+              x: video.x,
+              y: video.y,
+              width: video.width,
+              height: video.height,
+            })
           })
-          store.resumeHistory()
-          store.pushHistory()
         }
-        setReplaceVideoData(null)
-        setReplaceTargetId(null)
+        clearReplaceFlow()
       } finally {
         setIsReplacingClip(false)
       }
     },
-    [replaceVideoData, images, videos, replaceImageWithVideo]
+    [replaceVideoData, images, videos, replaceImageWithVideo, clearReplaceFlow]
   )
 
   const handleVideoDoubleClick = useCallback((videoId: string) => {

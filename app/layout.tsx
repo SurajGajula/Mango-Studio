@@ -10,7 +10,7 @@ const antonio = Antonio({ subsets: ['latin'], weight: '300', variable: '--font-a
 
 export const metadata: Metadata = {
   title: 'Mango Studio',
-  description: 'Mango Studio Application',
+  description: 'Mango Studio',
 }
 
 export default function RootLayout({

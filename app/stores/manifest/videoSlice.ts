@@ -68,12 +68,8 @@ export const createVideoSlice = (set: any, get: any) => ({
     const video = state.videos.find((v: VideoClass) => v.id === id)
     if (!video) return
 
-    const isMainTrack = video.row === 0
     const newDuration = updates.duration ?? video.duration ?? 0
     const newTimestamp = updates.timestamp ?? video.timestamp
-    const durationDelta = (updates.duration !== undefined) ? (newDuration - (video.duration ?? 0)) : 0
-    const timestampDelta = (updates.timestamp !== undefined) ? (newTimestamp - video.timestamp) : 0
-    const totalDelta = durationDelta + timestampDelta
 
     set((s: ManifestStore) => ({
       videos: s.videos.map((v) => {
@@ -86,16 +82,7 @@ export const createVideoSlice = (set: any, get: any) => ({
             timestamp: newTimestamp
           })
         }
-        if (isMainTrack && v.row === 0 && v.timestamp > video.timestamp) {
-          return v.copy({ timestamp: v.timestamp + totalDelta })
-        }
         return v
-      }),
-      images: s.images.map((img) => {
-        if (isMainTrack && img.row === 0 && img.startTime > video.timestamp) {
-          return img.copy({ startTime: img.startTime + totalDelta, endTime: img.endTime + totalDelta })
-        }
-        return img
       })
     }))
     get().pushHistory()
@@ -113,12 +100,6 @@ export const createVideoSlice = (set: any, get: any) => ({
     const newDuration = sourceDuration / (video.playbackSpeed ?? 1)
     const finalTimestamp = newTimestamp !== undefined ? newTimestamp : video.timestamp
 
-    const isMainTrack = video.row === 0
-    const oldDuration = video.duration ?? 0
-    const durationDelta = newDuration - oldDuration
-    const timestampDelta = finalTimestamp - video.timestamp
-    const totalDelta = durationDelta + timestampDelta
-
     set((state: ManifestStore) => {
       const nextVideos = state.videos.map((v) => {
         if (v.id === id) {
@@ -132,20 +113,9 @@ export const createVideoSlice = (set: any, get: any) => ({
             sourceDuration
           })
         }
-        if (isMainTrack && v.row === 0 && v.timestamp > video.timestamp) {
-          return v.copy({ timestamp: v.timestamp + totalDelta })
-        }
         return v
       })
-
-      const nextImages = state.images.map((img) => {
-        if (isMainTrack && img.row === 0 && img.startTime > video.timestamp) {
-          return img.copy({ startTime: img.startTime + totalDelta, endTime: img.endTime + totalDelta })
-        }
-        return img
-      })
-
-      return { videos: nextVideos, images: nextImages }
+      return { videos: nextVideos }
     })
 
     get().recalculateTimestamps()
