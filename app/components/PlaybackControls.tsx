@@ -4,6 +4,7 @@ import { useManifestStore } from '@/app/stores/manifestStore'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { ASPECT_RATIOS, computeMediaCropForAspect } from '@/app/lib/mediaUtils'
+import { FIXED_ASPECT_RATIO } from '@/app/lib/aspectRatio'
 import styles from './tracks/Timeline.module.css'
 
 interface PlaybackControlsProps {
@@ -55,7 +56,7 @@ export default function PlaybackControls({
   const removeAudioFromManifest = useManifestStore((state) => state.removeAudio)
   const removeEffect = useManifestStore((state) => state.removeEffect)
   const pushHistory = useManifestStore((state) => state.pushHistory)
-  const aspectRatio = useManifestStore((state) => state.aspectRatio)
+  const aspectRatio = FIXED_ASPECT_RATIO
   const videos = useManifestStore((state) => state.videos)
   const images = useManifestStore((state) => state.images)
   const texts = useManifestStore((state) => state.texts)

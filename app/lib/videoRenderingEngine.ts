@@ -11,7 +11,6 @@ export interface RenderState {
   playbackTime: number
   isPlaying: boolean
   playbackRate: number
-  aspectRatio: '9:16'
   videos: VideoClass[]
   images: ImageClass[]
   effects: EffectClass[]
@@ -68,7 +67,7 @@ export class VideoRenderingEngine {
     onVideoTimeUpdate: (id: string, time: number) => void,
     onVideoPlayState: (id: string, playing: boolean, rate: number) => void
   ) {
-    const { playbackTime: newTime, isPlaying, playbackRate: rate, aspectRatio, effects } = state
+    const { playbackTime: newTime, isPlaying, playbackRate: rate, effects } = state
     const { videoElements, imageBitmaps, bufferCanvas, persistenceCanvases } = resources
 
     if (!bufferCanvas) return
@@ -462,20 +461,20 @@ export class VideoRenderingEngine {
             if (activeClip.type === 'video') {
               const vEl = videoElements.get(activeClip.id)
               if (vEl && videoElementHasDrawableFrame(vEl)) {
-                this.drawVideo(bufferCtx, cr, vEl, activeClip.item as VideoClass, newTime, isPlaying, persistenceCanvases, aspectRatio, canvas)
+                this.drawVideo(bufferCtx, cr, vEl, activeClip.item as VideoClass, newTime, isPlaying, persistenceCanvases, canvas)
               } else {
-                this.drawMainImages(bufferCtx, cr, newTime, state.images, imageBitmaps, aspectRatio)
+                this.drawMainImages(bufferCtx, cr, newTime, state.images, imageBitmaps)
               }
             } else {
-              this.drawMainImages(bufferCtx, cr, newTime, state.images, imageBitmaps, aspectRatio)
+              this.drawMainImages(bufferCtx, cr, newTime, state.images, imageBitmaps)
             }
           } else {
-            this.drawMainImages(bufferCtx, cr, newTime, state.images, imageBitmaps, aspectRatio)
+            this.drawMainImages(bufferCtx, cr, newTime, state.images, imageBitmaps)
           }
         }
 
         if (backgroundDrawn) {
-          this.drawOverlays(bufferCtx, cr, newTime, state.images, state.videos, videoElements, imageBitmaps, aspectRatio, isPlaying)
+          this.drawOverlays(bufferCtx, cr, newTime, state.images, state.videos, videoElements, imageBitmaps, isPlaying)
           
           // Optimization: Only filter/sort effects if they exist
           if (effects && effects.length > 0) {
@@ -509,7 +508,6 @@ export class VideoRenderingEngine {
     currentTime: number,
     isPlaying: boolean,
     persistenceCanvases: Map<string, { current: HTMLCanvasElement; accumulation: HTMLCanvasElement }>,
-    aspectRatio: string,
     mainCanvas: HTMLCanvasElement
   ) {
     if (!videoElementHasDrawableFrame(videoEl)) return
@@ -626,8 +624,7 @@ export class VideoRenderingEngine {
     cr: { x: number; y: number; width: number; height: number },
     currentTime: number,
     images: ImageClass[],
-    imageBitmaps: Map<string, ImageBitmap>,
-    aspectRatio: string
+    imageBitmaps: Map<string, ImageBitmap>
   ) {
     const mainTrackImages = images.filter(img => (img as any).row === 0)
     let visibleImages = mainTrackImages.filter(img => currentTime >= img.startTime && currentTime < img.endTime)
@@ -682,7 +679,6 @@ export class VideoRenderingEngine {
     videos: VideoClass[],
     videoElements: Map<string, HTMLVideoElement>,
     imageBitmaps: Map<string, ImageBitmap>,
-    aspectRatio: string,
     isPlaying: boolean
   ) {
     const logicalW = 1080

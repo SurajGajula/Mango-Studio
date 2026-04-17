@@ -34,7 +34,6 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
       isPlaying: false,
       isLooping: false,
       playbackRate: 1,
-      aspectRatio: '9:16',
       pendingPrompt: null,
       pendingVideoReplaceSpeed: null,
       videoReplaceFilePickerRequest: null,

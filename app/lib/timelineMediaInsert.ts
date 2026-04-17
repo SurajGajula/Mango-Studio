@@ -5,6 +5,7 @@ import { findFreeAudioOverlayRow, findFreeVisualOverlayRow } from '@/app/lib/ove
 import { useAudioStore } from '@/app/stores/audioStore'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
+import { FIXED_ASPECT_RATIO } from '@/app/lib/aspectRatio'
 
 function findFreeRow(
   items: Array<{ startTime: number; endTime: number; row: number }>,
@@ -21,7 +22,8 @@ function findFreeRow(
 }
 
 export async function addVideoToTimelineAtTime(url: string, title: string, startTime: number) {
-  const { aspectRatio, addVideo } = useManifestStore.getState()
+  const { addVideo } = useManifestStore.getState()
+  const aspectRatio = FIXED_ASPECT_RATIO
   const { duration } = await resolveVideoMetadata(url)
   const id = `video-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
   const start = Math.max(0, startTime)

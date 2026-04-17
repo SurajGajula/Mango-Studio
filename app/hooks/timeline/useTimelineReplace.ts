@@ -7,6 +7,7 @@ import { timelineClipSourceSpanSeconds } from '@/app/lib/renderUtils'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { generateId } from '@/app/lib/idUtils'
 import { getOrCreateObjectURLForFile } from '@/app/lib/fileObjectUrlCache'
+import { FIXED_ASPECT_RATIO } from '@/app/lib/aspectRatio'
 import {
   normalizeClipSpeedWindow,
   resolveImagePatch,
@@ -82,7 +83,8 @@ export function useTimelineReplace({
 
       if (image) {
         if (sourceKind === 'image') {
-          const { aspectRatio, updateImage } = useManifestStore.getState()
+          const { updateImage } = useManifestStore.getState()
+          const aspectRatio = FIXED_ASPECT_RATIO
           const patch = await resolveImagePatch(url, aspectRatio, image.cropAspect, true)
           updateImage(image.id, {
             ...withoutCanvasPlacement(patch),
@@ -109,7 +111,7 @@ export function useTimelineReplace({
             sourceWindowDuration = duration
           }
 
-          const { aspectRatio } = useManifestStore.getState()
+          const aspectRatio = FIXED_ASPECT_RATIO
           const patch = await resolveVideoPatch(new VideoClass(generateId('v'), '', url), url, aspectRatio, image.cropAspect, false)
 
           if (duration === sourceWindowDuration) {
@@ -177,7 +179,7 @@ export function useTimelineReplace({
         }
       } else if (video) {
         if (sourceKind === 'image') {
-          const { aspectRatio } = useManifestStore.getState()
+          const aspectRatio = FIXED_ASPECT_RATIO
           const patch = await resolveImagePatch(url, aspectRatio, video.cropAspect, false)
 
           const imageInstance = new ImageClass(
@@ -243,7 +245,7 @@ export function useTimelineReplace({
           const sourceWindowDuration = normalized.sourceWindowDuration
 
           if (duration === sourceWindowDuration) {
-            const { aspectRatio } = storeInner
+            const aspectRatio = FIXED_ASPECT_RATIO
             const patch = await resolveVideoPatch(v.copy({ url }), url, aspectRatio, v.cropAspect, false)
             const ps = playbackSpeed
             const ss = speedStart ?? ps
@@ -369,7 +371,7 @@ export function useTimelineReplace({
           const image = images.find((img) => img.id === replaceVideoData.targetId)
           if (!image) return
 
-          const { aspectRatio } = useManifestStore.getState()
+          const aspectRatio = FIXED_ASPECT_RATIO
           const patch = await resolveVideoPatch(
             new VideoClass(generateId('v'), '', finalUrl),
             finalUrl,
@@ -426,7 +428,7 @@ export function useTimelineReplace({
           const video = videos.find((v) => v.id === replaceVideoData.targetId)
           if (!video) return
 
-          const { aspectRatio } = useManifestStore.getState()
+          const aspectRatio = FIXED_ASPECT_RATIO
           const patch = await resolveVideoPatch(video.copy({ url: finalUrl }), finalUrl, aspectRatio, video.cropAspect, false)
 
           const ps = replaceVideoData.playbackSpeed ?? 1

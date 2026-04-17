@@ -19,6 +19,7 @@ import { ImageClass, AnimationMode, TransitionMode } from '@/app/models/ImageCla
 import { computeCropForAspect, computeCanvasCropPlacement, ASPECT_RATIOS, computeVideoCropForAspect, computeMediaCropForAspect, withoutCanvasPlacement } from '@/app/lib/mediaUtils'
 import { findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
 import { createSolidColorDataUrl } from '@/app/lib/solidColorImage'
+import { FIXED_ASPECT_RATIO } from '@/app/lib/aspectRatio'
 import styles from './ChatWindow.module.css'
 
 interface Message {
@@ -185,7 +186,8 @@ export default function ChatWindow() {
   }
 
   const applyCrops = async (crops: CropInstruction[]) => {
-    const { images, videos, aspectRatio } = useManifestStore.getState()
+    const { images, videos } = useManifestStore.getState()
+    const aspectRatio = FIXED_ASPECT_RATIO
     for (const c of crops) {
       if (c.type === 'image') {
         const image = images.find((i) => i.id === c.id)
@@ -217,7 +219,8 @@ export default function ChatWindow() {
   }
 
   const applyReplacementWithUrl = async (targetId: string, url: string, name: string) => {
-    const { images, videos, aspectRatio } = useManifestStore.getState()
+    const { images, videos } = useManifestStore.getState()
+    const aspectRatio = FIXED_ASPECT_RATIO
     const originalImage = images.find((i) => i.id === targetId)
     const originalVideo = videos.find((v) => v.id === targetId)
 

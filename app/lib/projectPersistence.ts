@@ -6,7 +6,7 @@ import { ImageClass } from '@/app/models/ImageClass'
 import { TextClass } from '@/app/models/TextClass'
 import { AudioClass } from '@/app/models/AudioClass'
 import { EffectClass, type EffectType } from '@/app/models/EffectClass'
-import type { AspectRatio, HistoryEntry } from '@/app/stores/manifest/types'
+import type { HistoryEntry } from '@/app/stores/manifest/types'
 
 const DB_NAME_GUEST = 'mango-guest-project'
 const DB_VERSION = 1
@@ -16,9 +16,6 @@ const SNAPSHOT_KEY_GUEST = 'guest-snapshot'
 const SNAPSHOT_KEY_USER = 'user-draft'
 
 const BLOB_TOKEN_PREFIX = '__GUESTPERSIST_BLOB:'
-
-export const PROJECT_PERSISTENCE_NOTE =
-  'Video and audio binary data are not stored in localStorage (quota ~5MB, synchronous). This app uses IndexedDB for local project snapshots (guest and signed-in drafts).'
 
 export type ProjectSnapshotPayload = {
   version: 1
@@ -33,7 +30,6 @@ export type ProjectSnapshotPayload = {
   isPlaying: boolean
   isLooping: boolean
   playbackRate: number
-  aspectRatio: string
   pendingPrompt: string | null
 }
 
@@ -378,7 +374,6 @@ async function saveProjectSnapshot(dbName: string, metaKey: string): Promise<voi
     isPlaying: false,
     isLooping: s.isLooping,
     playbackRate: s.playbackRate,
-    aspectRatio: s.aspectRatio,
     pendingPrompt: s.pendingPrompt,
   }
 
@@ -458,7 +453,6 @@ async function hydrateSnapshotIntoStore(snap: ProjectSnapshotPayload, dbName: st
     isPlaying: false,
     isLooping: snap.isLooping ?? false,
     playbackRate: snap.playbackRate,
-    aspectRatio: (snap.aspectRatio as AspectRatio) ?? '9:16',
     pendingPrompt: snap.pendingPrompt,
   })
 
@@ -478,16 +472,8 @@ export async function saveUserDraftSnapshot(userId: string): Promise<void> {
   await saveProjectSnapshot(userDraftDbName(userId), SNAPSHOT_KEY_USER)
 }
 
-export async function loadGuestProjectSnapshot(): Promise<ProjectSnapshotPayload | null> {
-  return loadProjectSnapshot(DB_NAME_GUEST, SNAPSHOT_KEY_GUEST)
-}
-
 export async function clearGuestProjectPersistence(): Promise<void> {
   await idbDeleteDatabase(DB_NAME_GUEST)
-}
-
-export async function clearUserDraftPersistence(userId: string): Promise<void> {
-  await idbDeleteDatabase(userDraftDbName(userId))
 }
 
 export async function hydrateLocalProjectIfNeeded(user: { id: string } | null): Promise<void> {

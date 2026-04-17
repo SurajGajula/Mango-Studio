@@ -3,6 +3,7 @@ import { ASPECT_RATIOS, computeMediaCropForAspect } from '@/app/lib/mediaUtils'
 import { findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
 import { createSolidShapeDataUrl, type SolidShapeKind } from '@/app/lib/solidColorImage'
 import { useManifestStore } from '@/app/stores/manifestStore'
+import { FIXED_ASPECT_RATIO } from '@/app/lib/aspectRatio'
 
 function findFreeRow(
   items: Array<{ startTime: number; endTime: number; row: number }>,
@@ -28,7 +29,8 @@ export async function addImageAtTimelineTime(
   startTime: number,
   options?: AddImageAtPlayheadOptions
 ) {
-  const { aspectRatio, videos, images, addImage } = useManifestStore.getState()
+  const { videos, images, addImage } = useManifestStore.getState()
+  const aspectRatio = FIXED_ASPECT_RATIO
   const start = Math.max(0, startTime)
   const end = start + 5
 
@@ -91,8 +93,4 @@ export async function addSolidShapePresetAtPlayhead(color: string, name: string,
   await addImageAtCurrentPlayhead(createSolidShapeDataUrl(color, shape), name, {
     importCropAspect: '1:1',
   })
-}
-
-export async function addSolidColorPresetAtPlayhead(color: string, name: string) {
-  await addSolidShapePresetAtPlayhead(color, name, 'square')
 }

@@ -528,7 +528,6 @@ export function useVideoPlayback(
             playbackTime: newTime,
             isPlaying,
             playbackRate: rate,
-            aspectRatio: state.aspectRatio,
             videos: state.videos,
             images: state.images,
             effects: state.effects

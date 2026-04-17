@@ -1,5 +1,10 @@
-export * from './dragMath'
-export * from './rowTargeting'
-export * from './rowRipple'
-export * from './replaceUtils'
-export * from './mediaUploadUtils'
+export { toTimeDelta, snapStartOrEnd, clampMinDuration, applyBounds } from './dragMath'
+export { getMaxOverlayRow, resolveTargetRow } from './rowTargeting'
+export {
+  overlapsAny,
+  occupancyIntervalsOnRow,
+  shouldRippleExpansionInRow,
+  shiftItemsForwardInRow,
+} from './rowRipple'
+export { runHistoryTransaction, resolveImagePatch, resolveVideoPatch, normalizeClipSpeedWindow } from './replaceUtils'
+export { uploadToAccountLibrary, validateMediaDuration } from './mediaUploadUtils'

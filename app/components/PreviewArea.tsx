@@ -9,6 +9,7 @@ import { ImageClass } from '@/app/models/ImageClass'
 import { VideoClass } from '@/app/models/VideoClass'
 import { TextClass } from '@/app/models/TextClass'
 import { getEffectiveCropForEdit } from '@/app/lib/cropKeyframeHelpers'
+import { FIXED_ASPECT_RATIO } from '@/app/lib/aspectRatio'
 import styles from './PreviewArea.module.css'
 import TextOverlay from './TextOverlay'
 import CropEditor from './CropEditor'
@@ -121,7 +122,7 @@ export default function PreviewArea() {
   const updateVideo = useManifestStore((state) => state.updateVideo)
   const updateText = useManifestStore((state) => state.updateText)
   const pushHistory = useManifestStore((state) => state.pushHistory)
-  const aspectRatio = useManifestStore((state) => state.aspectRatio)
+  const aspectRatio = FIXED_ASPECT_RATIO
 
   const mainVideos = videos.filter((v) => !v.isOverlay)
   const hasMainContent = mainVideos.length > 0 || images.length > 0

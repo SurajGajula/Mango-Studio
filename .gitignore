@@ -12,3 +12,5 @@ node_modules
 public/ffmpeg
 
 .DS_Store
+
+docs/

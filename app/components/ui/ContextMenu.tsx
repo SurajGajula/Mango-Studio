@@ -6,6 +6,7 @@ import { useManifestStore } from '@/app/stores/manifestStore'
 import { useAudioStore } from '@/app/stores/audioStore'
 import { ASPECT_RATIOS, computeMediaCropForAspect } from '@/app/lib/mediaUtils'
 import { useSliderHistorySession } from '@/app/hooks/useSliderHistorySession'
+import { FIXED_ASPECT_RATIO } from '@/app/lib/aspectRatio'
 import styles from '../tracks/Timeline.module.css'
 
 interface ContextMenuProps {
@@ -41,7 +42,7 @@ export default function ContextMenu({
   const images = useManifestStore((s) => s.images)
   const texts = useManifestStore((s) => s.texts)
   const audios = useManifestStore((s) => s.audios)
-  const aspectRatio = useManifestStore((s) => s.aspectRatio)
+  const aspectRatio = FIXED_ASPECT_RATIO
 
   const splitVideo = useManifestStore((s) => s.splitVideo)
   const splitImage = useManifestStore((s) => s.splitImage)

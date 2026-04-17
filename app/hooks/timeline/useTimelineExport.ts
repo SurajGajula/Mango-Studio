@@ -5,7 +5,7 @@ import { ImageClass } from '@/app/models/ImageClass'
 import { TextClass } from '@/app/models/TextClass'
 import { AudioClass } from '@/app/models/AudioClass'
 import { EffectClass } from '@/app/models/EffectClass'
-import { AspectRatio } from '@/app/stores/manifest/types'
+import { FIXED_ASPECT_RATIO } from '@/app/lib/aspectRatio'
 
 export interface TimelineExportResult {
   blob: Blob
@@ -15,9 +15,7 @@ export interface TimelineExportResult {
 
 interface UseTimelineExportProps {
   videos: VideoClass[]
-  aspectRatio: AspectRatio
   images: ImageClass[]
-  audioUrl: string | null
   texts: TextClass[]
   audios: AudioClass[]
   effects: EffectClass[]
@@ -26,9 +24,7 @@ interface UseTimelineExportProps {
 
 export function useTimelineExport({
   videos,
-  aspectRatio,
   images,
-  audioUrl,
   texts,
   audios,
   effects,
@@ -68,9 +64,7 @@ export function useTimelineExport({
     exportAbortRef.current = controller
 
     try {
-      const audioTrimStart = audios[0]?.trimStart ?? 0
-      const audioStartTime = audios[0]?.startTime ?? 0
-      const blob = await exportVideo(videos, aspectRatio, setExportProgress, images, audioUrl, texts, audioTrimStart, audioStartTime, effects, controller.signal, audios)
+      const blob = await exportVideo(videos, FIXED_ASPECT_RATIO, setExportProgress, images, texts, effects, controller.signal, audios)
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
       const filename = `mango-export-${timestamp}.mp4`
       const previewUrl = URL.createObjectURL(blob)
@@ -90,7 +84,7 @@ export function useTimelineExport({
       exportAbortRef.current = null
       setIsExporting(false)
     }
-  }, [videos, images, isExporting, setIsPlaying, aspectRatio, audioUrl, texts, audios, effects, clearPreview])
+  }, [videos, images, isExporting, setIsPlaying, texts, audios, effects, clearPreview])
 
   return {
     isExporting,

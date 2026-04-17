@@ -85,16 +85,6 @@ export function frameDimensionsForCropClamp(
   return { fw: v.width, fh: v.height }
 }
 
-export function placementMatchesCanvasAspect(
-  width: number,
-  height: number,
-  logicalW: number,
-  logicalH: number
-): boolean {
-  if (!(width > 0) || !(height > 0)) return false
-  return Math.abs(width / height - logicalW / logicalH) < 1e-4
-}
-
 export function clampPlacementRectToLogicalCanvas(
   width: number,
   height: number,
@@ -391,19 +381,7 @@ export function resolveVideoMetadata(url: string): Promise<{ duration: number; w
   })
 }
 
-export function toMono(audioBuffer: AudioBuffer): Float32Array {
-  const numChannels = audioBuffer.numberOfChannels
-  const length = audioBuffer.length
-  const mono = new Float32Array(length)
-  for (let c = 0; c < numChannels; c++) {
-    const channel = audioBuffer.getChannelData(c)
-    for (let i = 0; i < length; i++) mono[i] += channel[i]
-  }
-  for (let i = 0; i < length; i++) mono[i] /= numChannels
-  return mono
-}
-
-export function computeMediaDimensions(
+function computeMediaDimensions(
   mediaWidth: number,
   mediaHeight: number,
   aspectRatio: AspectRatio,
@@ -443,7 +421,7 @@ export function computeMediaDimensions(
   }
 }
 
-export function computeImageDimensions(
+function computeImageDimensions(
   url: string,
   aspectRatio: AspectRatio,
   isMainTrack = false
@@ -470,7 +448,7 @@ export function computeCropForAspect(
   return computeMediaCropForAspect(image.url, 'image', canvasAspectRatio, targetW, targetH, cropAspectLabel) as Promise<Partial<ImageClass>>
 }
 
-export async function computeVideoDimensions(
+async function computeVideoDimensions(
   url: string,
   aspectRatio: AspectRatio,
   isMainTrack = false

@@ -3,7 +3,6 @@
 import { useRef, useEffect, useState, useCallback, useMemo, useLayoutEffect } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
-import { useAudioStore } from '@/app/stores/audioStore'
 import { TextClass } from '@/app/models/TextClass'
 import { formatTime } from '@/app/lib/timeUtils'
 import { findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
@@ -46,7 +45,6 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
   const effects = useManifestStore((state) => state.effects)
   const playbackTime = useManifestStore((state) => state.playbackTime)
   const isPlaying = useManifestStore((state) => state.isPlaying)
-  const aspectRatio = useManifestStore((state) => state.aspectRatio)
   
   const setSelectedVideoId = useSelectionStore((state) => state.setSelectedVideoId)
   const setSelectedImageId = useSelectionStore((state) => state.setSelectedImageId)
@@ -69,7 +67,6 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
   const pushHistory = useManifestStore((state) => state.pushHistory)
   const trimAudio = useManifestStore((state) => state.trimAudio)
 
-  const audioUrl = useAudioStore((state) => state.audioUrl)
   const timelineRowRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const uploadInputRef = useRef<HTMLInputElement>(null)
@@ -161,9 +158,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     closeExportModal,
   } = useTimelineExport({
     videos,
-    aspectRatio,
     images,
-    audioUrl,
     texts,
     audios,
     effects,

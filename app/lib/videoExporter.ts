@@ -59,10 +59,7 @@ export async function exportVideo(
   aspectRatio: '9:16',
   onProgress?: ProgressCallback,
   images?: ImageClass[],
-  audioUrl?: string | null,
   texts?: TextClass[],
-  audioTrimStart?: number,
-  audioStartTime?: number,
   effects?: EffectClass[],
   signal?: AbortSignal,
   audios?: AudioClass[]
@@ -176,20 +173,6 @@ export async function exportVideo(
         }
       }
       
-      // Legacy background music if still present
-      if (audioUrl && (!audios || audios.length === 0)) {
-        try {
-          const resp = await fetch(audioUrl)
-          const buf = await resp.arrayBuffer()
-          const audioBuf = await offlineCtx.decodeAudioData(buf)
-          const source = offlineCtx.createBufferSource()
-          source.buffer = audioBuf
-          source.playbackRate.value = 1
-          source.connect(offlineCtx.destination)
-          source.start(audioStartTime ?? 0, audioTrimStart ?? 0)
-        } catch (e) { console.error('Failed to load legacy bg audio for offline mix', e) }
-      }
-
       // Video audios
       for (const v of allVideos) {
         if (v.muted || !v.url) continue

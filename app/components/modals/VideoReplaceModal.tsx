@@ -5,7 +5,6 @@ import { generateVideoThumbnails } from '@/app/lib/mediaUtils'
 import { terminateFFmpeg } from '@/app/lib/videoExporter'
 import { calculateSourceTime } from '@/app/lib/renderUtils'
 import { AudioClass } from '@/app/models/AudioClass'
-import { useAudioStore } from '@/app/stores/audioStore'
 import styles from './VideoReplaceModal.module.css'
 
 function projectTimeToAudioSourceTime(projectTime: number, audio: AudioClass): number {
@@ -79,8 +78,6 @@ export default function VideoReplaceModal({
   const [scrollLeft, setScrollLeft] = useState(initialTrimStart * PIXELS_PER_SECOND)
   const isScrollingProgrammatically = useRef(false)
   const requestRef = useRef<number>()
-
-  const audioUrl = useAudioStore((state) => state.audioUrl)
 
   const videoPlayPromiseRef = useRef<Promise<void> | null>(null)
   const audioPlayPromiseRef = useRef<Promise<void> | null>(null)
@@ -470,10 +467,10 @@ export default function VideoReplaceModal({
             muted
             preload="metadata"
           />
-          {audioUrl && (
+          {mainAudio && (
             <audio
               ref={audioRef}
-              src={audioUrl}
+              src={mainAudio.url}
               style={{ display: 'none' }}
               preload="auto"
             />

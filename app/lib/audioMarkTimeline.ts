@@ -24,7 +24,3 @@ export function audioMarkTimelineEntries(
     .map((m) => ({ id: m.id, timelinePos: startTime + (m.t - trimStart) }))
     .filter((e) => e.timelinePos <= totalDuration)
 }
-
-export function audioMarkTimelinePositions(audioItem: AudioClass, totalDuration: number): number[] {
-  return audioMarkTimelineEntries(audioItem, totalDuration).map((e) => e.timelinePos)
-}

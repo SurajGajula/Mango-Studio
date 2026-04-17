@@ -41,7 +41,6 @@ export interface ManifestStore {
   playbackTime: number
   isPlaying: boolean
   isLooping: boolean
-  aspectRatio: AspectRatio
   history: HistoryEntry[]
   historyIndex: number
   pushHistory: () => void
