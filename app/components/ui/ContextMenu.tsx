@@ -22,7 +22,6 @@ interface ContextMenuProps {
 }
 
 export default function ContextMenu({
-  onOpenTransitions,
   onOpenAnimations,
   onOpenFont,
   onOpenEffects,
@@ -57,7 +56,6 @@ export default function ContextMenu({
   const updateImage = useManifestStore((s) => s.updateImage)
   const updateAudio = useManifestStore((s) => s.updateAudio)
   const splitAudio = useManifestStore((s) => s.splitAudio)
-  const setItemPlaybackSpeed = useManifestStore((s) => s.setItemPlaybackSpeed)
   const pushHistory = useManifestStore((s) => s.pushHistory)
 
   const volumeSliderHistory = useSliderHistorySession()

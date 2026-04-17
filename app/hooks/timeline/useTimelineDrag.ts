@@ -1,7 +1,4 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
-
-const MOVE_HOLD_MS = 280
-const HOLD_PREVIEW_MOVE_SLOP_PX = 8
 import { snapToMarkers } from '@/app/lib/snapToMarkers'
 import {
   applyBounds,
@@ -21,6 +18,10 @@ import { ImageClass } from '@/app/models/ImageClass'
 import { TextClass } from '@/app/models/TextClass'
 import { AudioClass } from '@/app/models/AudioClass'
 import { EffectClass } from '@/app/models/EffectClass'
+
+const MOVE_HOLD_MS = 280
+const HOLD_PREVIEW_MOVE_SLOP_PX = 8
+const ROW_SWITCH_SLOP_PX = 12
 
 type TrimHandle = 'start' | 'end' | null
 
@@ -244,7 +245,7 @@ export function useTimelineDrag({
         })
       }
       for (const a of st.audios) {
-        if (a.row !== row || skip('audio', a.id)) continue
+        if (a.row !== row || !a.isOverlay || skip('audio', a.id)) continue
         items.push({
           type: 'audio',
           id: a.id,
@@ -314,7 +315,7 @@ export function useTimelineDrag({
       lockTargetRowToInitial?: boolean
     ) => {
       if (!timelineRowRef.current) return null
-      const { pressClientX, initialStartTime, duration, itemType, itemId, initialRow } = drag
+      const { pressClientX, pressClientY, initialStartTime, duration, itemType, itemId, initialRow } = drag
       const rect = timelineRowRef.current.getBoundingClientRect()
       const timelineWidth = rect.width
       const totalWithPadding = totalDuration + effectivePadding * 2
@@ -345,7 +346,8 @@ export function useTimelineDrag({
       let isInsertion = false
       let isValid = true
 
-      if (lockTargetRowToInitial) {
+      const pointerStayedOnInitialRow = Math.abs(clientY - pressClientY) <= ROW_SWITCH_SLOP_PX
+      if (lockTargetRowToInitial || pointerStayedOnInitialRow) {
         targetRow = initialRow
       } else {
         const st = useManifestStore.getState()
@@ -581,12 +583,6 @@ export function useTimelineDrag({
   )
 
   type VisualEdgeDragItem = { startTime: number; endTime: number }
-  type VisualEdgeDragSnapshot = {
-    initialMouseX: number
-    initialStartTime: number
-    initialEndTime: number
-    timelineWidth: number
-  }
 
   const beginVisualEdgeDrag = useCallback(
     (
@@ -950,19 +946,26 @@ export function useTimelineDrag({
       })
       const nextStart = updates.startTime ?? item.startTime
       const nextEnd = updates.endTime ?? item.endTime
-      if (kind === 'image' || kind === 'text' || kind === 'effect') {
-        if (overlapsAny(nextStart, nextEnd, occupancyIntervalsOnRow(st, item.row, kind, itemId), 0.01)) {
-          return
-        }
-      }
+      const rowIntervals = getRowItems(item.row, kind, itemId).map((rowItem) => ({
+        start: rowItem.start,
+        end: rowItem.end,
+      }))
       const excludeType: TimelineItemType = kind
-      if (
+      const canRippleEndExpansion =
         handle === 'end' &&
         item.row >= 0 &&
         updates.endTime !== undefined &&
         updates.endTime > initialEndTime &&
         shouldRippleExpansionInRow(item.row, initialEndTime, updates.endTime, excludeType, itemId)
-      ) {
+      if (kind === 'image' || kind === 'text' || kind === 'effect') {
+        if (
+          overlapsAny(nextStart, nextEnd, rowIntervals, 0.01) &&
+          !canRippleEndExpansion
+        ) {
+          return
+        }
+      }
+      if (canRippleEndExpansion) {
         shiftItemsForwardInRow(item.row, initialEndTime, updates.endTime - initialEndTime, excludeType, itemId)
       }
       if (kind === 'image') updateImage(itemId, updates)
@@ -978,6 +981,7 @@ export function useTimelineDrag({
       updateEffect,
       getSnapTargets,
       computeVisualItemDrag,
+      getRowItems,
       shiftItemsForwardInRow,
       shouldRippleExpansionInRow,
     ]

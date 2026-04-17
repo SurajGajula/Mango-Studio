@@ -171,6 +171,40 @@ export default function MainView() {
     )
   }
 
+  const showChatPanel = rightPanel === 'chat'
+
+  const renderActivePanel = () => {
+    if (rightPanel === 'transitions') {
+      return (
+        <TransitionsPanel
+          key={`transition-${transitionItemId}`}
+          mode="transition"
+          itemId={transitionItemId || undefined}
+          onClose={() => setRightPanel('chat')}
+        />
+      )
+    }
+    if (rightPanel === 'animations') {
+      return (
+        <TransitionsPanel
+          key={`animation-${transitionItemId || selectedImageId || selectedVideoId}`}
+          mode="animation"
+          itemId={transitionItemId || undefined}
+          onClose={() => setRightPanel('chat')}
+        />
+      )
+    }
+    if (rightPanel === 'font') return <FontPanel onClose={() => setRightPanel('chat')} />
+    if (rightPanel === 'effects') return <EffectsPanel onClose={() => setRightPanel('chat')} />
+    if (rightPanel === 'speed') {
+      return <SpeedPanel key={`speed-${speedItemId}`} itemId={speedItemId || ''} onClose={() => setRightPanel('chat')} />
+    }
+    if (rightPanel === 'pitch') {
+      return <PitchPanel key={`pitch-${pitchItemId}`} itemId={pitchItemId || ''} onClose={() => setRightPanel('chat')} />
+    }
+    return null
+  }
+
   return (
     <div className={styles.container}>
       <div className={styles.topRow}>
@@ -181,30 +215,13 @@ export default function MainView() {
           <PreviewArea />
         </div>
         <div className={styles.rightSection}>
-          {rightPanel === 'transitions' ? (
-            <TransitionsPanel
-              key={`transition-${transitionItemId}`}
-              mode="transition"
-              itemId={transitionItemId || undefined}
-              onClose={() => setRightPanel('chat')}
-            />
-          ) : rightPanel === 'animations' ? (
-            <TransitionsPanel
-              key={`animation-${transitionItemId || selectedImageId || selectedVideoId}`}
-              mode="animation"
-              itemId={transitionItemId || undefined}
-              onClose={() => setRightPanel('chat')}
-            />
-          ) : rightPanel === 'font' ? (
-            <FontPanel onClose={() => setRightPanel('chat')} />
-          ) : rightPanel === 'effects' ? (
-            <EffectsPanel onClose={() => setRightPanel('chat')} />
-          ) : rightPanel === 'speed' ? (
-            <SpeedPanel key={`speed-${speedItemId}`} itemId={speedItemId || ''} onClose={() => setRightPanel('chat')} />
-          ) : rightPanel === 'pitch' ? (
-            <PitchPanel key={`pitch-${pitchItemId}`} itemId={pitchItemId || ''} onClose={() => setRightPanel('chat')} />
-          ) : user ? (
-            <ChatWindow />
+          {user ? (
+            <div className={styles.rightPanelStack}>
+              <div className={`${styles.persistentChatPanel} ${showChatPanel ? '' : styles.hiddenPanel}`}>
+                <ChatWindow />
+              </div>
+              {!showChatPanel && <div className={styles.overlayPanel}>{renderActivePanel()}</div>}
+            </div>
           ) : (
             <ChatDisabledPlaceholder onOpenAuth={() => setAuthModalOpen(true)} />
           )}
