@@ -3,7 +3,6 @@
 import { useEffect, useRef, useCallback, useState, useLayoutEffect } from 'react'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useManifestStore } from '@/app/stores/manifestStore'
-import { useAudioStore } from '@/app/stores/audioStore'
 import { ASPECT_RATIOS, computeMediaCropForAspect } from '@/app/lib/mediaUtils'
 import { useSliderHistorySession } from '@/app/hooks/useSliderHistorySession'
 import { FIXED_ASPECT_RATIO } from '@/app/lib/aspectRatio'
@@ -61,8 +60,6 @@ export default function ContextMenu({
   const volumeSliderHistory = useSliderHistorySession()
   const pitchSliderHistory = useSliderHistorySession()
 
-  const removeAudioFromStore = useAudioStore((s) => s.removeAudio)
-  const audioInStore = useAudioStore((s) => s.audio)
   const clearSelection = useSelectionStore((s) => s.clearSelection)
 
   const handleAction = useCallback((action: () => void) => {
@@ -417,9 +414,6 @@ export default function ContextMenu({
           else if (itemType === 'text') removeText(itemId)
           else if (itemType === 'audio') {
             removeAudio(itemId)
-            if (audioInStore?.id === itemId) {
-              removeAudioFromStore()
-            }
             clearSelection()
           }
           else if (itemType === 'effect') removeEffect(itemId)

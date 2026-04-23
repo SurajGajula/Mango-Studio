@@ -161,7 +161,7 @@ export default function PlaybackControls({
         <button
           className={styles.addTextButton}
           onClick={handleAddText}
-          disabled={videos.filter((v) => !v.isOverlay).length === 0 && images.filter((img) => img.isMainTrack).length === 0}
+          disabled={videos.filter((v) => v.row === 0).length === 0 && images.filter((img) => img.row === 0).length === 0}
           title="Add text"
         >
           T
@@ -177,7 +177,7 @@ export default function PlaybackControls({
         <button
           className={styles.exportButton}
           onClick={handleExport}
-          disabled={isExporting || (videos.filter((v) => !v.isOverlay).length === 0 && images.filter((img) => img.isMainTrack).length === 0)}
+          disabled={isExporting || (videos.filter((v) => v.row === 0).length === 0 && images.filter((img) => img.row === 0).length === 0)}
         >
           {isExporting ? 'Exporting...' : 'Export'}
         </button>

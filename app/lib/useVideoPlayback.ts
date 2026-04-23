@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback, type MutableRefObject } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
-import { getSortedMainItems, findActiveAndNextItems, checkTransition, calculateSourceTime } from '@/app/lib/renderUtils'
+import { calculateSourceTime } from '@/app/lib/renderUtils'
 import { syncSelectionToActivePlayingClip } from '@/app/lib/playbackSelectionSync'
 import { VideoRenderingEngine, RenderState, RenderResources } from '@/app/lib/videoRenderingEngine'
 import { setVideoCrossOriginForUrl } from '@/app/lib/mediaUtils'
@@ -411,11 +411,7 @@ export function useVideoPlayback(
         lastTimestamp = null
       }
 
-      const sorted = getSortedMainItems(state.videos, state.images)
-      const { activeItem: activeClip, nextItem: nextClip } = findActiveAndNextItems(sorted, newTime)
-      const { transitionActive, progress: transProgress } = checkTransition(activeClip, nextClip, newTime)
-
-      syncSelectionToActivePlayingClip(newTime, activeClip, state.videos, state.images, useSelectionStore.getState())
+      syncSelectionToActivePlayingClip(newTime, state.videos, state.images, useSelectionStore.getState())
 
       syncManifestVideoPool(newTime, state.videos, videoElementsRef, persistenceCanvasesRef)
 
@@ -545,11 +541,6 @@ export function useVideoPlayback(
             cr,
             renderState,
             resources,
-            sorted,
-            activeClip,
-            nextClip,
-            transitionActive,
-            transProgress,
             (_id: string, _time: number) => {},
              (id, playing, pRate) => {
                const el = videoElementsRef.current.get(id)

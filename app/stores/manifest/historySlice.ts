@@ -55,7 +55,7 @@ export const createHistorySlice = (set: any, get: any) => ({
   pauseHistory: () => { historyPaused = true },
   resumeHistory: () => { historyPaused = false },
 
-  pushHistory: () => {
+  pushHistory: (opts?: { force?: boolean }) => {
     if (historyPaused) return
     const state = get()
     const entry: HistoryEntry = {
@@ -66,7 +66,7 @@ export const createHistorySlice = (set: any, get: any) => ({
       effects: [...state.effects],
     }
     const current = state.history[state.historyIndex]
-    if (current && JSON.stringify(current) === JSON.stringify(entry)) return
+    if (!opts?.force && current && JSON.stringify(current) === JSON.stringify(entry)) return
     const truncated = state.history.slice(0, state.historyIndex + 1)
     const next = [...truncated, entry]
     

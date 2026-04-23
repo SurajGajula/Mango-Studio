@@ -42,7 +42,6 @@ export async function addImageAtTimelineTime(
   if (row > 0) {
     row = findFreeVisualOverlayRow(start, end)
   }
-  const isMainTrack = row === 0
   const cropLabel = options?.importCropAspect ?? aspectRatio
   const [rw, rh] = ASPECT_RATIOS[cropLabel] ?? ASPECT_RATIOS[aspectRatio]
   const crop = await computeMediaCropForAspect(url, 'image', aspectRatio, rw, rh, cropLabel)
@@ -59,7 +58,7 @@ export async function addImageAtTimelineTime(
       crop.height,
       1,
       new Date(),
-      isMainTrack,
+      undefined,
       'none',
       'none',
       crop.cropAspect,
@@ -75,7 +74,12 @@ export async function addImageAtTimelineTime(
       undefined,
       undefined,
       undefined,
-      row
+      undefined,
+      row,
+      undefined,
+      undefined,
+      undefined,
+      undefined
     )
   )
 }

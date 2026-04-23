@@ -4,7 +4,13 @@ import { useState } from 'react'
 import { useSliderHistorySession } from '@/app/hooks/useSliderHistorySession'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
-import { AnimationMode, SlideTransitionEasing, TransitionMode, ImageClass } from '@/app/models/ImageClass'
+import {
+  AnimationMode,
+  AnimationZoomEasing,
+  SlideTransitionEasing,
+  TransitionMode,
+  ImageClass,
+} from '@/app/models/ImageClass'
 import { VideoClass } from '@/app/models/VideoClass'
 import styles from './TransitionsPanel.module.css'
 
@@ -26,15 +32,42 @@ const ANIMATION_OPTIONS: { value: AnimationMode; label: string; desc: string; ic
     ),
   },
   {
-    value: 'pulse',
-    label: 'Pulse',
-    desc: 'Parabolic zoom: rises over 75% of the clip, falls over the rest',
+    value: 'zoom-in',
+    label: 'Zoom in',
+    desc: 'Single zoom in over the duration (pick speed curve below)',
     icon: (
-      <svg 
-        width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-        style={{ animation: 'pulse-preview 2s linear infinite' }}
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={styles.zoomPreviewIn}
       >
-        <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+        <rect x="5" y="5" width="14" height="14" rx="2" />
+      </svg>
+    ),
+  },
+  {
+    value: 'zoom-out',
+    label: 'Zoom out',
+    desc: 'Single zoom out over the duration (pick speed curve below)',
+    icon: (
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={styles.zoomPreviewOut}
+      >
+        <rect x="5" y="5" width="14" height="14" rx="2" />
       </svg>
     ),
   },
@@ -77,6 +110,11 @@ const REVEAL_CURVE_OPTIONS: { value: SlideTransitionEasing; label: string }[] = 
   { value: 'ease-in', label: 'Slow → fast' },
   { value: 'ease-out', label: 'Fast → slow' },
   { value: 'linear', label: 'Linear' },
+]
+
+const ZOOM_SPEED_OPTIONS: { value: AnimationZoomEasing; label: string }[] = [
+  { value: 'fast-slow', label: 'Fast → slow' },
+  { value: 'slow-fast', label: 'Slow → fast' },
 ]
 
 const TRANSITION_OPTIONS: { value: TransitionMode; label: string; desc: string; icon: React.ReactNode }[] = [
@@ -195,8 +233,8 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
   // For split and fade transitions, the animation/effect involves the PREVIOUS item visually.
   // We need to find the item immediately before the selected one to set the max duration.
   const allMainItems = [
-    ...videos.filter(v => !v.isOverlay).map(v => ({ id: v.id, startTime: v.timestamp, duration: v.duration || 0 })),
-    ...images.filter(img => img.isMainTrack).map(img => ({ id: img.id, startTime: img.startTime, duration: img.duration }))
+    ...videos.filter(v => v.row === 0).map(v => ({ id: v.id, startTime: v.timestamp, duration: v.duration || 0 })),
+    ...images.filter(img => img.row === 0).map(img => ({ id: img.id, startTime: img.startTime, duration: img.duration }))
   ].sort((a, b) => a.startTime - b.startTime)
 
   const selectedIdx = allMainItems.findIndex(it => it.id === selectedItem?.id)
@@ -224,6 +262,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
   
   const [localDuration, setLocalDuration] = useState<number | null>(initialDuration)
   const [localIntensity, setLocalIntensity] = useState<number | null>(selectedItem?.zoomIntensity ?? 0.5)
+  const [localZoomDistance, setLocalZoomDistance] = useState<number | null>(selectedItem?.zoomDistanceIntensity ?? 1)
 
   // Adjust state during render if props change externally (e.g. Undo/Redo)
   const [prevInitialDuration, setPrevInitialDuration] = useState<number | null>(initialDuration)
@@ -236,6 +275,12 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
   if ((selectedItem?.zoomIntensity ?? 0.5) !== prevInitialIntensity) {
     setPrevInitialIntensity(selectedItem?.zoomIntensity ?? 0.5)
     setLocalIntensity(selectedItem?.zoomIntensity ?? 0.5)
+  }
+
+  const [prevInitialZoomDistance, setPrevInitialZoomDistance] = useState<number | null>(selectedItem?.zoomDistanceIntensity ?? 1)
+  if ((selectedItem?.zoomDistanceIntensity ?? 1) !== prevInitialZoomDistance) {
+    setPrevInitialZoomDistance(selectedItem?.zoomDistanceIntensity ?? 1)
+    setLocalZoomDistance(selectedItem?.zoomDistanceIntensity ?? 1)
   }
 
   const setPlaybackTime = useManifestStore((s) => s.setPlaybackTime)
@@ -255,8 +300,13 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
       } else if (val !== 'none' && (selectedItem?.animationDuration === undefined || selectedItem?.animationDuration === 0)) {
         updates.animationDuration = 1.0
       }
-      if (val !== 'none') {
+      if (val === 'shake' || val === 'jitter') {
         updates.zoomIntensity = 0.5
+      }
+      if (val === 'zoom-in' || val === 'zoom-out') {
+        updates.zoomDistanceIntensity = 1
+        updates.animationZoomEasing =
+          (selectedItem as ImageClass | VideoClass).animationZoomEasing ?? 'fast-slow'
       }
 
       if (val !== 'none') {
@@ -280,11 +330,15 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
   const itemDuration = selectedItem?.duration || 1.0
   const displayDuration = localDuration !== null ? localDuration : itemDuration
   const displayIntensity = localIntensity !== null ? localIntensity : 0.5
+  const displayZoomDistance = localZoomDistance !== null ? localZoomDistance : 1
 
   const options = mode === 'animation' ? ANIMATION_OPTIONS : TRANSITION_OPTIONS
   const currentValue = mode === 'animation' ? currentAnimation : currentTransition
 
-  const showIntensitySlider = mode === 'animation' && ['shake', 'jitter'].includes(currentAnimation)
+  const showIntensitySlider =
+    mode === 'animation' &&
+    (currentAnimation === 'shake' ||
+      currentAnimation === 'jitter')
 
   const applyItemUpdate = (updates: any) => {
     if (!selectedItem) return
@@ -339,7 +393,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
               ))}
             </div>
             
-            {currentValue !== 'none' && currentAnimation !== 'pulse' && (
+            {currentValue !== 'none' && (
               <div className={styles.durationControl}>
                 <div className={styles.durationHeader}>
                   <label className={styles.durationLabel}>
@@ -359,6 +413,41 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
                     const val = parseFloat((e.target as HTMLInputElement).value)
                     const updates = mode === 'animation' ? { animationDuration: val } : { transitionDuration: val }
                     handleSliderUpdate(updates, setLocalDuration)
+                  }}
+                />
+              </div>
+            )}
+
+            {mode === 'animation' && (currentAnimation === 'zoom-in' || currentAnimation === 'zoom-out') && (
+              <div className={styles.durationControl}>
+                <label className={styles.sectionLabel}>Zoom speed</label>
+                <div className={`${styles.segmentedControl} ${styles.segmentedControlWrap}`}>
+                  {ZOOM_SPEED_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      className={`${styles.segmentButton} ${(selectedItem.animationZoomEasing ?? 'fast-slow') === opt.value ? styles.segmentActive : ''}`}
+                      onClick={() => commitDiscreteChange({ animationZoomEasing: opt.value })}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <div className={styles.durationHeader}>
+                  <label className={styles.durationLabel}>Zoom distance</label>
+                  <span className={styles.durationValue}>{displayZoomDistance.toFixed(2)}x</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.25"
+                  max="2.5"
+                  step="0.01"
+                  value={displayZoomDistance}
+                  className={styles.durationSlider}
+                  onPointerDown={intensitySliderHistory}
+                  onInput={(e) => {
+                    const val = parseFloat((e.target as HTMLInputElement).value)
+                    handleSliderUpdate({ zoomDistanceIntensity: val }, setLocalZoomDistance)
                   }}
                 />
               </div>

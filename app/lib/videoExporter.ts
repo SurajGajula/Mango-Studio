@@ -10,7 +10,15 @@ import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
 import { runWithPlacementRotation } from '@/app/lib/placementRotation'
 import { applyEffect } from '@/app/lib/applyEffect'
 import { setVideoCrossOriginForUrl } from '@/app/lib/mediaUtils'
-import { getSortedMainItems, findActiveAndNextItems, checkTransition, calculateAnimationProgress, clipTimelineSpanForSourceMap, videoTimelineSourceMapping } from '@/app/lib/renderUtils'
+import {
+  getSortedRowItems,
+  findActiveAndNextItems,
+  checkTransition,
+  calculateAnimationProgress,
+  clipTimelineSpanForSourceMap,
+  videoTimelineSourceMapping,
+  renderClipTransitionPair,
+} from '@/app/lib/renderUtils'
 import { resolveMediaKeyframeTransform } from '@/app/lib/resolveMediaKeyframeTransform'
 import { calculateTotalDuration } from '@/app/lib/timeUtils'
 import { audioBufferToWav } from '@/app/lib/audioUtils'
@@ -64,9 +72,6 @@ export async function exportVideo(
   signal?: AbortSignal,
   audios?: AudioClass[]
 ): Promise<Blob> {
-  const mainVideos = [...videos].filter((v) => !v.isOverlay).sort((a, b) => a.timestamp - b.timestamp)
-  const overlayVideos = videos.filter((v) => v.isOverlay)
-  
   const totalDuration = calculateTotalDuration(videos, images || [], texts, audios)
 
   if (totalDuration === 0) throw new Error('No content to export')
@@ -98,7 +103,7 @@ export async function exportVideo(
     const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height
     const ctx = canvas.getContext('2d', { alpha: false })!
 
-    const allVideos = [...mainVideos, ...overlayVideos]
+    const allVideos = [...videos]
     const videoElements: Map<string, HTMLVideoElement> = new Map()
 
     if (allVideos.length > 0) {
@@ -199,8 +204,6 @@ export async function exportVideo(
     const xScale = width / logicalW
     const yScale = height / logicalH
 
-    const allMainItems = getSortedMainItems(allVideos, images || [])
-
     const renderFullFrame = async (t: number) => {
       const ensureVideoReady = async (vEl: HTMLVideoElement, targetTime: number) => {
         const needsSeek = Math.abs(vEl.currentTime - targetTime) > 0.02
@@ -230,37 +233,8 @@ export async function exportVideo(
         }
       }
 
-      const { activeItem: activeMain, nextItem: nextMain } = findActiveAndNextItems(allMainItems, t)
-      const { transitionActive, progress } = checkTransition(activeMain, nextMain, t)
-
       const videosToReady: { el: HTMLVideoElement; time: number }[] = []
-      if (transitionActive) {
-        if (nextMain!.type === 'video') {
-          const nv = nextMain!.item as VideoClass
-          const nextEl = videoElements.get(nv.id); if (nextEl) videosToReady.push({ el: nextEl, time: nv.trimStart ?? 0 })
-        }
-        if (activeMain!.type === 'video') {
-          const av = activeMain!.item as VideoClass
-          const currentEl = videoElements.get(av.id); if (currentEl) {
-            const elapsed = Math.max(0, t - activeMain!.startTime)
-            const avDur = clipTimelineSpanForSourceMap(av.duration)
-            const tmA = videoTimelineSourceMapping(av, elapsed, avDur)
-            const localNow = (av.trimStart ?? 0) + tmA.sourceElapsed
-            videosToReady.push({ el: currentEl, time: localNow })
-          }
-        }
-      } else if (activeMain && activeMain.type === 'video') {
-        const v = activeMain.item as VideoClass
-        const vEl = videoElements.get(v.id); if (vEl) {
-          const elapsed = Math.max(0, t - activeMain.startTime)
-          const vDur = clipTimelineSpanForSourceMap(v.duration)
-          const tmV = videoTimelineSourceMapping(v, elapsed, vDur)
-          const localTime = (v.trimStart ?? 0) + tmV.sourceElapsed
-          videosToReady.push({ el: vEl, time: localTime })
-        }
-      }
-
-      const ovs = overlayVideos.filter(v => t >= v.timestamp && t < v.timestamp + (v.duration || 0))
+      const ovs = allVideos.filter(v => t >= v.timestamp && t < v.timestamp + (v.duration || 0))
       for (const v of ovs) {
         const vEl = videoElements.get(v.id); if (vEl) {
           const elapsed = Math.max(0, t - v.timestamp)
@@ -271,6 +245,35 @@ export async function exportVideo(
         }
       }
 
+      const overlayRowIdsForSeek = new Set<number>()
+      for (const v of allVideos) {
+        if (v.row >= 0) overlayRowIdsForSeek.add(v.row)
+      }
+      for (const img of images || []) {
+        if (img.row >= 0) overlayRowIdsForSeek.add(img.row)
+      }
+      for (const row of overlayRowIdsForSeek) {
+        const sortedR = getSortedRowItems(row, allVideos, images || [])
+        const pr = findActiveAndNextItems(sortedR, t)
+        const tr = checkTransition(pr.activeItem, pr.nextItem, t)
+        if (!tr.transitionActive || !pr.activeItem || !pr.nextItem) continue
+        if (pr.nextItem.type === 'video') {
+          const nv = pr.nextItem.item as VideoClass
+          const nextEl = videoElements.get(nv.id)
+          if (nextEl) videosToReady.push({ el: nextEl, time: nv.trimStart ?? 0 })
+        }
+        if (pr.activeItem.type === 'video') {
+          const av = pr.activeItem.item as VideoClass
+          const currentEl = videoElements.get(av.id)
+          if (currentEl) {
+            const elapsed = Math.max(0, t - pr.activeItem.startTime)
+            const avDur = clipTimelineSpanForSourceMap(av.duration)
+            const tmA = videoTimelineSourceMapping(av, elapsed, avDur)
+            videosToReady.push({ el: currentEl, time: (av.trimStart ?? 0) + tmA.sourceElapsed })
+          }
+        }
+      }
+
       if (videosToReady.length > 0) {
         await Promise.all(videosToReady.map(item => ensureVideoReady(item.el, item.time)))
       }
@@ -278,152 +281,7 @@ export async function exportVideo(
       ctx.fillStyle = '#000000'
       ctx.fillRect(0, 0, width, height)
 
-      let transitionActiveState = false
-      if (transitionActive && nextMain && activeMain) {
-        transitionActiveState = true
-        const elapsedB = Math.max(0, t - nextMain.startTime)
-        const elapsedA = Math.max(0, t - activeMain.startTime)
-        let nextEl: HTMLVideoElement | HTMLImageElement | null = null
-        let nextParams: any = undefined
-        if (nextMain.type === 'video') {
-          const nv = nextMain.item as VideoClass
-          nextEl = videoElements.get(nv.id) || null
-          if (nextEl && nextEl.readyState >= 2) {
-            const kn = resolveMediaKeyframeTransform(nv, elapsedB, nv.duration ?? 0)
-            nextParams = {
-              x: (nv.x ?? 0) * xScale,
-              y: (nv.y ?? 0) * yScale,
-              w: (nv.width ?? logicalW) * xScale,
-              h: (nv.height ?? logicalH) * yScale,
-              sx: nextEl.videoWidth * kn.cropSx,
-              sy: nextEl.videoHeight * kn.cropSy,
-              sw: nextEl.videoWidth * kn.cropSw,
-              sh: nextEl.videoHeight * kn.cropSh,
-            }
-          }
-        } else {
-          const ni = nextMain.item as ImageClass
-          nextEl = imageElements.get(ni.id) || null
-          if (nextEl) {
-            const kn = resolveMediaKeyframeTransform(ni, elapsedB, ni.duration)
-            nextParams = {
-              x: ni.x * xScale,
-              y: ni.y * yScale,
-              w: ni.width * xScale,
-              h: ni.height * yScale,
-              sx: nextEl.naturalWidth * kn.cropSx,
-              sy: nextEl.naturalHeight * kn.cropSy,
-              sw: nextEl.naturalWidth * kn.cropSw,
-              sh: nextEl.naturalHeight * kn.cropSh,
-            }
-          }
-        }
-
-        if (nextEl && nextParams) {
-          let curEl: HTMLVideoElement | HTMLImageElement | null = null
-          let curParams: any = undefined
-          if (activeMain.type === 'video') {
-            const av = activeMain.item as VideoClass
-            curEl = videoElements.get(av.id) || null
-            if (curEl && curEl.readyState >= 2) {
-              const ka = resolveMediaKeyframeTransform(av, elapsedA, av.duration ?? 0)
-              curParams = {
-                x: (av.x ?? 0) * xScale,
-                y: (av.y ?? 0) * yScale,
-                w: (av.width ?? logicalW) * xScale,
-                h: (av.height ?? logicalH) * yScale,
-                sx: curEl.videoWidth * ka.cropSx,
-                sy: curEl.videoHeight * ka.cropSy,
-                sw: curEl.videoWidth * ka.cropSw,
-                sh: curEl.videoHeight * ka.cropSh,
-              }
-            }
-          } else {
-            const ai = activeMain.item as ImageClass
-            curEl = imageElements.get(ai.id) || null
-            if (curEl) {
-              const ka = resolveMediaKeyframeTransform(ai, elapsedA, ai.duration)
-              curParams = {
-                x: ai.x * xScale,
-                y: ai.y * yScale,
-                w: ai.width * xScale,
-                h: ai.height * yScale,
-                sx: curEl.naturalWidth * ka.cropSx,
-                sy: curEl.naturalHeight * ka.cropSy,
-                sw: curEl.naturalWidth * ka.cropSw,
-                sh: curEl.naturalHeight * ka.cropSh,
-              }
-            }
-          }
-
-          if (curEl && curParams) {
-            const nextItem = nextMain.item
-            const activeItem = activeMain.item
-            const progA = calculateAnimationProgress(activeItem, t, activeMain.startTime)
-            const kn = nextMain.type === 'video'
-              ? resolveMediaKeyframeTransform(nextItem as VideoClass, elapsedB, (nextItem as VideoClass).duration ?? 0)
-              : resolveMediaKeyframeTransform(nextItem as ImageClass, elapsedB, (nextItem as ImageClass).duration)
-            const ka = activeMain.type === 'video'
-              ? resolveMediaKeyframeTransform(activeItem as VideoClass, elapsedA, (activeItem as VideoClass).duration ?? 0)
-              : resolveMediaKeyframeTransform(activeItem as ImageClass, elapsedA, (activeItem as ImageClass).duration)
-
-            applyZoomTransform(
-              ctx,
-              nextItem.animation,
-              nextItem.transition,
-              progress,
-              nextEl,
-              nextParams.x, nextParams.y, nextParams.w, nextParams.h,
-              kn.cropSx, kn.cropSy, kn.cropSw, kn.cropSh,
-              kn.zoomIntensity,
-              nextItem.duration,
-              nextItem.animationDuration,
-              elapsedB,
-              curEl,
-              activeItem.animation,
-              progA,
-              elapsedA,
-              ka.zoomIntensity,
-              activeItem.duration,
-              activeItem.animationDuration,
-              curParams,
-              nextItem.transitionColor,
-              nextItem.transitionFlashMode,
-              nextItem.transitionDirection,
-              nextItem.transitionAxis,
-              nextItem.transitionSlideEasing,
-              nextItem.transitionCircleEasing
-            )
-          }
-        }
-      }
-
-      if (!transitionActiveState && activeMain) {
-        if (activeMain.type === 'video') {
-          const v = activeMain.item as VideoClass
-          const vEl = videoElements.get(v.id)
-          if (vEl && vEl.readyState >= 2) {
-            const prog = calculateAnimationProgress(v, t, v.timestamp)
-            const elapsedM = Math.max(0, t - v.timestamp)
-            const kv = resolveMediaKeyframeTransform(v, elapsedM, v.duration ?? 0)
-            applyZoomTransform(ctx, v.animation, v.transition, prog, vEl, (v.x ?? 0) * xScale, (v.y ?? 0) * yScale, (v.width ?? logicalW) * xScale, (v.height ?? logicalH) * yScale, kv.cropSx, kv.cropSy, kv.cropSw, kv.cropSh, kv.zoomIntensity, v.duration, v.animationDuration, elapsedM)
-          }
-        } else {
-          const img = activeMain.item as ImageClass
-          const iEl = imageElements.get(img.id)
-          if (iEl) {
-            const prog = calculateAnimationProgress(img, t, img.startTime)
-            const kim = resolveMediaKeyframeTransform(img, t - img.startTime, img.duration)
-            const ix = img.x * xScale
-            const iy = img.y * yScale
-            const iw = img.width * xScale
-            const ih = img.height * yScale
-            runWithPlacementRotation(ctx, ix, iy, iw, ih, img.rotation, (ox, oy) => {
-              applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, ox, oy, iw, ih, kim.cropSx, kim.cropSy, kim.cropSw, kim.cropSh, kim.zoomIntensity, img.duration, img.animationDuration, t - img.startTime)
-            })
-          }
-        }
-      }
+      const exportCr = { x: 0, y: 0, width, height }
 
       type OverlayExportEntry =
         | { kind: 'image'; row: number; t0: number; img: ImageClass }
@@ -431,7 +289,7 @@ export async function exportVideo(
         | { kind: 'text'; row: number; t0: number; text: TextClass }
       const overlayEntries: OverlayExportEntry[] = []
       for (const img of images || []) {
-        if (img.isMainTrack || t < img.startTime || t >= img.endTime) continue
+        if (img.row < 0 || t < img.startTime || t >= img.endTime) continue
         overlayEntries.push({ kind: 'image', row: img.row, t0: img.startTime, img })
       }
       for (const v of ovs) {
@@ -445,8 +303,27 @@ export async function exportVideo(
       }
       overlayEntries.sort((a, b) => a.row - b.row || a.t0 - b.t0)
 
+      const skipOverlayExportIds = new Set<string>()
+      for (const row of overlayRowIdsForSeek) {
+        const sortedR = getSortedRowItems(row, allVideos, images || [])
+        const pr = findActiveAndNextItems(sortedR, t)
+        const tr = checkTransition(pr.activeItem, pr.nextItem, t)
+        if (!pr.activeItem || !pr.nextItem || !tr.transitionActive || tr.progress >= 1) continue
+        if (
+          renderClipTransitionPair(ctx, exportCr, t, pr.activeItem, pr.nextItem, tr.progress, (id) => {
+            const el = videoElements.get(id)
+            return el && el.readyState >= 2 ? el : undefined
+          }, (id) => imageElements.get(id) ?? undefined)
+        ) {
+          skipOverlayExportIds.add(pr.activeItem.id)
+          skipOverlayExportIds.add(pr.nextItem.id)
+        }
+      }
+
       for (let oi = 0; oi < overlayEntries.length; oi++) {
         const entry = overlayEntries[oi]
+        if (entry.kind === 'image' && skipOverlayExportIds.has(entry.img.id)) continue
+        if (entry.kind === 'video' && skipOverlayExportIds.has(entry.video.id)) continue
         if (entry.kind === 'image') {
           const img = entry.img
           const iEl = imageElements.get(img.id); if (!iEl) continue
@@ -458,7 +335,7 @@ export async function exportVideo(
           const iw = img.width * xScale
           const ih = img.height * yScale
           runWithPlacementRotation(ctx, ix, iy, iw, ih, img.rotation, (ox, oy) => {
-            applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, ox, oy, iw, ih, kox.cropSx, kox.cropSy, kox.cropSw, kox.cropSh, kox.zoomIntensity, img.duration, img.animationDuration, t - img.startTime)
+            applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, ox, oy, iw, ih, kox.cropSx, kox.cropSy, kox.cropSw, kox.cropSh, kox.zoomIntensity, img.duration, img.animationDuration, t - img.startTime, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, img.transitionColor, img.transitionFlashMode, img.transitionDirection, img.transitionAxis, img.transitionSlideEasing, img.transitionCircleEasing, img.animationZoomEasing, undefined, img.zoomDistanceIntensity, undefined)
           })
           ctx.restore()
         } else if (entry.kind === 'video') {
@@ -468,7 +345,7 @@ export async function exportVideo(
           const elV = Math.max(0, t - v.timestamp)
           const kvx = resolveMediaKeyframeTransform(v, elV, v.duration ?? 0)
           ctx.save(); ctx.globalAlpha = v.opacity
-          applyZoomTransform(ctx, v.animation, v.transition, prog, vEl, v.x * xScale, v.y * yScale, v.width * xScale, v.height * yScale, kvx.cropSx, kvx.cropSy, kvx.cropSw, kvx.cropSh, kvx.zoomIntensity, v.duration, v.animationDuration, elV)
+          applyZoomTransform(ctx, v.animation, v.transition, prog, vEl, v.x * xScale, v.y * yScale, v.width * xScale, v.height * yScale, kvx.cropSx, kvx.cropSy, kvx.cropSw, kvx.cropSh, kvx.zoomIntensity, v.duration, v.animationDuration, elV, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, v.transitionColor, v.transitionFlashMode, v.transitionDirection, v.transitionAxis, v.transitionSlideEasing, v.transitionCircleEasing, v.animationZoomEasing, undefined, v.zoomDistanceIntensity, undefined)
           ctx.restore()
         } else {
           const text = entry.text
@@ -553,7 +430,18 @@ export async function exportVideo(
           .filter((e) => t >= e.startTime && t < e.endTime)
           .sort((a, b) => a.row - b.row || a.startTime - b.startTime)
         for (let ei = 0; ei < activeEffects.length; ei++) {
-          applyEffect(ctx, activeEffects[ei].type, 0, 0, width, height, t, activeEffects[ei].intensity, activeEffects[ei].contrast)
+          applyEffect(
+            ctx,
+            activeEffects[ei].type,
+            0,
+            0,
+            width,
+            height,
+            t,
+            activeEffects[ei].intensity,
+            activeEffects[ei].contrast,
+            activeEffects[ei].flashSpeed
+          )
         }
       }
     }

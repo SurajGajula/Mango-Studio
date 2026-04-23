@@ -1,6 +1,67 @@
 import type { MediaKeyframe } from './mediaKeyframe'
 
-export type AnimationMode = 'none' | 'pulse' | 'shake' | 'jitter' | 'last-frame-hold'
+export type AnimationMode = 'none' | 'zoom-in' | 'zoom-out' | 'shake' | 'jitter' | 'last-frame-hold'
+
+export type AnimationZoomEasing = 'fast-slow' | 'slow-fast'
+
+const LEGACY_ANIMATION: Record<string, AnimationMode> = {
+  pulse: 'zoom-in',
+  'zoom-fast-slow': 'zoom-in',
+  'zoom-slow-fast': 'zoom-in',
+  'zoom-in-fast-slow': 'zoom-in',
+  'zoom-in-slow-fast': 'zoom-in',
+  'zoom-out-fast-slow': 'zoom-out',
+  'zoom-out-slow-fast': 'zoom-out',
+}
+
+export function migrateAnimationValue(raw: string | AnimationMode | undefined | null): AnimationMode {
+  if (raw === undefined || raw === null || raw === '') return 'none'
+  const s = raw as string
+  if (LEGACY_ANIMATION[s]) return LEGACY_ANIMATION[s]
+  const allowed: AnimationMode[] = ['none', 'zoom-in', 'zoom-out', 'shake', 'jitter', 'last-frame-hold']
+  if (allowed.includes(s as AnimationMode)) return s as AnimationMode
+  return 'none'
+}
+
+export function coerceAnimationZoomEasing(v: unknown): AnimationZoomEasing | undefined {
+  if (v === 'slow-fast' || v === 'fast-slow') return v
+  return undefined
+}
+
+export function inferAnimationZoomEasing(
+  animationRaw: string,
+  zoomRaw: string,
+  explicit?: AnimationZoomEasing | null | unknown
+): AnimationZoomEasing {
+  const coerced = coerceAnimationZoomEasing(explicit)
+  if (coerced) return coerced
+  const combined = `${animationRaw} ${zoomRaw}`
+  if (
+    combined.includes('slow-fast') ||
+    combined.includes('zoom-slow-fast') ||
+    combined.includes('zoom-in-slow-fast') ||
+    combined.includes('zoom-out-slow-fast')
+  ) {
+    return 'slow-fast'
+  }
+  return 'fast-slow'
+}
+
+export const ANIMATION_FROM_ZOOM_FIELD = new Set<string>([
+  'none',
+  'pulse',
+  'zoom-fast-slow',
+  'zoom-slow-fast',
+  'zoom-in',
+  'zoom-out',
+  'zoom-in-fast-slow',
+  'zoom-in-slow-fast',
+  'zoom-out-fast-slow',
+  'zoom-out-slow-fast',
+  'shake',
+  'jitter',
+])
+
 export type TransitionMode = 'none' | 'split' | 'fade' | 'morph' | 'slide-in' | 'circle' | 'rotate' | 'flash'
 export type SlideTransitionEasing = 'smooth' | 'ease-in' | 'ease-out' | 'linear'
 export type FlashTransitionMode = 'solid' | 'negative'
@@ -17,12 +78,13 @@ export class ImageClass {
   height: number
   opacity: number
   createdAt: Date
-  isMainTrack: boolean
   animation: AnimationMode
   transition: TransitionMode
   zoomIntensity: number
+  zoomDistanceIntensity: number
   transitionDuration?: number
   animationDuration?: number
+  animationZoomEasing: AnimationZoomEasing
   transitionColor?: string
   transitionFlashMode?: FlashTransitionMode
   transitionDirection?: 'left' | 'right' | 'top' | 'bottom'
@@ -50,7 +112,7 @@ export class ImageClass {
     height?: number,
     opacity?: number,
     createdAt?: Date,
-    isMainTrack?: boolean,
+    _legacyMainTrackFlag?: boolean,
     animation?: AnimationMode,
     transition?: any,
     cropAspect?: string,
@@ -61,6 +123,7 @@ export class ImageClass {
     zoomIntensity?: number,
     transitionDuration?: number,
     animationDuration?: number,
+    animationZoomEasing?: AnimationZoomEasing,
     transitionColor?: string,
     transitionDirection?: 'left' | 'right' | 'top' | 'bottom',
     transitionAxis?: 'horizontal' | 'vertical',
@@ -70,7 +133,8 @@ export class ImageClass {
     rotation?: number,
     keyframes?: MediaKeyframe[],
     zoom?: any,
-    transitionFlashMode?: FlashTransitionMode
+    transitionFlashMode?: FlashTransitionMode,
+    zoomDistanceIntensity?: number
   ) {
     this.id = id
     this.name = name
@@ -85,18 +149,21 @@ export class ImageClass {
     this.createdAt = createdAt || new Date()
     this.row = row ?? 0
     this.rotation = rotation ?? 0
-    this.isMainTrack = isMainTrack ?? (this.row === 0)
-    
-    // Migration logic
+
+    const zoomStr = typeof zoom === 'string' ? zoom : ''
+    const animStr = animation ? String(animation) : ''
+
     if (animation) {
-      this.animation = animation
-    } else if (zoom && ['none', 'pulse', 'shake', 'jitter'].includes(zoom)) {
-      this.animation = zoom as AnimationMode
+      this.animation = migrateAnimationValue(animStr)
+    } else if (zoomStr && ANIMATION_FROM_ZOOM_FIELD.has(zoomStr)) {
+      this.animation = migrateAnimationValue(zoomStr)
     } else if (zoom === 'in' || zoom === 'out') {
-      this.animation = 'pulse'
+      this.animation = zoom === 'out' ? 'zoom-out' : 'zoom-in'
     } else {
       this.animation = 'none'
     }
+
+    this.animationZoomEasing = inferAnimationZoomEasing(animStr, zoomStr, animationZoomEasing)
 
     if (transition) {
       if (transition.startsWith('slide-in-')) {
@@ -138,6 +205,7 @@ export class ImageClass {
     this.transitionSlideEasing = transitionSlideEasing ?? this.transitionSlideEasing ?? 'smooth'
     this.transitionCircleEasing = transitionCircleEasing ?? this.transitionCircleEasing ?? 'smooth'
     this.zoomIntensity = zoomIntensity !== undefined ? zoomIntensity : 0.5
+    this.zoomDistanceIntensity = zoomDistanceIntensity !== undefined ? zoomDistanceIntensity : 1
     this.transitionDuration = transitionDuration
     this.animationDuration = animationDuration
     this.cropAspect = cropAspect
@@ -155,13 +223,13 @@ export class ImageClass {
       updates.url ?? this.url,
       updates.startTime ?? this.startTime,
       updates.endTime ?? this.endTime,
-      updates.x ?? this.x,
-      updates.y ?? this.y,
-      updates.width ?? this.width,
-      updates.height ?? this.height,
+      typeof updates.x === 'number' && Number.isFinite(updates.x) ? updates.x : this.x,
+      typeof updates.y === 'number' && Number.isFinite(updates.y) ? updates.y : this.y,
+      typeof updates.width === 'number' && Number.isFinite(updates.width) ? updates.width : this.width,
+      typeof updates.height === 'number' && Number.isFinite(updates.height) ? updates.height : this.height,
       updates.opacity ?? this.opacity,
       updates.createdAt ?? this.createdAt,
-      updates.isMainTrack ?? this.isMainTrack,
+      undefined,
       updates.animation ?? this.animation,
       updates.transition ?? this.transition,
       updates.cropAspect ?? this.cropAspect,
@@ -172,6 +240,7 @@ export class ImageClass {
       updates.zoomIntensity ?? this.zoomIntensity,
       updates.transitionDuration ?? this.transitionDuration,
       updates.animationDuration ?? this.animationDuration,
+      updates.animationZoomEasing ?? this.animationZoomEasing,
       updates.transitionColor ?? this.transitionColor,
       updates.transitionDirection ?? this.transitionDirection,
       updates.transitionAxis ?? this.transitionAxis,
@@ -181,7 +250,8 @@ export class ImageClass {
       updates.rotation ?? this.rotation,
       updates.keyframes ?? this.keyframes,
       undefined,
-      updates.transitionFlashMode ?? this.transitionFlashMode
+      updates.transitionFlashMode ?? this.transitionFlashMode,
+      updates.zoomDistanceIntensity ?? this.zoomDistanceIntensity
     )
   }
 

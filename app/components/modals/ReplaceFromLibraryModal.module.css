@@ -107,6 +107,12 @@
   min-height: 160px;
   max-height: 280px;
   overflow: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.list::-webkit-scrollbar {
+  display: none;
 }
 
 .row {

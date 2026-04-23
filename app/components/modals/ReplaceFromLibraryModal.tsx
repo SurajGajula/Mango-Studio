@@ -123,7 +123,12 @@ export default function ReplaceFromLibraryModal({ open, onClose, onPick }: Repla
                   </button>
                 ))}
               </div>
-              <div className={styles.list}>
+              <div
+                className={styles.list}
+                onWheelCapture={(event) => {
+                  event.stopPropagation()
+                }}
+              >
                 {loading ? <p className={styles.statusText}>Loading…</p> : null}
                 {error ? <p className={styles.errorText}>{error}</p> : null}
                 {!loading && !error && folders.length === 0 && assets.length === 0 ? (

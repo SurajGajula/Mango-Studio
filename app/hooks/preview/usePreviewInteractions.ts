@@ -110,6 +110,32 @@ export function usePreviewInteractions(
 
   const naturalSizeCacheRef = useRef<Map<string, { nw: number; nh: number }>>(new Map())
   const wheelResizeGenRef = useRef(0)
+  const wheelItemHistoryActiveRef = useRef(false)
+  const wheelItemFlushRafRef = useRef<number | null>(null)
+  const wheelItemCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingWheelItemResizeRef = useRef<
+    | null
+    | {
+        kind: 'image'
+        id: string
+        url: string
+        newW: number
+        newH: number
+        nextX: number
+        nextY: number
+        gen: number
+      }
+    | {
+        kind: 'video'
+        id: string
+        url: string
+        newW: number
+        newH: number
+        nextX: number
+        nextY: number
+        gen: number
+      }
+  >(null)
 
   useEffect(() => {
     if (cropEditId || !selectedImageId) return
@@ -779,19 +805,127 @@ export function usePreviewInteractions(
 
   useEffect(() => {
     if ((!selectedImageId && !selectedVideoId) || cropEditId) return
+
+    const wheelItemHistoryIdleMs = 240
+
+    const scheduleWheelItemHistoryCommit = () => {
+      if (wheelItemCommitTimerRef.current !== null) {
+        clearTimeout(wheelItemCommitTimerRef.current)
+      }
+      wheelItemCommitTimerRef.current = setTimeout(() => {
+        wheelItemCommitTimerRef.current = null
+        if (wheelItemHistoryActiveRef.current) {
+          useManifestStore.getState().resumeHistory()
+          useManifestStore.getState().pushHistory()
+          wheelItemHistoryActiveRef.current = false
+        }
+      }, wheelItemHistoryIdleMs)
+    }
+
+    const ensureWheelItemHistoryPaused = () => {
+      if (!wheelItemHistoryActiveRef.current) {
+        useManifestStore.getState().pauseHistory()
+        wheelItemHistoryActiveRef.current = true
+      }
+    }
+
+    const flushWheelItemResize = () => {
+      wheelItemFlushRafRef.current = null
+      const p = pendingWheelItemResizeRef.current
+      if (!p || p.gen !== wheelResizeGenRef.current) return
+      if (p.kind === 'image') {
+        const { id, url, newW, newH, nextX, nextY, gen } = p
+        const cur = useManifestStore.getState().images.find((i) => i.id === id)
+        if (!cur || cur.url !== url) return
+        const applyDims = (nw: number, nh: number) => {
+          if (gen !== wheelResizeGenRef.current) return
+          const latest = useManifestStore.getState().images.find((i) => i.id === id)
+          if (!latest || latest.url !== url) return
+          const n = normalizeCropToFrameAspect(
+            newW,
+            newH,
+            nw,
+            nh,
+            latest.cropSx,
+            latest.cropSy,
+            latest.cropSw,
+            latest.cropSh,
+            0.05
+          )
+          const base = { width: newW, height: newH, x: nextX, y: nextY }
+          updateImage(id, n ? { ...base, ...n } : base)
+        }
+        const cached = naturalSizeCacheRef.current.get(url)
+        if (cached) {
+          applyDims(cached.nw, cached.nh)
+        } else {
+          void loadNaturalMediaSize(url, 'image')
+            .then(({ nw, nh }) => {
+              naturalSizeCacheRef.current.set(url, { nw, nh })
+              applyDims(nw, nh)
+            })
+            .catch(() => {})
+        }
+      } else {
+        const { id, url, newW, newH, nextX, nextY, gen } = p
+        const cur = useManifestStore.getState().videos.find((v) => v.id === id)
+        if (!cur || cur.url !== url) return
+        const applyDims = (nw: number, nh: number) => {
+          if (gen !== wheelResizeGenRef.current) return
+          const latest = useManifestStore.getState().videos.find((v) => v.id === id)
+          if (!latest || latest.url !== url) return
+          const n = normalizeCropToFrameAspect(
+            newW,
+            newH,
+            nw,
+            nh,
+            latest.cropSx ?? 0,
+            latest.cropSy ?? 0,
+            latest.cropSw ?? 1,
+            latest.cropSh ?? 1,
+            0.05
+          )
+          const base = { width: newW, height: newH, x: nextX, y: nextY }
+          updateVideo(id, n ? { ...base, ...n } : base)
+        }
+        const cached = naturalSizeCacheRef.current.get(url)
+        if (cached) {
+          applyDims(cached.nw, cached.nh)
+        } else {
+          void loadNaturalMediaSize(url, 'video')
+            .then(({ nw, nh }) => {
+              naturalSizeCacheRef.current.set(url, { nw, nh })
+              applyDims(nw, nh)
+            })
+            .catch(() => {})
+        }
+      }
+    }
+
+    const scheduleWheelItemFlush = () => {
+      if (wheelItemFlushRafRef.current !== null) return
+      wheelItemFlushRafRef.current = requestAnimationFrame(() => {
+        flushWheelItemResize()
+      })
+    }
+
     const handleWheel = (e: WheelEvent) => {
       const canvas = canvasRef.current
       if (!canvas) return
       const rect = canvas.getBoundingClientRect()
       if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return
-      
+
       e.preventDefault()
       const factor = Math.exp(-e.deltaY * 0.002)
       wheelResizeGenRef.current += 1
       const resizeGen = wheelResizeGenRef.current
+      const store = useManifestStore.getState()
+
+      ensureWheelItemHistoryPaused()
+      scheduleWheelItemHistoryCommit()
 
       if (selectedImageId) {
-        const img = images.find((i) => i.id === selectedImageId)
+        const img = store.images.find((i) => i.id === selectedImageId)
         if (!img?.url) return
         const { logicalW, logicalH } = getLogicalCanvasDimensions(aspectRatio)
         let newWidth = Math.max(50, img.width * factor)
@@ -806,43 +940,19 @@ export function usePreviewInteractions(
           logicalW,
           logicalH
         )
-        const newW = c.width
-        const newH = c.height
-        const nextX = c.x
-        const nextY = c.y
-        const imageId = selectedImageId
-        const url = img.url
-        const applyImageResize = (nw: number, nh: number) => {
-          if (resizeGen !== wheelResizeGenRef.current) return
-          const cur = useManifestStore.getState().images.find((i) => i.id === imageId)
-          if (!cur || cur.url !== url) return
-          const n = normalizeCropToFrameAspect(
-            newW,
-            newH,
-            nw,
-            nh,
-            cur.cropSx,
-            cur.cropSy,
-            cur.cropSw,
-            cur.cropSh,
-            0.05
-          )
-          const base = { width: newW, height: newH, x: nextX, y: nextY }
-          updateImage(imageId, n ? { ...base, ...n } : base)
+        pendingWheelItemResizeRef.current = {
+          kind: 'image',
+          id: selectedImageId,
+          url: img.url,
+          newW: c.width,
+          newH: c.height,
+          nextX: c.x,
+          nextY: c.y,
+          gen: resizeGen,
         }
-        const cachedImg = naturalSizeCacheRef.current.get(url)
-        if (cachedImg) {
-          applyImageResize(cachedImg.nw, cachedImg.nh)
-        } else {
-          void loadNaturalMediaSize(url, 'image')
-            .then(({ nw, nh }) => {
-              naturalSizeCacheRef.current.set(url, { nw, nh })
-              applyImageResize(nw, nh)
-            })
-            .catch(() => {})
-        }
+        scheduleWheelItemFlush()
       } else if (selectedVideoId) {
-        const vid = videos.find((v) => v.id === selectedVideoId)
+        const vid = store.videos.find((v) => v.id === selectedVideoId)
         if (!vid?.url) return
         const { logicalW, logicalH } = getLogicalCanvasDimensions(aspectRatio)
         let newWidth = Math.max(50, vid.width * factor)
@@ -857,46 +967,37 @@ export function usePreviewInteractions(
           logicalW,
           logicalH
         )
-        const newW = c.width
-        const newH = c.height
-        const nextX = c.x
-        const nextY = c.y
-        const videoId = selectedVideoId
-        const url = vid.url
-        const applyVideoResize = (nw: number, nh: number) => {
-          if (resizeGen !== wheelResizeGenRef.current) return
-          const cur = useManifestStore.getState().videos.find((v) => v.id === videoId)
-          if (!cur || cur.url !== url) return
-          const n = normalizeCropToFrameAspect(
-            newW,
-            newH,
-            nw,
-            nh,
-            cur.cropSx ?? 0,
-            cur.cropSy ?? 0,
-            cur.cropSw ?? 1,
-            cur.cropSh ?? 1,
-            0.05
-          )
-          const base = { width: newW, height: newH, x: nextX, y: nextY }
-          updateVideo(videoId, n ? { ...base, ...n } : base)
+        pendingWheelItemResizeRef.current = {
+          kind: 'video',
+          id: selectedVideoId,
+          url: vid.url,
+          newW: c.width,
+          newH: c.height,
+          nextX: c.x,
+          nextY: c.y,
+          gen: resizeGen,
         }
-        const cachedVid = naturalSizeCacheRef.current.get(url)
-        if (cachedVid) {
-          applyVideoResize(cachedVid.nw, cachedVid.nh)
-        } else {
-          void loadNaturalMediaSize(url, 'video')
-            .then(({ nw, nh }) => {
-              naturalSizeCacheRef.current.set(url, { nw, nh })
-              applyVideoResize(nw, nh)
-            })
-            .catch(() => {})
-        }
+        scheduleWheelItemFlush()
       }
     }
     document.addEventListener('wheel', handleWheel, { passive: false })
-    return () => document.removeEventListener('wheel', handleWheel)
-  }, [selectedImageId, selectedVideoId, images, videos, updateImage, updateVideo, cropEditId, canvasRef, aspectRatio])
+    return () => {
+      document.removeEventListener('wheel', handleWheel)
+      if (wheelItemFlushRafRef.current !== null) {
+        cancelAnimationFrame(wheelItemFlushRafRef.current)
+        wheelItemFlushRafRef.current = null
+      }
+      if (wheelItemCommitTimerRef.current !== null) {
+        clearTimeout(wheelItemCommitTimerRef.current)
+        wheelItemCommitTimerRef.current = null
+      }
+      if (wheelItemHistoryActiveRef.current) {
+        useManifestStore.getState().resumeHistory()
+        useManifestStore.getState().pushHistory()
+        wheelItemHistoryActiveRef.current = false
+      }
+    }
+  }, [selectedImageId, selectedVideoId, updateImage, updateVideo, cropEditId, canvasRef, aspectRatio])
 
   return {
     snapLines,

@@ -43,7 +43,7 @@ export interface ManifestStore {
   isLooping: boolean
   history: HistoryEntry[]
   historyIndex: number
-  pushHistory: () => void
+  pushHistory: (opts?: { force?: boolean }) => void
   pauseHistory: () => void
   resumeHistory: () => void
   undo: () => void

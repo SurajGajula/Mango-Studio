@@ -7,7 +7,7 @@ export function findFreeVisualOverlayRowFromState(
 ): number {
   let row = 1
   while (true) {
-    if (s.audios.some((a) => a.row === row && a.isOverlay)) {
+    if (s.audios.some((a) => a.row === row)) {
       row++
       continue
     }

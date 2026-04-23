@@ -1,4 +1,13 @@
-import type { AnimationMode, FlashTransitionMode, SlideTransitionEasing, TransitionMode } from './ImageClass'
+import {
+  ANIMATION_FROM_ZOOM_FIELD,
+  inferAnimationZoomEasing,
+  migrateAnimationValue,
+  type AnimationMode,
+  type AnimationZoomEasing,
+  type FlashTransitionMode,
+  type SlideTransitionEasing,
+  type TransitionMode,
+} from './ImageClass'
 import type { MediaKeyframe } from './mediaKeyframe'
 
 export class VideoClass {
@@ -13,7 +22,6 @@ export class VideoClass {
   prompt?: string
   createdAt: Date
   updatedAt: Date
-  isOverlay: boolean
   x: number
   y: number
   width: number
@@ -22,8 +30,10 @@ export class VideoClass {
   animation: AnimationMode
   transition: TransitionMode
   zoomIntensity: number
+  zoomDistanceIntensity: number
   transitionDuration?: number
   animationDuration?: number
+  animationZoomEasing: AnimationZoomEasing
   transitionColor?: string
   transitionFlashMode?: FlashTransitionMode
   transitionDirection?: 'left' | 'right' | 'top' | 'bottom'
@@ -58,7 +68,7 @@ export class VideoClass {
     trimStart?: number,
     trimEnd?: number,
     prompt?: string,
-    isOverlay?: boolean,
+    _legacyOverlayFlag?: boolean,
     x?: number,
     y?: number,
     width?: number,
@@ -69,6 +79,7 @@ export class VideoClass {
     zoomIntensity?: number,
     transitionDuration?: number,
     animationDuration?: number,
+    animationZoomEasing?: AnimationZoomEasing,
     transitionColor?: string,
     transitionDirection?: 'left' | 'right' | 'top' | 'bottom',
     transitionAxis?: 'horizontal' | 'vertical',
@@ -90,7 +101,8 @@ export class VideoClass {
     speedEasing?: 'linear' | 'ease',
     keyframes?: MediaKeyframe[],
     zoom?: any,
-    transitionFlashMode?: FlashTransitionMode
+    transitionFlashMode?: FlashTransitionMode,
+    zoomDistanceIntensity?: number
   ) {
     this.id = id
     this.title = title
@@ -104,23 +116,26 @@ export class VideoClass {
     this.createdAt = createdAt || new Date()
     this.updatedAt = updatedAt || new Date()
     this.row = row ?? 0
-    this.isOverlay = isOverlay ?? (this.row > 0)
     this.x = x ?? 0
     this.y = y ?? 0
     this.width = width ?? 270
     this.height = height ?? 480
     this.opacity = opacity ?? 1
-    
-    // Migration logic
+
+    const zoomStr = typeof zoom === 'string' ? zoom : ''
+    const animStr = animation ? String(animation) : ''
+
     if (animation) {
-      this.animation = animation
-    } else if (zoom && ['none', 'pulse', 'shake', 'jitter'].includes(zoom)) {
-      this.animation = zoom as AnimationMode
+      this.animation = migrateAnimationValue(animStr)
+    } else if (zoomStr && ANIMATION_FROM_ZOOM_FIELD.has(zoomStr)) {
+      this.animation = migrateAnimationValue(zoomStr)
     } else if (zoom === 'in' || zoom === 'out') {
-      this.animation = 'pulse'
+      this.animation = zoom === 'out' ? 'zoom-out' : 'zoom-in'
     } else {
       this.animation = 'none'
     }
+
+    this.animationZoomEasing = inferAnimationZoomEasing(animStr, zoomStr, animationZoomEasing)
 
     if (transition) {
       if (transition.startsWith('slide-in-')) {
@@ -162,6 +177,7 @@ export class VideoClass {
     this.transitionSlideEasing = transitionSlideEasing ?? this.transitionSlideEasing ?? 'smooth'
     this.transitionCircleEasing = transitionCircleEasing ?? this.transitionCircleEasing ?? 'smooth'
     this.zoomIntensity = zoomIntensity !== undefined ? zoomIntensity : 0.5
+    this.zoomDistanceIntensity = zoomDistanceIntensity !== undefined ? zoomDistanceIntensity : 1
     this.transitionDuration = transitionDuration
     this.animationDuration = animationDuration
     this.muted = muted ?? false
@@ -193,17 +209,18 @@ export class VideoClass {
       updates.trimStart ?? this.trimStart,
       updates.trimEnd ?? this.trimEnd,
       updates.prompt ?? this.prompt,
-      updates.isOverlay ?? this.isOverlay,
-      updates.x ?? this.x,
-      updates.y ?? this.y,
-      updates.width ?? this.width,
-      updates.height ?? this.height,
+      undefined,
+      typeof updates.x === 'number' && Number.isFinite(updates.x) ? updates.x : this.x,
+      typeof updates.y === 'number' && Number.isFinite(updates.y) ? updates.y : this.y,
+      typeof updates.width === 'number' && Number.isFinite(updates.width) ? updates.width : this.width,
+      typeof updates.height === 'number' && Number.isFinite(updates.height) ? updates.height : this.height,
       updates.opacity ?? this.opacity,
       updates.animation ?? this.animation,
       updates.transition ?? this.transition,
       updates.zoomIntensity ?? this.zoomIntensity,
       updates.transitionDuration ?? this.transitionDuration,
       updates.animationDuration ?? this.animationDuration,
+      updates.animationZoomEasing ?? this.animationZoomEasing,
       updates.transitionColor ?? this.transitionColor,
       updates.transitionDirection ?? this.transitionDirection,
       updates.transitionAxis ?? this.transitionAxis,
@@ -225,7 +242,8 @@ export class VideoClass {
       updates.speedEasing ?? this.speedEasing,
       updates.keyframes ?? this.keyframes,
       undefined,
-      updates.transitionFlashMode ?? this.transitionFlashMode
+      updates.transitionFlashMode ?? this.transitionFlashMode,
+      updates.zoomDistanceIntensity ?? this.zoomDistanceIntensity
     )
   }
 }

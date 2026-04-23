@@ -7,23 +7,10 @@ import { ManifestStore, BlobEntry } from './types'
 
 export const createVideoSlice = (set: any, get: any) => ({
   addVideo: (video: VideoClass) => {
-    const isMainTrack = video.row === 0
-    const delta = video.duration ?? 0
-
     useSelectionStore.getState().setSelectedVideoId(video.id)
     set((state: ManifestStore) => ({
-      videos: [...state.videos.map(v => {
-        if (isMainTrack && v.row === 0 && v.timestamp >= video.timestamp) {
-          return v.copy({ timestamp: v.timestamp + delta })
-        }
-        return v
-      }), video],
-      images: state.images.map(img => {
-        if (isMainTrack && img.row === 0 && img.startTime >= video.timestamp) {
-          return img.copy({ startTime: img.startTime + delta, endTime: img.endTime + delta })
-        }
-        return img
-      }),
+      videos: [...state.videos, video],
+      images: state.images,
       playbackTime: video.timestamp ?? 0,
       isPlaying: false,
     }))
@@ -38,24 +25,9 @@ export const createVideoSlice = (set: any, get: any) => ({
     const { selectedVideoId, setSelectedVideoId } = useSelectionStore.getState()
     if (selectedVideoId === id) setSelectedVideoId(null)
 
-    const isMainTrack = video.row === 0
-    const delta = -(video.duration ?? 0)
-
     set((s: ManifestStore) => ({
-      videos: s.videos
-        .filter((v) => v.id !== id)
-        .map((v) => {
-          if (isMainTrack && v.row === 0 && v.timestamp > video.timestamp) {
-            return v.copy({ timestamp: v.timestamp + delta })
-          }
-          return v
-        }),
-      images: s.images.map((img) => {
-        if (isMainTrack && img.row === 0 && img.startTime > video.timestamp) {
-          return img.copy({ startTime: img.startTime + delta, endTime: img.endTime + delta })
-        }
-        return img
-      })
+      videos: s.videos.filter((v) => v.id !== id),
+      images: s.images,
     }))
     get().recalculateTimestamps()
     get().pushHistory()
@@ -221,27 +193,34 @@ export const createVideoSlice = (set: any, get: any) => ({
     const video = state.videos.find((v: VideoClass) => v.id === videoId)
     if (!video) return
 
-    const isMainTrack = video.row === 0
-    const delta = image.duration - (video.duration ?? 0)
+    const oldDuration = video.duration ?? 0
+    const replacement = image.copy({
+      startTime: video.timestamp,
+      endTime: video.timestamp + image.duration,
+      row: video.row,
+    })
+    const delta = replacement.duration - oldDuration
 
-    set((s: ManifestStore) => ({
-      videos: s.videos
-        .filter((v) => v.id !== videoId)
-        .map((v) => {
-          if (isMainTrack && v.row === 0 && v.timestamp > video.timestamp) {
-            return v.copy({ timestamp: v.timestamp + delta })
-          }
-          return v
+    set((s: ManifestStore) => {
+      const nextVideos = s.videos.filter((v) => v.id !== videoId)
+      const fromTime = video.timestamp + oldDuration
+      const nextImages = [...s.images, replacement]
+      return {
+        videos: nextVideos.map((v) => {
+          if (v.row !== replacement.row) return v
+          if (v.timestamp < fromTime) return v
+          return v.copy({ timestamp: v.timestamp + delta })
         }),
-      images: [...s.images.map((img) => {
-        if (isMainTrack && img.row === 0 && img.startTime > video.timestamp) {
+        images: nextImages.map((img) => {
+          if (img.id === replacement.id) return img
+          if (img.row !== replacement.row) return img
+          if (img.startTime < fromTime) return img
           return img.copy({ startTime: img.startTime + delta, endTime: img.endTime + delta })
-        }
-        return img
-      }), image],
-    }))
+        }),
+      }
+    })
 
-    useSelectionStore.getState().setSelectedImageId(image.id)
+    useSelectionStore.getState().setSelectedImageId(replacement.id)
     get().pushHistory()
   },
 })

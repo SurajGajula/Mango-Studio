@@ -36,5 +36,5 @@ When AI chat is disabled, use **Sign up / Log in** in the right chat panel to op
 - `app/hooks/` — Custom hooks (`timeline/`, `preview/`)
 - `app/lib/` — Utilities, rendering engine, transforms, media/audio/text utils
 - `app/models/` — Data classes (`VideoClass`, `ImageClass`, `AudioClass`, `TextClass`, `EffectClass`)
-- `app/stores/` — Zustand stores (`manifestStore` with slices in `manifest/`, `selectionStore`, `audioStore`)
+- `app/stores/` — Zustand stores (`manifestStore` with slices in `manifest/`, `selectionStore`)
 - `app/utils/supabase/` — Supabase client helpers (client, server, middleware, admin)

@@ -245,7 +245,7 @@ export function useTimelineDrag({
         })
       }
       for (const a of st.audios) {
-        if (a.row !== row || !a.isOverlay || skip('audio', a.id)) continue
+        if (a.row !== row || skip('audio', a.id)) continue
         items.push({
           type: 'audio',
           id: a.id,

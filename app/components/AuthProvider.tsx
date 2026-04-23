@@ -5,7 +5,6 @@ import { createClient } from '@/app/utils/supabase/client'
 import type { User, SupabaseClient } from '@supabase/supabase-js'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
-import { useAudioStore } from '@/app/stores/audioStore'
 
 interface Profile {
   id: string
@@ -93,7 +92,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         if (event === 'SIGNED_OUT') {
           useManifestStore.getState().resetStore()
           useSelectionStore.getState().clearSelection()
-          useAudioStore.getState().removeAudio()
           setProfile(null)
         }
         const newUser = session?.user ?? null

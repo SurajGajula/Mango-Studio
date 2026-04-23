@@ -385,7 +385,7 @@ function computeMediaDimensions(
   mediaWidth: number,
   mediaHeight: number,
   aspectRatio: AspectRatio,
-  isMainTrack = false
+  isPrimaryRow = false
 ): { x: number; y: number; width: number; height: number } {
   const { logicalW: canvasW, logicalH: canvasH } = getLogicalCanvasDimensions(aspectRatio)
   const containerPxW = canvasW
@@ -395,7 +395,7 @@ function computeMediaDimensions(
   const mediaAspect = mediaWidth / mediaHeight
   let fitPxW: number, fitPxH: number
 
-  if (isMainTrack) {
+  if (isPrimaryRow) {
     fitPxW = containerPxW
     fitPxH = Math.round(containerPxW / mediaAspect)
   } else {
@@ -424,12 +424,12 @@ function computeMediaDimensions(
 function computeImageDimensions(
   url: string,
   aspectRatio: AspectRatio,
-  isMainTrack = false
+  isPrimaryRow = false
 ): Promise<{ x: number; y: number; width: number; height: number }> {
   return new Promise((resolve) => {
     const img = new Image()
     img.onload = () => {
-      resolve(computeMediaDimensions(img.naturalWidth, img.naturalHeight, aspectRatio, isMainTrack))
+      resolve(computeMediaDimensions(img.naturalWidth, img.naturalHeight, aspectRatio, isPrimaryRow))
     }
     img.onerror = () => {
       resolve({ x: 0, y: 0, width: 1080, height: 1920 })
@@ -451,10 +451,10 @@ export function computeCropForAspect(
 async function computeVideoDimensions(
   url: string,
   aspectRatio: AspectRatio,
-  isMainTrack = false
+  isPrimaryRow = false
 ): Promise<{ x: number; y: number; width: number; height: number }> {
   const { width, height } = await resolveVideoMetadata(url)
-  return computeMediaDimensions(width, height, aspectRatio, isMainTrack)
+  return computeMediaDimensions(width, height, aspectRatio, isPrimaryRow)
 }
 
 export function computeVideoCropForAspect(

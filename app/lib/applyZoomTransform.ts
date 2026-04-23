@@ -1,4 +1,10 @@
-import type { AnimationMode, FlashTransitionMode, SlideTransitionEasing, TransitionMode } from '@/app/models/ImageClass'
+import type {
+  AnimationMode,
+  AnimationZoomEasing,
+  FlashTransitionMode,
+  SlideTransitionEasing,
+  TransitionMode,
+} from '@/app/models/ImageClass'
 import { drawWithAnimation } from './transforms/animationUtils'
 import { applySplit } from './transforms/split'
 import { applyFade } from './transforms/fade'
@@ -49,7 +55,11 @@ export function applyZoomTransform(
   transitionDirection?: 'left' | 'right' | 'top' | 'bottom',
   transitionAxis?: 'horizontal' | 'vertical',
   transitionSlideEasing?: SlideTransitionEasing,
-  transitionCircleEasing?: SlideTransitionEasing
+  transitionCircleEasing?: SlideTransitionEasing,
+  animationZoomEasing?: AnimationZoomEasing,
+  prevAnimationZoomEasing?: AnimationZoomEasing,
+  zoomDistanceIntensity = 1,
+  prevZoomDistanceIntensity = 1
 ): void {
   let nw = 0
   let nh = 0
@@ -70,8 +80,9 @@ export function applyZoomTransform(
 
   const params: TransformParams = {
     ctx, animation: animation ?? 'none', transition: transition ?? 'none', progress, imgEl, x, y, w, h, sx, sy, sw, sh,
-    zoomIntensity: zoomIntensity !== undefined ? zoomIntensity : 0.5, 
-    itemDuration, animationDuration, elapsedTime, prevEl, prevAnimation, prevAnimationProgress, prevElapsedTime, prevZoomIntensity, prevItemDuration, prevAnimationDuration, prevParams,
+    zoomIntensity: zoomIntensity !== undefined ? zoomIntensity : 0.5,
+    zoomDistanceIntensity: zoomDistanceIntensity !== undefined ? zoomDistanceIntensity : 1,
+    itemDuration, animationDuration, animationZoomEasing: animationZoomEasing ?? 'fast-slow', elapsedTime, prevEl, prevAnimation, prevAnimationProgress, prevElapsedTime, prevZoomIntensity, prevZoomDistanceIntensity, prevItemDuration, prevAnimationDuration, prevParams,
     transitionColor, transitionFlashMode, transitionDirection, transitionAxis, transitionSlideEasing, transitionCircleEasing
   }
 
@@ -101,14 +112,15 @@ export function applyZoomTransform(
     } else {
       const { x: px, y: py, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh } = prevParams
       drawWithAnimation(
-        { ...params, x: px, y: py, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh },
+        { ...params, x: px, y: py, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh, animationZoomEasing: prevAnimationZoomEasing ?? 'fast-slow' },
         prevEl,
         prevAnimation ?? 'none',
         prevAnimationProgress ?? 0,
         prevElapsedTime ?? 0,
         prevZoomIntensity ?? 0.5,
         prevItemDuration,
-        prevAnimationDuration
+        prevAnimationDuration,
+        prevZoomDistanceIntensity ?? 1
       )
 
       // 2. Draw current item on top (incoming)
@@ -121,7 +133,17 @@ export function applyZoomTransform(
   } else if (transition === 'morph' && prevEl && prevParams && progress < 1) {
     applyMorph(params)
   } else {
-    drawWithAnimation(params, imgEl, animation ?? 'none', progress, elapsedTime, zoomIntensity !== undefined ? zoomIntensity : 0.5, itemDuration, animationDuration)
+    drawWithAnimation(
+      params,
+      imgEl,
+      animation ?? 'none',
+      progress,
+      elapsedTime,
+      zoomIntensity !== undefined ? zoomIntensity : 0.5,
+      itemDuration,
+      animationDuration,
+      zoomDistanceIntensity !== undefined ? zoomDistanceIntensity : 1
+    )
 
     if (transition && transition !== 'none' && prevEl && prevParams && progress < 1) {
       if (transition === 'fade') {

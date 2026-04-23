@@ -15,7 +15,6 @@ export class AudioClass {
   speedStart?: number
   speedEnd?: number
   speedEasing: 'linear' | 'ease'
-  isOverlay: boolean
   row: number
   volume: number
   pitch: number
@@ -33,7 +32,7 @@ export class AudioClass {
     trimEnd?: number,
     originalDuration?: number,
     playbackSpeed?: number,
-    isOverlay?: boolean,
+    _legacyOverlayFlag?: boolean,
     row?: number,
     volume?: number,
     pitch?: number,
@@ -51,7 +50,6 @@ export class AudioClass {
     this.trimEnd = trimEnd ?? 0
     this.originalDuration = originalDuration ?? endTime
     this.playbackSpeed = playbackSpeed ?? 1
-    this.isOverlay = isOverlay ?? false
     this.row = row ?? 0
     this.volume = volume ?? 1.0
     this.pitch = pitch ?? 1.0
@@ -75,7 +73,7 @@ export class AudioClass {
       updates.trimEnd ?? this.trimEnd,
       updates.originalDuration ?? this.originalDuration,
       updates.playbackSpeed ?? this.playbackSpeed,
-      updates.isOverlay ?? this.isOverlay,
+      undefined,
       updates.row ?? this.row,
       updates.volume ?? this.volume,
       updates.pitch ?? this.pitch,

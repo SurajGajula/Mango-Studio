@@ -124,7 +124,7 @@ export default function PreviewArea() {
   const pushHistory = useManifestStore((state) => state.pushHistory)
   const aspectRatio = FIXED_ASPECT_RATIO
 
-  const mainVideos = videos.filter((v) => !v.isOverlay)
+  const mainVideos = videos.filter((v) => v.row === 0)
   const hasMainContent = mainVideos.length > 0 || images.length > 0
 
   const logicalW = 1080
@@ -241,7 +241,7 @@ export default function PreviewArea() {
     }
 
     // Check main video
-    const mainVideo = videos.find((v) => !v.isOverlay && playbackTime >= v.timestamp && playbackTime < v.timestamp + (v.duration ?? 0))
+    const mainVideo = videos.find((v) => v.row === 0 && playbackTime >= v.timestamp && playbackTime < v.timestamp + (v.duration ?? 0))
     if (mainVideo) {
       if (px >= offsetX && px <= offsetX + contentRect.width && py >= offsetY && py <= offsetY + contentRect.height) {
         enterCropEdit(mainVideo.id, 'video')
@@ -320,7 +320,7 @@ export default function PreviewArea() {
       }
 
       const mainVideo = videos.find(
-        (v) => !v.isOverlay && playbackTime >= v.timestamp && playbackTime < v.timestamp + (v.duration ?? 0)
+        (v) => v.row === 0 && playbackTime >= v.timestamp && playbackTime < v.timestamp + (v.duration ?? 0)
       )
       if (mainVideo) {
         if (px >= offsetX && px <= offsetX + contentRect.width && py >= offsetY && py <= offsetY + contentRect.height) {

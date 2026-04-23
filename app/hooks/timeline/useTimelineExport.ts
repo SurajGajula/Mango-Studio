@@ -51,7 +51,7 @@ export function useTimelineExport({
   }, [clearPreview])
 
   const handleExport = useCallback(async () => {
-    const hasMainContent = videos.filter((v) => !v.isOverlay).length > 0 || images.filter((img) => img.isMainTrack).length > 0
+    const hasMainContent = videos.filter((v) => v.row === 0).length > 0 || images.filter((img) => img.row === 0).length > 0
     if (isExporting || !hasMainContent) return
 
     setExportModalOpen(true)

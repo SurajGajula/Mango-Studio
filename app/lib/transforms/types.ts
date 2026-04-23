@@ -1,4 +1,10 @@
-import type { AnimationMode, FlashTransitionMode, SlideTransitionEasing, TransitionMode } from '@/app/models/ImageClass'
+import type {
+  AnimationMode,
+  AnimationZoomEasing,
+  FlashTransitionMode,
+  SlideTransitionEasing,
+  TransitionMode,
+} from '@/app/models/ImageClass'
 
 export interface TransformParams {
   ctx: CanvasRenderingContext2D;
@@ -15,14 +21,17 @@ export interface TransformParams {
   sw: number;
   sh: number;
   zoomIntensity: number;
+  zoomDistanceIntensity: number;
   itemDuration?: number;
   animationDuration?: number;
+  animationZoomEasing?: AnimationZoomEasing;
   elapsedTime: number;
   prevEl?: HTMLImageElement | HTMLVideoElement | ImageBitmap;
   prevAnimation?: AnimationMode;
   prevAnimationProgress?: number;
   prevElapsedTime?: number;
   prevZoomIntensity?: number;
+  prevZoomDistanceIntensity?: number;
   prevItemDuration?: number;
   prevAnimationDuration?: number;
   prevParams?: {

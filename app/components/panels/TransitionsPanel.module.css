@@ -346,20 +346,47 @@
   border-color: #555555;
 }
 
-@keyframes pulse-preview {
-  0% { transform: scale(1); }
-  10% { transform: scale(1.05); }
-  20% { transform: scale(1.085); }
-  30% { transform: scale(1.128); }
-  40% { transform: scale(1.156); }
-  50% { transform: scale(1.178); }
-  60% { transform: scale(1.192); }
-  70% { transform: scale(1.199); }
-  75% { transform: scale(1.2); }
-  80% { transform: scale(1.192); }
-  85% { transform: scale(1.168); }
-  90% { transform: scale(1.128); }
-  95% { transform: scale(1.072); }
-  100% { transform: scale(1); }
+.zoomPreviewIn,
+.zoomPreviewOut {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.zoomPreviewIn {
+  animation: zoom-preview-in-loop 2.4s cubic-bezier(0.33, 1, 0.68, 1) infinite;
+}
+
+.zoomPreviewOut {
+  animation: zoom-preview-out-loop 2.4s cubic-bezier(0.33, 1, 0.68, 1) infinite;
+}
+
+@keyframes zoom-preview-in-loop {
+  0%,
+  8% {
+    transform: scale(1);
+  }
+  42%,
+  58% {
+    transform: scale(1.14);
+  }
+  92%,
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes zoom-preview-out-loop {
+  0%,
+  8% {
+    transform: scale(1.14);
+  }
+  42%,
+  58% {
+    transform: scale(1);
+  }
+  92%,
+  100% {
+    transform: scale(1.14);
+  }
 }
 

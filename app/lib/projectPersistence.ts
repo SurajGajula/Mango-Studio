@@ -1,8 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
-import { useAudioStore } from '@/app/stores/audioStore'
 import { VideoClass } from '@/app/models/VideoClass'
-import { ImageClass } from '@/app/models/ImageClass'
+import { ImageClass, coerceAnimationZoomEasing } from '@/app/models/ImageClass'
 import { TextClass } from '@/app/models/TextClass'
 import { AudioClass } from '@/app/models/AudioClass'
 import { EffectClass, type EffectType } from '@/app/models/EffectClass'
@@ -171,7 +170,6 @@ function snapshotRow(o: Record<string, unknown>): number {
 
 function reviveVideo(o: Record<string, unknown>): VideoClass {
   const row = snapshotRow(o)
-  const isOverlay = row !== 0
   return new VideoClass(
     String(o.id),
     String(o.title),
@@ -184,7 +182,7 @@ function reviveVideo(o: Record<string, unknown>): VideoClass {
     o.trimStart as number | undefined,
     o.trimEnd as number | undefined,
     o.prompt as string | undefined,
-    isOverlay,
+    undefined,
     o.x as number | undefined,
     o.y as number | undefined,
     o.width as number | undefined,
@@ -195,6 +193,7 @@ function reviveVideo(o: Record<string, unknown>): VideoClass {
     o.zoomIntensity as number | undefined,
     o.transitionDuration as number | undefined,
     o.animationDuration as number | undefined,
+    coerceAnimationZoomEasing(o.animationZoomEasing),
     o.transitionColor as string | undefined,
     o.transitionDirection as VideoClass['transitionDirection'],
     o.transitionAxis as VideoClass['transitionAxis'],
@@ -216,13 +215,13 @@ function reviveVideo(o: Record<string, unknown>): VideoClass {
     o.speedEasing as 'linear' | 'ease' | undefined,
     o.keyframes as VideoClass['keyframes'],
     undefined,
-    o.transitionFlashMode as VideoClass['transitionFlashMode']
+    o.transitionFlashMode as VideoClass['transitionFlashMode'],
+    o.zoomDistanceIntensity as number | undefined
   )
 }
 
 function reviveImage(o: Record<string, unknown>): ImageClass {
   const row = snapshotRow(o)
-  const isMainTrack = row === 0
   return new ImageClass(
     String(o.id),
     String(o.name),
@@ -235,7 +234,7 @@ function reviveImage(o: Record<string, unknown>): ImageClass {
     o.height as number | undefined,
     o.opacity as number | undefined,
     o.createdAt ? new Date(String(o.createdAt)) : undefined,
-    isMainTrack,
+    undefined,
     o.animation as ImageClass['animation'],
     o.transition as ImageClass['transition'],
     o.cropAspect as string | undefined,
@@ -246,6 +245,7 @@ function reviveImage(o: Record<string, unknown>): ImageClass {
     o.zoomIntensity as number | undefined,
     o.transitionDuration as number | undefined,
     o.animationDuration as number | undefined,
+    coerceAnimationZoomEasing(o.animationZoomEasing),
     o.transitionColor as string | undefined,
     o.transitionDirection as ImageClass['transitionDirection'],
     o.transitionAxis as ImageClass['transitionAxis'],
@@ -255,7 +255,8 @@ function reviveImage(o: Record<string, unknown>): ImageClass {
     o.rotation as number | undefined,
     o.keyframes as ImageClass['keyframes'],
     undefined,
-    o.transitionFlashMode as ImageClass['transitionFlashMode']
+    o.transitionFlashMode as ImageClass['transitionFlashMode'],
+    o.zoomDistanceIntensity as number | undefined
   )
 }
 
@@ -284,7 +285,6 @@ function reviveText(o: Record<string, unknown>): TextClass {
 
 function reviveAudio(o: Record<string, unknown>): AudioClass {
   const row = snapshotRow(o)
-  const isOverlay = row >= 1
   return new AudioClass(
     String(o.id),
     String(o.name),
@@ -297,7 +297,7 @@ function reviveAudio(o: Record<string, unknown>): AudioClass {
     o.trimEnd as number | undefined,
     o.originalDuration as number | undefined,
     o.playbackSpeed as number | undefined,
-    isOverlay,
+    undefined,
     row,
     o.volume as number | undefined,
     o.pitch as number | undefined,
@@ -308,6 +308,9 @@ function reviveAudio(o: Record<string, unknown>): AudioClass {
 }
 
 function reviveEffect(o: Record<string, unknown>): EffectClass {
+  const flashRaw = o.flashSpeed
+  const flashSpeed =
+    flashRaw !== undefined && flashRaw !== null && Number.isFinite(Number(flashRaw)) ? Number(flashRaw) : 1
   return new EffectClass(
     String(o.id),
     o.type as EffectType,
@@ -316,6 +319,7 @@ function reviveEffect(o: Record<string, unknown>): EffectClass {
     o.row as number | undefined,
     o.intensity as number | undefined,
     o.contrast !== undefined && o.contrast !== null ? Number(o.contrast) : undefined,
+    flashSpeed,
     o.createdAt ? new Date(String(o.createdAt)) : undefined
   )
 }
@@ -455,13 +459,6 @@ async function hydrateSnapshotIntoStore(snap: ProjectSnapshotPayload, dbName: st
     playbackRate: snap.playbackRate,
     pendingPrompt: snap.pendingPrompt,
   })
-
-  const mainAudio = revivedAudios.find((a) => !a.isOverlay)
-  if (mainAudio) {
-    useAudioStore.getState().setAudio(mainAudio)
-  } else {
-    useAudioStore.getState().removeAudio()
-  }
 }
 
 export async function saveGuestProjectSnapshot(): Promise<void> {

@@ -4,7 +4,7 @@ import { applyJitter } from './jitter'
 import { applyShake } from './shake'
 import { applyStandardZoom } from './zoom'
 
-export function drawWithAnimation(params: TransformParams, imgEl: HTMLImageElement | HTMLVideoElement | ImageBitmap, animation: AnimationMode, progress: number, elapsedTime: number, zoomIntensity: number, itemDuration?: number, animationDuration?: number): void {
+export function drawWithAnimation(params: TransformParams, imgEl: HTMLImageElement | HTMLVideoElement | ImageBitmap, animation: AnimationMode, progress: number, elapsedTime: number, zoomIntensity: number, itemDuration?: number, animationDuration?: number, zoomDistanceIntensity = 1): void {
   const animationParams: TransformParams = {
     ...params,
     imgEl,
@@ -12,6 +12,7 @@ export function drawWithAnimation(params: TransformParams, imgEl: HTMLImageEleme
     progress,
     elapsedTime,
     zoomIntensity,
+    zoomDistanceIntensity,
     itemDuration,
     animationDuration,
     prevEl: undefined, // Clear these to avoid recursion
@@ -27,7 +28,8 @@ export function drawWithAnimation(params: TransformParams, imgEl: HTMLImageEleme
     case 'shake':
       applyShake(animationParams)
       break
-    case 'pulse':
+    case 'zoom-in':
+    case 'zoom-out':
       applyStandardZoom(animationParams)
       break
     default:

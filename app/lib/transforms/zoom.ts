@@ -1,34 +1,51 @@
+import type { AnimationZoomEasing } from '@/app/models/ImageClass'
 import type { TransformParams } from './types'
 
-const PULSE_PEAK_U = 0.75
+function easeOutQuad(v: number): number {
+  return 1 - (1 - v) * (1 - v)
+}
 
-function pulseZoomT(u: number): number {
-  const p = PULSE_PEAK_U
-  if (u <= p) {
-    return (u * (2 * p - u)) / (p * p)
-  }
-  const oneMinusP = 1 - p
-  return (-(2 * p - 1) + 2 * p * u - u * u) / (oneMinusP * oneMinusP)
+function easeInQuad(v: number): number {
+  return v * v
+}
+
+function easedProgress(u: number, ease: AnimationZoomEasing): number {
+  return ease === 'fast-slow' ? easeOutQuad(u) : easeInQuad(u)
 }
 
 export function applyStandardZoom(params: TransformParams): void {
-  const { ctx, animation, progress, imgEl, x, y, w, h, sx, sy, sw, sh, zoomIntensity, itemDuration, elapsedTime } = params
-  
+  const {
+    ctx,
+    animation,
+    imgEl,
+    x,
+    y,
+    w,
+    h,
+    sx,
+    sy,
+    sw,
+    sh,
+    zoomDistanceIntensity,
+    itemDuration,
+    elapsedTime,
+    animationDuration,
+    animationZoomEasing,
+  } = params
+
   let t = 0
-  if (animation === 'pulse') {
-    let totalDur = itemDuration || 1.0
-    if (progress > 0.01 && progress < 0.99 && elapsedTime > 0) {
-      const derivedDur = elapsedTime / progress
-      if (derivedDur > 0.1) totalDur = derivedDur
+  const ease = animationZoomEasing ?? 'fast-slow'
+  if (animation === 'zoom-in' || animation === 'zoom-out') {
+    let dur = animationDuration
+    if (dur === undefined || dur <= 0) {
+      dur = itemDuration && itemDuration > 0 ? itemDuration : 1
     }
-    const u =
-      totalDur > 0
-        ? Math.min(1, Math.max(0, elapsedTime / totalDur))
-        : 0
-    t = pulseZoomT(u)
+    const u = dur > 0 ? Math.min(1, Math.max(0, elapsedTime / dur)) : 0
+    const f = easedProgress(u, ease)
+    t = animation === 'zoom-in' ? f : 1 - f
   }
 
-  const scale = 1 + t * zoomIntensity
+  const scale = 1 + t * zoomDistanceIntensity
   const zoomedSw = sw / scale
   const zoomedSh = sh / scale
   const zoomedSx = sx + (sw - zoomedSw) / 2

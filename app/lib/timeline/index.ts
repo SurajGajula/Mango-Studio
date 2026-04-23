@@ -6,5 +6,13 @@ export {
   shouldRippleExpansionInRow,
   shiftItemsForwardInRow,
 } from './rowRipple'
-export { runHistoryTransaction, resolveImagePatch, resolveVideoPatch, normalizeClipSpeedWindow } from './replaceUtils'
+export {
+  runHistoryTransaction,
+  resolveImagePatch,
+  resolveVideoPatch,
+  normalizeClipSpeedWindow,
+  imageCropOverlayFromPatch,
+  videoCropOverlayFromPatch,
+  replacePlacementDimensions,
+} from './replaceUtils'
 export { uploadToAccountLibrary, validateMediaDuration } from './mediaUploadUtils'

@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
-import { resolveVideoMetadata, withoutCanvasPlacement } from '@/app/lib/mediaUtils'
+import { computeMediaCropForAspect, resolveVideoMetadata } from '@/app/lib/mediaUtils'
 import { extractVideoClip } from '@/app/lib/videoExporter'
 import { timelineClipSourceSpanSeconds } from '@/app/lib/renderUtils'
 import { useManifestStore } from '@/app/stores/manifestStore'
@@ -9,10 +9,13 @@ import { generateId } from '@/app/lib/idUtils'
 import { getOrCreateObjectURLForFile } from '@/app/lib/fileObjectUrlCache'
 import { FIXED_ASPECT_RATIO } from '@/app/lib/aspectRatio'
 import {
+  imageCropOverlayFromPatch,
   normalizeClipSpeedWindow,
+  replacePlacementDimensions,
   resolveImagePatch,
   resolveVideoPatch,
   runHistoryTransaction,
+  videoCropOverlayFromPatch,
 } from '@/app/lib/timeline'
 
 interface UseTimelineReplaceProps {
@@ -43,7 +46,7 @@ export function useTimelineReplace({
     speedEnd?: number
     speedEasing?: 'linear' | 'ease'
     initialTrimStart: number
-    projectStartTime?: number
+    projectStartTime: number
   } | null>(null)
   const [isReplacingClip, setIsReplacingClip] = useState(false)
 
@@ -83,17 +86,38 @@ export function useTimelineReplace({
 
       if (image) {
         if (sourceKind === 'image') {
-          const { updateImage } = useManifestStore.getState()
           const aspectRatio = FIXED_ASPECT_RATIO
-          const patch = await resolveImagePatch(url, aspectRatio, image.cropAspect, true)
-          updateImage(image.id, {
-            ...withoutCanvasPlacement(patch),
-            url,
-            name: title,
-            x: image.x,
-            y: image.y,
-            width: image.width,
-            height: image.height,
+          const placeForCrop = replacePlacementDimensions(image, aspectRatio)
+          let patch: Partial<ImageClass> = await resolveImagePatch(url, aspectRatio, image.cropAspect, true, {
+            width: placeForCrop.width,
+            height: placeForCrop.height,
+          })
+          const sw = patch.cropSw
+          const sh = patch.cropSh
+          if (!(typeof sw === 'number' && typeof sh === 'number' && sw > 1e-6 && sh > 1e-6)) {
+            patch = (await computeMediaCropForAspect(
+              url,
+              'image',
+              aspectRatio,
+              placeForCrop.width,
+              placeForCrop.height,
+              image.cropAspect ?? aspectRatio
+            )) as Partial<ImageClass>
+          }
+          runHistoryTransaction((historyStore) => {
+            const live = historyStore.images.find((i) => i.id === image.id)
+            if (!live) return
+            const place = replacePlacementDimensions(live, aspectRatio)
+            historyStore.updateImage(image.id, {
+              url,
+              name: title,
+              x: place.x,
+              y: place.y,
+              width: place.width,
+              height: place.height,
+              ...imageCropOverlayFromPatch(patch, live),
+              keyframes: [],
+            })
           })
           closeReplaceTarget()
         } else {
@@ -112,7 +136,10 @@ export function useTimelineReplace({
           }
 
           const aspectRatio = FIXED_ASPECT_RATIO
-          const patch = await resolveVideoPatch(new VideoClass(generateId('v'), '', url), url, aspectRatio, image.cropAspect, false)
+          const patch = await resolveVideoPatch(new VideoClass(generateId('v'), '', url), url, aspectRatio, image.cropAspect, false, {
+            width: image.width,
+            height: image.height,
+          })
 
           if (duration === sourceWindowDuration) {
             const videoInstance = new VideoClass(
@@ -127,7 +154,7 @@ export function useTimelineReplace({
               0,
               0,
               undefined,
-              !image.isMainTrack,
+              image.row > 0,
               image.x,
               image.y,
               image.width,
@@ -138,6 +165,7 @@ export function useTimelineReplace({
               image.zoomIntensity,
               image.transitionDuration,
               image.animationDuration,
+              image.animationZoomEasing,
               undefined,
               undefined,
               undefined,
@@ -180,7 +208,10 @@ export function useTimelineReplace({
       } else if (video) {
         if (sourceKind === 'image') {
           const aspectRatio = FIXED_ASPECT_RATIO
-          const patch = await resolveImagePatch(url, aspectRatio, video.cropAspect, false)
+          const patch = await resolveImagePatch(url, aspectRatio, video.cropAspect, false, {
+            width: video.width,
+            height: video.height,
+          })
 
           const imageInstance = new ImageClass(
             generateId('image'),
@@ -194,7 +225,7 @@ export function useTimelineReplace({
             video.height,
             video.opacity,
             new Date(),
-            !video.isOverlay,
+            video.row === 0,
             video.animation,
             video.transition,
             patch.cropAspect ?? video.cropAspect,
@@ -205,12 +236,17 @@ export function useTimelineReplace({
             video.zoomIntensity,
             video.transitionDuration,
             video.animationDuration,
+            video.animationZoomEasing,
             undefined,
             undefined,
             undefined,
             video.transitionSlideEasing,
             video.transitionCircleEasing,
-            video.row
+            video.row,
+            undefined,
+            undefined,
+            undefined,
+            undefined
           )
           replaceVideoWithImage(targetId, imageInstance)
           closeReplaceTarget()
@@ -246,7 +282,10 @@ export function useTimelineReplace({
 
           if (duration === sourceWindowDuration) {
             const aspectRatio = FIXED_ASPECT_RATIO
-            const patch = await resolveVideoPatch(v.copy({ url }), url, aspectRatio, v.cropAspect, false)
+            const patch = await resolveVideoPatch(v.copy({ url }), url, aspectRatio, v.cropAspect, false, {
+              width: v.width,
+              height: v.height,
+            })
             const ps = playbackSpeed
             const ss = speedStart ?? ps
             const se = speedEnd ?? ps
@@ -254,7 +293,7 @@ export function useTimelineReplace({
             const timelineDur = windowDuration
             runHistoryTransaction((historyStore) => {
               historyStore.updateVideo(targetId, {
-                ...withoutCanvasPlacement(patch),
+                ...videoCropOverlayFromPatch(patch, v),
                 url,
                 title,
                 originalDuration: duration,
@@ -377,7 +416,8 @@ export function useTimelineReplace({
             finalUrl,
             aspectRatio,
             image.cropAspect,
-            false
+            false,
+            { width: image.width, height: image.height }
           )
 
           const videoInstance = new VideoClass(
@@ -392,7 +432,7 @@ export function useTimelineReplace({
             finalTrimStart,
             finalTrimEnd,
             undefined,
-            !image.isMainTrack,
+            image.row > 0,
             image.x,
             image.y,
             image.width,
@@ -403,6 +443,7 @@ export function useTimelineReplace({
             image.zoomIntensity,
             image.transitionDuration,
             image.animationDuration,
+            image.animationZoomEasing,
             undefined,
             undefined,
             undefined,
@@ -429,7 +470,10 @@ export function useTimelineReplace({
           if (!video) return
 
           const aspectRatio = FIXED_ASPECT_RATIO
-          const patch = await resolveVideoPatch(video.copy({ url: finalUrl }), finalUrl, aspectRatio, video.cropAspect, false)
+          const patch = await resolveVideoPatch(video.copy({ url: finalUrl }), finalUrl, aspectRatio, video.cropAspect, false, {
+            width: video.width,
+            height: video.height,
+          })
 
           const ps = replaceVideoData.playbackSpeed ?? 1
           const ss = replaceVideoData.speedStart ?? ps
@@ -437,7 +481,7 @@ export function useTimelineReplace({
           const spanForClip = finalOriginalDuration - finalTrimStart - finalTrimEnd
           runHistoryTransaction((store) => {
             store.updateVideo(video.id, {
-              ...withoutCanvasPlacement(patch),
+              ...videoCropOverlayFromPatch(patch, video),
               url: finalUrl,
               title: replaceVideoData.title,
               originalDuration: finalOriginalDuration,

@@ -3,7 +3,6 @@
 import { useEffect } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
-import { useAudioStore } from '@/app/stores/audioStore'
 import { generateId } from '@/app/lib/idUtils'
 import { resolveMediaKeyframeTransform } from '@/app/lib/resolveMediaKeyframeTransform'
 
@@ -39,7 +38,6 @@ export function useTimelineShortcuts({
   const updateVideo = useManifestStore((state) => state.updateVideo)
   const updateImage = useManifestStore((state) => state.updateImage)
   const updateAudio = useManifestStore((state) => state.updateAudio)
-  const removeAudio = useAudioStore((state) => state.removeAudio)
 
   const clearSelection = useSelectionStore((state) => state.clearSelection)
 
@@ -219,10 +217,6 @@ export function useTimelineShortcuts({
         else if (selectedEffectId) removeEffect(selectedEffectId)
         else if (selectedAudioId) {
           removeAudioFromManifest(selectedAudioId)
-          const primary = useAudioStore.getState().audio
-          if (primary?.id === selectedAudioId) {
-            useAudioStore.getState().removeAudio()
-          }
           clearSelection()
         }
       }
@@ -237,7 +231,7 @@ export function useTimelineShortcuts({
     return () => document.removeEventListener('keydown', handler)
   }, [
     undo, redo, removeVideo, removeImage, removeText, 
-    removeAudioFromManifest, removeAudio, removeEffect, duplicateItem, updateVideo, updateImage, updateAudio,
+    removeAudioFromManifest, removeEffect, duplicateItem, updateVideo, updateImage, updateAudio,
     replaceVideoData, applyZoom, visibleDurationRef, 
     MIN_VISIBLE, MAX_VISIBLE, selectedAudioId, 
     setSelectedAudioId, uploadInputRef

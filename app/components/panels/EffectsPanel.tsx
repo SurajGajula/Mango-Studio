@@ -29,8 +29,8 @@ const EFFECT_OPTIONS: { value: EffectType; label: string; desc: string; icon: Re
   },
   {
     value: 'flashing-black-vignette',
-    label: 'Flashing Vignette',
-    desc: 'A black vignette that pulses rhythmically',
+    label: 'Vignette',
+    desc: 'Black vignette; flash speed 0 keeps the edge solid',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="10" />
@@ -42,7 +42,7 @@ const EFFECT_OPTIONS: { value: EffectType; label: string; desc: string; icon: Re
   {
     value: 'black-and-white',
     label: 'Black & White',
-    desc: 'Desaturate the frame using standard luminance',
+    desc: 'Rec.709 grayscale; contrast only deepens tones below mid-gray',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="10" />
@@ -95,7 +95,7 @@ export default function EffectsPanel({ onClose }: Props) {
   const activeType: EffectType | null = activeEffect?.type ?? null
 
   const intensitySliderHistory = useSliderHistorySession()
-  const contrastSliderHistory = useSliderHistorySession()
+  const flashSpeedSliderHistory = useSliderHistorySession()
 
   const handleSelect = (value: EffectType) => {
     const start = playbackTime
@@ -120,9 +120,9 @@ export default function EffectsPanel({ onClose }: Props) {
     }
   }
 
-  const handleContrastChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFlashSpeedChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (activeEffect) {
-      updateEffect(activeEffect.id, { contrast: parseFloat(e.target.value) })
+      updateEffect(activeEffect.id, { flashSpeed: parseFloat(e.target.value) })
     }
   }
 
@@ -170,17 +170,17 @@ export default function EffectsPanel({ onClose }: Props) {
             </div>
             <div className={styles.durationControl} style={{ marginTop: '1rem' }}>
               <div className={styles.durationHeader}>
-                <span className={styles.durationLabel}>Dark filter</span>
-                <span className={styles.durationValue}>{((activeEffect.contrast ?? 0.5) * 100).toFixed(0)}%</span>
+                <span className={styles.durationLabel}>Flash speed</span>
+                <span className={styles.durationValue}>{((activeEffect.flashSpeed ?? 1) * 100).toFixed(0)}%</span>
               </div>
               <input
                 type="range"
                 min="0"
                 max="1"
                 step="0.01"
-                value={activeEffect.contrast ?? 0.5}
-                onPointerDown={contrastSliderHistory}
-                onChange={handleContrastChange}
+                value={activeEffect.flashSpeed ?? 1}
+                onPointerDown={flashSpeedSliderHistory}
+                onChange={handleFlashSpeedChange}
                 className={styles.durationSlider}
               />
             </div>
@@ -194,7 +194,7 @@ export default function EffectsPanel({ onClose }: Props) {
             <div className={styles.durationHeader}>
               <span className={styles.durationLabel}>
                 {activeEffect.type === 'black-and-white'
-                  ? 'Desaturation'
+                  ? 'Contrast'
                   : activeEffect.type === 'vivid-sharp'
                     ? 'Sharpness'
                     : 'Block size'}

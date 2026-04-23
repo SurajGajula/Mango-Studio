@@ -29,7 +29,7 @@ function isProjectTimeInAudioClip(projectTime: number, audio: AudioClass): boole
 }
 
 const PIXELS_PER_SECOND = 60
-const VIRTUALIZATION_BUFFER = 5 // Number of extra thumbnails to render on each side
+const VIRTUALIZATION_BUFFER = 5
 
 interface Props {
   videoUrl: string
@@ -40,8 +40,8 @@ interface Props {
   speedEnd?: number
   speedEasing?: 'linear' | 'ease'
   initialTrimStart?: number
-  projectStartTime?: number
-  mainAudio?: AudioClass | null
+  projectStartTime: number
+  audios: AudioClass[]
   confirmLabel?: string
   isProcessing?: boolean
   onConfirm: (trimStart: number) => void
@@ -58,7 +58,7 @@ export default function VideoReplaceModal({
   speedEasing = 'linear',
   initialTrimStart = 0,
   projectStartTime,
-  mainAudio = null,
+  audios,
   confirmLabel = 'Replace',
   isProcessing = false,
   onConfirm,
@@ -66,7 +66,7 @@ export default function VideoReplaceModal({
 }: Props) {
   const [trimStart, setTrimStart] = useState(initialTrimStart)
   const videoRef = useRef<HTMLVideoElement>(null)
-  const audioRef = useRef<HTMLAudioElement>(null)
+  const audioByIdRef = useRef<Map<string, HTMLAudioElement>>(new Map())
   const overlayRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const timelineContainerRef = useRef<HTMLDivElement>(null)
@@ -80,7 +80,6 @@ export default function VideoReplaceModal({
   const requestRef = useRef<number>()
 
   const videoPlayPromiseRef = useRef<Promise<void> | null>(null)
-  const audioPlayPromiseRef = useRef<Promise<void> | null>(null)
 
   const ps = playbackSpeed
   const ss = speedStart ?? ps
@@ -97,46 +96,77 @@ export default function VideoReplaceModal({
         : ` (preview ${ss.toFixed(2)}x → ${se.toFixed(2)}x)`
   const maxTrimStart = Math.max(0, videoDuration - sourceWindowDuration)
 
+  const pauseAllAudios = useCallback(() => {
+    audioByIdRef.current.forEach((el) => {
+      if (!el.paused) el.pause()
+    })
+  }, [])
+
+  const syncAudiosToProjectTime = useCallback(
+    (projectTime: number, opts: { playing: boolean; videoSeeking: boolean; videoReadyState: number; loopMute: boolean }) => {
+      const { playing, videoSeeking, videoReadyState, loopMute } = opts
+      for (const a of audios) {
+        const el = audioByIdRef.current.get(a.id)
+        if (!el) continue
+        el.volume = a.volume ?? 1
+        if (!isProjectTimeInAudioClip(projectTime, a)) {
+          if (!el.paused) el.pause()
+          continue
+        }
+        const targetSource = projectTimeToAudioSourceTime(projectTime, a)
+        if (loopMute || videoSeeking) {
+          el.muted = true
+        } else {
+          el.muted = false
+        }
+        const drift = Math.abs(el.currentTime - targetSource)
+        if (drift > 0.25 && !el.seeking) {
+          el.currentTime = targetSource
+        }
+        if (playing && !videoSeeking && videoReadyState >= 2 && el.paused) {
+          el.play().catch(() => {})
+        }
+        if (!playing && !el.paused) {
+          el.pause()
+        }
+      }
+    },
+    [audios]
+  )
+
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.playbackRate = playbackSpeed
     }
   }, [playbackSpeed])
 
-  // Memoize sorted thumbnail times for efficient lookup
   const sortedThumbTimes = useMemo(() => {
     return Array.from(thumbnails.keys()).sort((a, b) => a - b)
   }, [thumbnails])
 
-  // Efficiently find the closest thumbnail for any given second
   const getThumbnailForSecond = useCallback((second: number) => {
     if (sortedThumbTimes.length === 0) return null
-    
-    // Binary search for the closest time would be even faster, but for 
-    // a few hundred thumbnails, a simple find/reduce is usually fine if memoized.
-    // Let's use a slightly faster approach than reduce for very long videos.
+
     let closest = sortedThumbTimes[0]
     let minDiff = Math.abs(closest - second)
-    
+
     for (let i = 1; i < sortedThumbTimes.length; i++) {
       const diff = Math.abs(sortedThumbTimes[i] - second)
       if (diff < minDiff) {
         minDiff = diff
         closest = sortedThumbTimes[i]
       } else if (sortedThumbTimes[i] > second) {
-        // Since it's sorted, we can stop early
         break
       }
     }
-    
+
     return thumbnails.get(closest)
   }, [sortedThumbTimes, thumbnails])
 
-  // Measure container width
   useEffect(() => {
     if (timelineContainerRef.current) {
       setContainerWidth(timelineContainerRef.current.clientWidth)
-      
+
       const observer = new ResizeObserver(entries => {
         for (const entry of entries) {
           setContainerWidth(entry.contentRect.width)
@@ -147,31 +177,21 @@ export default function VideoReplaceModal({
     }
   }, [])
 
-  const timelineWidth = videoDuration * PIXELS_PER_SECOND
   const activeWindowWidth = sourceWindowDuration * PIXELS_PER_SECOND
   const centerOffset = Math.max(0, (containerWidth - activeWindowWidth) / 2)
 
-  // Virtualization range
   const visibleStartSecond = Math.max(0, Math.floor((scrollLeft - centerOffset) / PIXELS_PER_SECOND) - VIRTUALIZATION_BUFFER)
   const visibleEndSecond = Math.min(Math.ceil(videoDuration), Math.ceil((scrollLeft + containerWidth + centerOffset) / PIXELS_PER_SECOND) + VIRTUALIZATION_BUFFER)
 
-  // Smoothly update current time during playback
   const animate = useCallback(() => {
     const video = videoRef.current
-    const audio = audioRef.current
     if (!video) {
       requestRef.current = requestAnimationFrame(animate)
       return
     }
 
     if (!isPlaying) {
-      if (audio && !audio.paused) {
-        if (audioPlayPromiseRef.current) {
-          audioPlayPromiseRef.current.then(() => audio?.pause()).catch(() => {})
-        } else {
-          audio.pause()
-        }
-      }
+      pauseAllAudios()
       requestRef.current = requestAnimationFrame(animate)
       return
     }
@@ -179,99 +199,62 @@ export default function VideoReplaceModal({
     const isVideoSeeking = video.seeking
     const vTime = video.currentTime
 
-    // 1. Loop-back detection: increase epsilon to 0.15s to jump BEFORE hitches
-    // and only if we aren't already seeking to the start.
     const isAtEnd = vTime >= trimStart + sourceWindowDuration - 0.15 || video.ended
     const isWayBeforeStart = vTime < trimStart - 0.3
-    
+
     if (!isVideoSeeking && (isAtEnd || isWayBeforeStart)) {
       video.currentTime = trimStart
-      if (audio && projectStartTime !== undefined) {
-        audio.currentTime = mainAudio
-          ? projectTimeToAudioSourceTime(projectStartTime, mainAudio)
-          : projectStartTime
-        audio.muted = true
-      }
       setCurrentTime(trimStart)
+      syncAudiosToProjectTime(projectStartTime, {
+        playing: true,
+        videoSeeking: false,
+        videoReadyState: video.readyState,
+        loopMute: true,
+      })
       requestRef.current = requestAnimationFrame(animate)
       return
     }
 
-    // 2. While seeking, stay muted and keep playbar at start
     if (isVideoSeeking) {
       setCurrentTime(trimStart)
+      const seekProjectTime = projectStartTime + (vTime - trimStart) / playbackSpeed
+      syncAudiosToProjectTime(seekProjectTime, {
+        playing: true,
+        videoSeeking: true,
+        videoReadyState: video.readyState,
+        loopMute: false,
+      })
       requestRef.current = requestAnimationFrame(animate)
       return
     }
 
-    // 3. Normal playback sync
     setCurrentTime(vTime)
 
-    // Unmute audio now that seek is done
-    if (audio && audio.muted) {
-      audio.muted = false
-    }
-
-    // Ensure video is playing
     if (video.paused && !videoPlayPromiseRef.current) {
       videoPlayPromiseRef.current = video.play()
       videoPlayPromiseRef.current
         .catch(() => {})
         .finally(() => { videoPlayPromiseRef.current = null })
     }
-    
-    if (audio && projectStartTime !== undefined) {
-      const timelineOffset = (vTime - trimStart) / playbackSpeed
-      const targetProjectTime = projectStartTime + timelineOffset
 
-      if (mainAudio) {
-        if (!isProjectTimeInAudioClip(targetProjectTime, mainAudio)) {
-          if (!audio.paused) {
-            if (audioPlayPromiseRef.current) {
-              audioPlayPromiseRef.current.then(() => audio?.pause()).catch(() => {})
-            } else {
-              audio.pause()
-            }
-          }
-        } else {
-          const targetSourceTime = projectTimeToAudioSourceTime(targetProjectTime, mainAudio)
-          const drift = Math.abs(audio.currentTime - targetSourceTime)
-          if (drift > 0.25 && !audio.seeking) {
-            audio.currentTime = targetSourceTime
-          }
-
-          if (audio.paused && video.readyState >= 2 && !audioPlayPromiseRef.current) {
-            audioPlayPromiseRef.current = audio.play()
-            audioPlayPromiseRef.current
-              .catch(() => {})
-              .finally(() => { audioPlayPromiseRef.current = null })
-          }
-        }
-      } else if (targetProjectTime >= 0) {
-        const drift = Math.abs(audio.currentTime - targetProjectTime)
-        if (drift > 0.25 && !audio.seeking) {
-          audio.currentTime = targetProjectTime
-        }
-
-        if (audio.paused && video.readyState >= 2 && !audioPlayPromiseRef.current) {
-          audioPlayPromiseRef.current = audio.play()
-          audioPlayPromiseRef.current
-            .catch(() => {})
-            .finally(() => { audioPlayPromiseRef.current = null })
-        }
-      } else {
-        if (!audio.paused) {
-          if (audioPlayPromiseRef.current) {
-            audioPlayPromiseRef.current.then(() => audio?.pause()).catch(() => {})
-          } else {
-            audio.pause()
-          }
-        }
-      }
-    }
+    const targetProjectTime = projectStartTime + (vTime - trimStart) / playbackSpeed
+    syncAudiosToProjectTime(targetProjectTime, {
+      playing: true,
+      videoSeeking: false,
+      videoReadyState: video.readyState,
+      loopMute: false,
+    })
 
     requestRef.current = requestAnimationFrame(animate)
-  }, [isPlaying, projectStartTime, trimStart, sourceWindowDuration, playbackSpeed, mainAudio])
+  }, [
+    isPlaying,
+    trimStart,
+    sourceWindowDuration,
+    playbackSpeed,
+    projectStartTime,
+    pauseAllAudios,
+    syncAudiosToProjectTime,
+  ])
 
   useEffect(() => {
     requestRef.current = requestAnimationFrame(animate)
@@ -280,19 +263,17 @@ export default function VideoReplaceModal({
     }
   }, [animate])
 
-  // Generate thumbnails for the entire video
   useEffect(() => {
     let isMounted = true
     const fetchThumbnails = async () => {
       setIsLoadingThumbnails(true)
       const seconds: number[] = []
-      // Generate a thumbnail every 2 seconds for performance, or every 1s if short
       const step = videoDuration > 60 ? 2 : 1
       for (let s = 0; s <= videoDuration; s += step) {
         seconds.push(s)
       }
-      
-      const thumbs = await generateVideoThumbnails(videoUrl, seconds, (time, data) => {
+
+      await generateVideoThumbnails(videoUrl, seconds, (time, data) => {
         if (isMounted) {
           setThumbnails(prev => {
             const next = new Map(prev)
@@ -301,7 +282,7 @@ export default function VideoReplaceModal({
           })
         }
       })
-      
+
       if (isMounted) {
         setIsLoadingThumbnails(false)
       }
@@ -314,13 +295,14 @@ export default function VideoReplaceModal({
   useEffect(() => {
     if (videoRef.current && !isPlaying) {
       videoRef.current.currentTime = trimStart
-      if (audioRef.current && projectStartTime !== undefined) {
-        audioRef.current.currentTime = mainAudio
-          ? projectTimeToAudioSourceTime(projectStartTime, mainAudio)
-          : projectStartTime
-      }
+      syncAudiosToProjectTime(projectStartTime, {
+        playing: false,
+        videoSeeking: false,
+        videoReadyState: videoRef.current.readyState,
+        loopMute: false,
+      })
     }
-  }, [trimStart, isPlaying, projectStartTime, mainAudio])
+  }, [trimStart, isPlaying, projectStartTime, syncAudiosToProjectTime])
 
   useEffect(() => {
     overlayRef.current?.focus()
@@ -342,12 +324,12 @@ export default function VideoReplaceModal({
         videoRef.current.src = ''
         videoRef.current.load()
       }
-      if (audioRef.current) {
-        audioRef.current.pause()
-        audioRef.current.src = ''
-        audioRef.current.load()
-      }
-      // Terminate FFmpeg to free memory when modal unmounts
+      audioByIdRef.current.forEach((el) => {
+        el.pause()
+        el.src = ''
+        el.load()
+      })
+      audioByIdRef.current.clear()
       terminateFFmpeg()
     }
   }, [])
@@ -360,14 +342,7 @@ export default function VideoReplaceModal({
       } else {
         videoRef.current.pause()
       }
-
-      if (audioRef.current && !audioRef.current.paused) {
-        if (audioPlayPromiseRef.current) {
-          audioPlayPromiseRef.current.then(() => audioRef.current?.pause()).catch(() => {})
-        } else {
-          audioRef.current.pause()
-        }
-      }
+      pauseAllAudios()
     } else {
       if (!videoPlayPromiseRef.current) {
         videoPlayPromiseRef.current = videoRef.current.play()
@@ -377,29 +352,30 @@ export default function VideoReplaceModal({
       }
     }
     setIsPlaying(!isPlaying)
-  }, [isPlaying])
+  }, [isPlaying, pauseAllAudios])
 
   const handleScroll = useCallback(() => {
     if (isPlaying || !scrollContainerRef.current) return
-    
+
     const sLeft = scrollContainerRef.current.scrollLeft
     setScrollLeft(sLeft)
-    
+
     if (isScrollingProgrammatically.current) return
 
     const newTrimStart = Math.max(0, Math.min(maxTrimStart, sLeft / PIXELS_PER_SECOND))
-    
+
     setTrimStart(newTrimStart)
     if (!isPlaying && videoRef.current) {
       videoRef.current.currentTime = newTrimStart
       setCurrentTime(newTrimStart)
-      if (audioRef.current && projectStartTime !== undefined) {
-        audioRef.current.currentTime = mainAudio
-          ? projectTimeToAudioSourceTime(projectStartTime, mainAudio)
-          : projectStartTime
-      }
+      syncAudiosToProjectTime(projectStartTime, {
+        playing: false,
+        videoSeeking: false,
+        videoReadyState: videoRef.current.readyState,
+        loopMute: false,
+      })
     }
-  }, [maxTrimStart, isPlaying, projectStartTime, mainAudio])
+  }, [maxTrimStart, isPlaying, projectStartTime, syncAudiosToProjectTime])
 
   useEffect(() => {
     const container = scrollContainerRef.current
@@ -446,8 +422,7 @@ export default function VideoReplaceModal({
   }, [handlePlayPause, isPlaying])
 
   const totalTimelineWidth = videoDuration * PIXELS_PER_SECOND
-  
-  // Playhead position relative to the scroll container
+
   const playheadPosition = currentTime * PIXELS_PER_SECOND
 
   return (
@@ -467,14 +442,18 @@ export default function VideoReplaceModal({
             muted
             preload="metadata"
           />
-          {mainAudio && (
+          {audios.map((a) => (
             <audio
-              ref={audioRef}
-              src={mainAudio.url}
+              key={a.id}
+              ref={(el) => {
+                if (el) audioByIdRef.current.set(a.id, el)
+                else audioByIdRef.current.delete(a.id)
+              }}
+              src={a.url}
               style={{ display: 'none' }}
               preload="auto"
             />
-          )}
+          ))}
           <button className={styles.playButton} onClick={handlePlayPause}>
             {isPlaying ? '⏸' : '▶'}
           </button>
@@ -485,7 +464,7 @@ export default function VideoReplaceModal({
             <span>Start: {trimStart.toFixed(1)}s</span>
             <span>End: {(trimStart + sourceWindowDuration).toFixed(1)}s</span>
           </div>
-          
+
           <div className={styles.timelineContainer} ref={timelineContainerRef}>
             <div
               className={styles.scrollContainer}
@@ -493,14 +472,14 @@ export default function VideoReplaceModal({
               onScroll={handleScroll}
               style={{ pointerEvents: isPlaying ? 'none' : 'auto' }}
             >
-              <div 
+              <div
                 className={styles.thumbnailsWrapper}
-                style={{ 
+                style={{
                   paddingLeft: centerOffset,
-                  paddingRight: centerOffset 
+                  paddingRight: centerOffset
                 }}
               >
-                <div 
+                <div
                   className={styles.thumbnailsContainer}
                   style={{ width: totalTimelineWidth }}
                 >
@@ -508,16 +487,15 @@ export default function VideoReplaceModal({
                     <div className={styles.loadingThumbnails}>Loading thumbnails...</div>
                   )}
                   {Array.from({ length: Math.ceil(videoDuration) }).map((_, i) => {
-                    // Virtualization: only render if in range
                     if (i < visibleStartSecond || i > visibleEndSecond) {
                       return <div key={i} className={styles.thumbnailFrame} style={{ width: PIXELS_PER_SECOND }} />
                     }
 
                     const thumbUrl = getThumbnailForSecond(i)
-                    
+
                     return (
-                      <div 
-                        key={i} 
+                      <div
+                        key={i}
                         className={styles.thumbnailFrame}
                         style={{ width: PIXELS_PER_SECOND }}
                       >
@@ -525,33 +503,33 @@ export default function VideoReplaceModal({
                       </div>
                     )
                   })}
-                  <div 
-                    className={styles.playhead} 
+                  <div
+                    className={styles.playhead}
                     style={{ transform: `translateX(${playheadPosition}px)` }}
                   />
                 </div>
               </div>
             </div>
-            <div 
+            <div
               className={styles.selectionWindow}
-              style={{ 
+              style={{
                 left: centerOffset,
-                width: activeWindowWidth 
+                width: activeWindowWidth
               }}
             />
           </div>
         </div>
 
         <div className={styles.footer}>
-          <button 
-            className={styles.cancelBtn} 
+          <button
+            className={styles.cancelBtn}
             onClick={onCancel}
             disabled={isProcessing}
           >
             Cancel
           </button>
-          <button 
-            className={`${styles.confirmBtn} ${isProcessing ? styles.processing : ''}`} 
+          <button
+            className={`${styles.confirmBtn} ${isProcessing ? styles.processing : ''}`}
             onClick={() => onConfirm(trimStart)}
             disabled={isProcessing}
           >

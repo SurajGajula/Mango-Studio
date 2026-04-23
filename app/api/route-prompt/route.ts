@@ -13,13 +13,14 @@ interface ManifestItem {
   endTime?: number
   timestamp?: number
   duration?: number
-  isOverlay?: boolean
   marks?: Array<number | { t: number; id?: string }>
   animation?: string
   transition?: string
   zoomIntensity?: number
+  zoomDistanceIntensity?: number
   transitionDuration?: number
   animationDuration?: number
+  animationZoomEasing?: string
   transitionFlashMode?: 'solid' | 'negative'
   cropAspect?: string
   originalDuration?: number
@@ -30,6 +31,7 @@ interface ManifestItem {
   speedEnd?: number
   speedEasing?: 'linear' | 'ease'
   muted?: boolean
+  row?: number
 }
 
 interface SerializedManifest {
@@ -95,16 +97,19 @@ export interface AddEffectInstruction {
   endTime: number
   intensity?: number
   contrast?: number
+  flashSpeed?: number
 }
 
 export interface TransitionInstruction {
   type: 'image' | 'video'
   id: string
-  animation?: 'none' | 'pulse' | 'shake' | 'jitter' | 'last-frame-hold'
+  animation?: 'none' | 'zoom-in' | 'zoom-out' | 'shake' | 'jitter' | 'last-frame-hold' | string
   transition?: 'none' | 'split' | 'fade' | 'morph' | 'slide-in' | 'circle' | 'rotate' | 'flash'
   zoomIntensity?: number
+  zoomDistanceIntensity?: number
   transitionDuration?: number
   animationDuration?: number
+  animationZoomEasing?: 'fast-slow' | 'slow-fast'
   transitionColor?: string
   transitionFlashMode?: 'solid' | 'negative'
   transitionDirection?: 'left' | 'right' | 'top' | 'bottom'
@@ -117,6 +122,13 @@ export interface CropInstruction {
   type: 'image' | 'video'
   id: string
   cropAspect: '16:9' | '4:3' | '1:1' | '3:4' | '9:16' | 'none'
+}
+
+export interface StepGrowthInstruction {
+  id?: string
+  imageNumber?: number
+  target?: 'image_id' | 'image_number' | 'selected'
+  steps?: number
 }
 
 export interface DeleteTimelineItemInstruction {
@@ -132,6 +144,7 @@ type RoutedAction =
   | 'replace_with_solid'
   | 'add_text'
   | 'set_transitions'
+  | 'set_step_growth'
   | 'set_crop'
   | 'add_effect'
   | 'delete_timeline_items'
@@ -146,6 +159,7 @@ interface RoutePromptResponse {
   newTexts?: AddTextInstruction[]
   newEffects?: AddEffectInstruction[]
   transitions?: TransitionInstruction[]
+  stepGrowth?: StepGrowthInstruction[]
   crops?: CropInstruction[]
   deleteItems?: DeleteTimelineItemInstruction[]
   duplicateRange?: { kind: 'image' | 'video'; firstNumber: number; lastNumber: number }
@@ -163,13 +177,14 @@ function buildUploadedFilesContext(files: UploadedFileMeta[]): string {
 
 function buildManifestContext(manifest: SerializedManifest): string {
   const lines: string[] = ['Current timeline contents:']
-  lines.push('Item numbers reflect order by start time (e.g. "image 1" = earliest image on the timeline).')
+  lines.push('Image numbers are global across all rows, sorted by image startTime.')
 
   if (manifest.images?.length) {
     const sorted = [...manifest.images].sort((a, b) => (a.startTime ?? 0) - (b.startTime ?? 0))
     lines.push(`Images (${sorted.length}):`)
     sorted.forEach((img, i) => {
-      lines.push(`  - #${i + 1} id="${img.id}" name="${img.name}" startTime=${img.startTime}s endTime=${img.endTime}s animation=${img.animation ?? 'none'} transition=${img.transition ?? 'none'}${img.zoomIntensity ? ` zoomIntensity=${img.zoomIntensity}` : ''}${img.transitionDuration ? ` transitionDuration=${img.transitionDuration}s` : ''}${img.animationDuration ? ` animationDuration=${img.animationDuration}s` : ''} cropAspect=${img.cropAspect ?? 'none'}`)
+      const row = img.row ?? 0
+      lines.push(`  - #${i + 1} row=${row} id="${img.id}" name="${img.name}" startTime=${img.startTime}s endTime=${img.endTime}s animation=${img.animation ?? 'none'} transition=${img.transition ?? 'none'}${img.zoomIntensity ? ` zoomIntensity=${img.zoomIntensity}` : ''}${img.zoomDistanceIntensity ? ` zoomDistanceIntensity=${img.zoomDistanceIntensity}` : ''}${img.transitionDuration ? ` transitionDuration=${img.transitionDuration}s` : ''}${img.animationDuration ? ` animationDuration=${img.animationDuration}s` : ''}${img.animationZoomEasing ? ` animationZoomEasing=${img.animationZoomEasing}` : ''} cropAspect=${img.cropAspect ?? 'none'}`)
     })
   }
   if (manifest.videos?.length) {
@@ -179,7 +194,7 @@ function buildManifestContext(manifest: SerializedManifest): string {
       const speedStr = vid.speedStart !== undefined && vid.speedEnd !== undefined && vid.speedStart !== vid.speedEnd
         ? `speedStart=${vid.speedStart}x speedEnd=${vid.speedEnd}x easing=${vid.speedEasing ?? 'linear'}`
         : `playbackSpeed=${vid.playbackSpeed ?? 1}x`
-      lines.push(`  - #${i + 1} id="${vid.id}" title="${vid.title}" timestamp=${vid.timestamp}s duration=${vid.duration}s ${speedStr} muted=${vid.muted ?? false} isOverlay=${vid.isOverlay} animation=${vid.animation ?? 'none'} transition=${vid.transition ?? 'none'}${vid.zoomIntensity ? ` zoomIntensity=${vid.zoomIntensity}` : ''}${vid.transitionDuration ? ` transitionDuration=${vid.transitionDuration}s` : ''}${vid.animationDuration ? ` animationDuration=${vid.animationDuration}s` : ''} cropAspect=${vid.cropAspect ?? 'none'}`)
+      lines.push(`  - #${i + 1} id="${vid.id}" title="${vid.title}" timestamp=${vid.timestamp}s duration=${vid.duration}s ${speedStr} muted=${vid.muted ?? false} row=${vid.row ?? 0} animation=${vid.animation ?? 'none'} transition=${vid.transition ?? 'none'}${vid.zoomIntensity ? ` zoomIntensity=${vid.zoomIntensity}` : ''}${vid.zoomDistanceIntensity ? ` zoomDistanceIntensity=${vid.zoomDistanceIntensity}` : ''}${vid.transitionDuration ? ` transitionDuration=${vid.transitionDuration}s` : ''}${vid.animationDuration ? ` animationDuration=${vid.animationDuration}s` : ''}${vid.animationZoomEasing ? ` animationZoomEasing=${vid.animationZoomEasing}` : ''} cropAspect=${vid.cropAspect ?? 'none'}`)
     })
   }
   if (manifest.texts?.length) {
@@ -290,6 +305,7 @@ export async function POST(request: NextRequest) {
               'replace_with_solid',
               'add_text',
               'set_transitions',
+              'set_step_growth',
               'set_crop',
               'add_effect',
             ],
@@ -371,6 +387,12 @@ export async function POST(request: NextRequest) {
         action: 'set_transitions',
         transitions: (args?.transitions as TransitionInstruction[]) || [],
         message: (args?.message as string) || 'Transitions updated.',
+      }
+    } else if (action === 'set_step_growth') {
+      result = {
+        action: 'set_step_growth',
+        stepGrowth: (args?.grows as StepGrowthInstruction[]) || [],
+        message: (args?.message as string) || 'Step growth applied.',
       }
     } else if (action === 'set_crop') {
       result = {

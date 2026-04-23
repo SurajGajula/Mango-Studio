@@ -12,8 +12,8 @@ export function findFreeAudioOverlayRow(start: number, end: number): number {
   let row = 1
   while (true) {
     const hasVisual =
-      s.videos.some((v) => v.row === row && v.isOverlay) ||
-      s.images.some((img) => img.row === row && !img.isMainTrack) ||
+      s.videos.some((v) => v.row === row && v.row > 0) ||
+      s.images.some((img) => img.row === row && img.row > 0) ||
       s.texts.some((t) => t.row === row) ||
       s.effects.some((e) => e.row === row)
     if (hasVisual) {

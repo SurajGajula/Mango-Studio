@@ -4,9 +4,7 @@ export function applyJitter(params: TransformParams): void {
   const { ctx, imgEl, x, y, w, h, sx, sy, sw, sh, zoomIntensity, elapsedTime, animationDuration } = params
   
   const jitterDuration = animationDuration ?? 0.4
-  // Dynamically link scale to intensity. 
-  // 0% intensity = 1.0x zoom. 100% intensity = 2.5x zoom.
-  const scale = 1.0 + (zoomIntensity * 1.5)
+  const scale = 1.0 + zoomIntensity * 0.75
   
   const zoomedSw = sw / scale
   const zoomedSh = sh / scale

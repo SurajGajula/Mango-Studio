@@ -13,6 +13,7 @@ export class EffectClass {
   row: number
   intensity: number
   contrast: number
+  flashSpeed: number
   createdAt: Date
 
   constructor(
@@ -23,6 +24,7 @@ export class EffectClass {
     row: number = 0,
     intensity: number = 0.5,
     contrast: number = 0.5,
+    flashSpeed: number = 1,
     createdAt?: Date
   ) {
     this.id = id
@@ -32,6 +34,7 @@ export class EffectClass {
     this.row = row
     this.intensity = intensity
     this.contrast = contrast
+    this.flashSpeed = flashSpeed
     this.createdAt = createdAt || new Date()
   }
 
@@ -44,6 +47,7 @@ export class EffectClass {
       updates.row !== undefined ? updates.row : this.row,
       updates.intensity !== undefined ? updates.intensity : this.intensity,
       updates.contrast !== undefined ? updates.contrast : this.contrast,
+      updates.flashSpeed !== undefined ? updates.flashSpeed : this.flashSpeed,
       updates.createdAt !== undefined ? updates.createdAt : this.createdAt
     )
   }

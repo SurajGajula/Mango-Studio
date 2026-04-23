@@ -10,16 +10,30 @@ import type {
   AddTextInstruction,
   AddEffectInstruction,
   TransitionInstruction,
+  StepGrowthInstruction,
   CropInstruction,
   DeleteTimelineItemInstruction,
 } from '@/app/api/route-prompt/route'
 import { TextClass } from '@/app/models/TextClass'
 import { EffectClass } from '@/app/models/EffectClass'
-import { ImageClass, AnimationMode, TransitionMode } from '@/app/models/ImageClass'
-import { computeCropForAspect, computeCanvasCropPlacement, ASPECT_RATIOS, computeVideoCropForAspect, computeMediaCropForAspect, withoutCanvasPlacement } from '@/app/lib/mediaUtils'
+import {
+  ImageClass,
+  AnimationMode,
+  TransitionMode,
+  inferAnimationZoomEasing,
+  migrateAnimationValue,
+} from '@/app/models/ImageClass'
+import { computeCropForAspect, computeCanvasCropPlacement, ASPECT_RATIOS, computeVideoCropForAspect, computeMediaCropForAspect, getLogicalCanvasDimensions } from '@/app/lib/mediaUtils'
+import {
+  imageCropOverlayFromPatch,
+  replacePlacementDimensions,
+  resolveImagePatch,
+  runHistoryTransaction,
+} from '@/app/lib/timeline'
 import { findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
 import { createSolidColorDataUrl } from '@/app/lib/solidColorImage'
 import { FIXED_ASPECT_RATIO } from '@/app/lib/aspectRatio'
+import { useSelectionStore } from '@/app/stores/selectionStore'
 import styles from './ChatWindow.module.css'
 
 interface Message {
@@ -147,7 +161,8 @@ export default function ChatWindow() {
         e.endTime,
         row,
         e.intensity ?? 0.5,
-        e.contrast ?? 0.5
+        e.contrast ?? 0.5,
+        e.flashSpeed ?? 1
       ))
     }
   }
@@ -156,9 +171,17 @@ export default function ChatWindow() {
     const { images, videos } = useManifestStore.getState()
     for (const t of transitions) {
       const updates: any = {}
-      if (t.animation !== undefined) updates.animation = t.animation
+      if (t.animation !== undefined) {
+        const raw = String(t.animation)
+        updates.animation = migrateAnimationValue(raw)
+        updates.animationZoomEasing = inferAnimationZoomEasing(raw, '', t.animationZoomEasing)
+      }
+      if (t.animationZoomEasing === 'slow-fast' || t.animationZoomEasing === 'fast-slow') {
+        updates.animationZoomEasing = t.animationZoomEasing
+      }
       if (t.transition !== undefined) updates.transition = t.transition
       if (t.zoomIntensity !== undefined) updates.zoomIntensity = t.zoomIntensity
+      if (t.zoomDistanceIntensity !== undefined) updates.zoomDistanceIntensity = t.zoomDistanceIntensity
       if (t.transitionColor !== undefined) updates.transitionColor = t.transitionColor
       if (t.transitionFlashMode !== undefined) updates.transitionFlashMode = t.transitionFlashMode
       if (t.transitionDirection !== undefined) updates.transitionDirection = t.transitionDirection
@@ -218,6 +241,75 @@ export default function ChatWindow() {
     }
   }
 
+  const applyStepGrowth = (instructions: StepGrowthInstruction[]) => {
+    const pickImage = (instruction: StepGrowthInstruction) => {
+      const { images } = useManifestStore.getState()
+      if (instruction.target === 'selected') {
+        const selectedImageId = useSelectionStore.getState().selectedImageId
+        return selectedImageId ? images.find((img) => img.id === selectedImageId) : undefined
+      }
+      if (instruction.id) {
+        return images.find((img) => img.id === instruction.id)
+      }
+      if (typeof instruction.imageNumber === 'number' && Number.isFinite(instruction.imageNumber)) {
+        const sorted = [...images]
+          .sort((a, b) => a.startTime - b.startTime)
+        return sorted[instruction.imageNumber - 1]
+      }
+      const selectedImageId = useSelectionStore.getState().selectedImageId
+      return selectedImageId ? images.find((img) => img.id === selectedImageId) : undefined
+    }
+
+    const approxEqual = (a: number, b: number) => Math.abs(a - b) < 1e-4
+
+    for (const instruction of instructions) {
+      const targetImage = pickImage(instruction)
+      if (!targetImage) continue
+      const steps = Math.max(2, Math.round(instruction.steps ?? 4))
+      const duration = targetImage.endTime - targetImage.startTime
+      if (!(duration > 0)) continue
+
+      const splitTimes: number[] = []
+      for (let i = 1; i < steps; i++) {
+        splitTimes.push(targetImage.startTime + (duration * i) / steps)
+      }
+      splitImageAtTimes(targetImage.id, splitTimes)
+
+      const boundaries = [targetImage.startTime, ...splitTimes, targetImage.endTime]
+      const { images } = useManifestStore.getState()
+      const segments = boundaries.slice(0, -1).map((segStart, idx) =>
+        images.find(
+          (img) =>
+            img.url === targetImage.url &&
+            approxEqual(img.startTime, segStart) &&
+            approxEqual(img.endTime, boundaries[idx + 1])
+        )
+      )
+
+      const centerX = targetImage.x + targetImage.width / 2
+      const centerY = targetImage.y + targetImage.height / 2
+      const { logicalW, logicalH } = getLogicalCanvasDimensions(FIXED_ASPECT_RATIO)
+      const maxScale = Math.min(logicalW / targetImage.width, logicalH / targetImage.height)
+      const maxWidth = targetImage.width * maxScale
+      const maxHeight = targetImage.height * maxScale
+
+      for (let i = 0; i < segments.length; i++) {
+        const segment = segments[i]
+        if (!segment) continue
+        const progress = steps <= 1 ? 1 : i / (steps - 1)
+        const width = targetImage.width + (maxWidth - targetImage.width) * progress
+        const height = targetImage.height + (maxHeight - targetImage.height) * progress
+        updateImage(segment.id, {
+          x: centerX - width / 2,
+          y: centerY - height / 2,
+          width,
+          height,
+          keyframes: [],
+        })
+      }
+    }
+  }
+
   const applyReplacementWithUrl = async (targetId: string, url: string, name: string) => {
     const { images, videos } = useManifestStore.getState()
     const aspectRatio = FIXED_ASPECT_RATIO
@@ -225,44 +317,38 @@ export default function ChatWindow() {
     const originalVideo = videos.find((v) => v.id === targetId)
 
     if (originalImage) {
-      if (originalImage.cropAspect) {
-        const ratio = ASPECT_RATIOS[originalImage.cropAspect]
-        if (ratio) {
-          const tempImage = new ImageClass('tmp', '', url, 0, 1)
-          const patch = await computeCropForAspect(tempImage, aspectRatio, ratio[0], ratio[1], originalImage.cropAspect)
-          updateImage(targetId, {
-            ...withoutCanvasPlacement(patch),
-            url,
-            name,
-            x: originalImage.x,
-            y: originalImage.y,
-            width: originalImage.width,
-            height: originalImage.height,
-          })
-        } else {
-          const patch = await computeCanvasCropPlacement(url, 'image', aspectRatio)
-          updateImage(targetId, {
-            ...withoutCanvasPlacement(patch),
-            url,
-            name,
-            x: originalImage.x,
-            y: originalImage.y,
-            width: originalImage.width,
-            height: originalImage.height,
-          })
-        }
-      } else {
-        const patch = await computeCanvasCropPlacement(url, 'image', aspectRatio)
-        updateImage(targetId, {
-          ...withoutCanvasPlacement(patch),
+      const placeForCrop = replacePlacementDimensions(originalImage, aspectRatio)
+      let patch: Partial<ImageClass> = await resolveImagePatch(url, aspectRatio, originalImage.cropAspect, true, {
+        width: placeForCrop.width,
+        height: placeForCrop.height,
+      })
+      const sw = patch.cropSw
+      const sh = patch.cropSh
+      if (!(typeof sw === 'number' && typeof sh === 'number' && sw > 1e-6 && sh > 1e-6)) {
+        patch = (await computeMediaCropForAspect(
+          url,
+          'image',
+          aspectRatio,
+          placeForCrop.width,
+          placeForCrop.height,
+          originalImage.cropAspect ?? aspectRatio
+        )) as Partial<ImageClass>
+      }
+      runHistoryTransaction((historyStore) => {
+        const live = historyStore.images.find((i) => i.id === targetId)
+        if (!live) return
+        const place = replacePlacementDimensions(live, aspectRatio)
+        historyStore.updateImage(targetId, {
           url,
           name,
-          x: originalImage.x,
-          y: originalImage.y,
-          width: originalImage.width,
-          height: originalImage.height,
+          x: place.x,
+          y: place.y,
+          width: place.width,
+          height: place.height,
+          ...imageCropOverlayFromPatch(patch, live),
+          keyframes: [],
         })
-      }
+      })
     } else if (originalVideo) {
       const imageId = `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       const startTime = originalVideo.timestamp
@@ -298,7 +384,7 @@ export default function ChatWindow() {
         originalVideo.height,
         1,
         new Date(),
-        originalVideo.row === 0,
+        undefined,
         originalVideo.animation as AnimationMode,
         originalVideo.transition as TransitionMode,
         originalVideo.cropAspect || patch.cropAspect,
@@ -309,6 +395,7 @@ export default function ChatWindow() {
         originalVideo.zoomIntensity,
         originalVideo.transitionDuration,
         originalVideo.animationDuration,
+        originalVideo.animationZoomEasing,
         undefined,
         undefined,
         undefined,
@@ -318,7 +405,8 @@ export default function ChatWindow() {
         undefined,
         undefined,
         undefined,
-        originalVideo.transitionFlashMode
+        originalVideo.transitionFlashMode,
+        originalVideo.zoomDistanceIntensity
       )
 
       replaceVideoWithImage(originalVideo.id, image)
@@ -375,11 +463,19 @@ export default function ChatWindow() {
     try {
       const { videos, images, texts, audios, effects } = useManifestStore.getState()
       const manifest = {
-        images: images.map((i) => ({ id: i.id, name: i.name, startTime: i.startTime, endTime: i.endTime, animation: i.animation, transition: i.transition, zoomIntensity: i.zoomIntensity, transitionDuration: i.transitionDuration, animationDuration: i.animationDuration, cropAspect: i.cropAspect, transitionColor: i.transitionColor, transitionFlashMode: i.transitionFlashMode, transitionDirection: i.transitionDirection, transitionAxis: i.transitionAxis, transitionSlideEasing: i.transitionSlideEasing, transitionCircleEasing: i.transitionCircleEasing })),
-        videos: videos.map((v) => ({ id: v.id, title: v.title, timestamp: v.timestamp, duration: v.duration, playbackSpeed: v.playbackSpeed, speedStart: v.speedStart, speedEnd: v.speedEnd, speedEasing: v.speedEasing, muted: v.muted, isOverlay: v.isOverlay, animation: v.animation, transition: v.transition, zoomIntensity: v.zoomIntensity, transitionDuration: v.transitionDuration, animationDuration: v.animationDuration, cropAspect: v.cropAspect, transitionColor: v.transitionColor, transitionFlashMode: v.transitionFlashMode, transitionDirection: v.transitionDirection, transitionAxis: v.transitionAxis, transitionSlideEasing: v.transitionSlideEasing, transitionCircleEasing: v.transitionCircleEasing })),
+        images: images.map((i) => ({ id: i.id, name: i.name, startTime: i.startTime, endTime: i.endTime, row: i.row, animation: i.animation, transition: i.transition, zoomIntensity: i.zoomIntensity, zoomDistanceIntensity: i.zoomDistanceIntensity, transitionDuration: i.transitionDuration, animationDuration: i.animationDuration, animationZoomEasing: i.animationZoomEasing, cropAspect: i.cropAspect, transitionColor: i.transitionColor, transitionFlashMode: i.transitionFlashMode, transitionDirection: i.transitionDirection, transitionAxis: i.transitionAxis, transitionSlideEasing: i.transitionSlideEasing, transitionCircleEasing: i.transitionCircleEasing })),
+        videos: videos.map((v) => ({ id: v.id, title: v.title, timestamp: v.timestamp, duration: v.duration, playbackSpeed: v.playbackSpeed, speedStart: v.speedStart, speedEnd: v.speedEnd, speedEasing: v.speedEasing, muted: v.muted, row: v.row, animation: v.animation, transition: v.transition, zoomIntensity: v.zoomIntensity, zoomDistanceIntensity: v.zoomDistanceIntensity, transitionDuration: v.transitionDuration, animationDuration: v.animationDuration, animationZoomEasing: v.animationZoomEasing, cropAspect: v.cropAspect, transitionColor: v.transitionColor, transitionFlashMode: v.transitionFlashMode, transitionDirection: v.transitionDirection, transitionAxis: v.transitionAxis, transitionSlideEasing: v.transitionSlideEasing, transitionCircleEasing: v.transitionCircleEasing })),
         texts: texts.map((t) => ({ id: t.id, content: t.content, startTime: t.startTime, endTime: t.endTime })),
         audios: audios.map((a) => ({ id: a.id, name: a.name, startTime: a.startTime, endTime: a.endTime, originalDuration: a.originalDuration, trimStart: a.trimStart, trimEnd: a.trimEnd, playbackSpeed: a.playbackSpeed, speedStart: a.speedStart, speedEnd: a.speedEnd, speedEasing: a.speedEasing, marks: a.marks })),
-        effects: effects.map((e) => ({ id: e.id, name: e.type, startTime: e.startTime, endTime: e.endTime })),
+        effects: effects.map((e) => ({
+          id: e.id,
+          name: e.type,
+          startTime: e.startTime,
+          endTime: e.endTime,
+          intensity: e.intensity,
+          contrast: e.contrast,
+          flashSpeed: e.flashSpeed,
+        })),
       }
 
       const filesSnapshot = uploadedFiles
@@ -420,6 +516,8 @@ export default function ChatWindow() {
           await applySolidReplacements(data.solidReplacements || [])
         } else if (data.action === 'set_transitions') {
           applyTransitions(data.transitions || [])
+        } else if (data.action === 'set_step_growth') {
+          applyStepGrowth(data.stepGrowth || [])
         } else if (data.action === 'set_crop') {
           await applyCrops(data.crops || [])
         } else if (data.action === 'add_effect') {

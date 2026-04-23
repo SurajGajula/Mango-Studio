@@ -57,8 +57,8 @@ const MainTrackComponent = ({
   const setContextMenu = useSelectionStore((state) => state.setContextMenu)
 
   const sortedItems = useMemo(() => {
-    const v = videos.filter((v) => !v.isOverlay).map((v) => ({ type: 'video' as const, item: v }))
-    const i = images.filter((img) => img.isMainTrack).map((img) => ({ type: 'image' as const, item: img }))
+    const v = videos.filter((v) => v.row === 0).map((v) => ({ type: 'video' as const, item: v }))
+    const i = images.filter((img) => img.row === 0).map((img) => ({ type: 'image' as const, item: img }))
     return [...v, ...i].sort((a, b) => {
       const aStart = a.type === 'video' ? a.item.timestamp : a.item.startTime
       const bStart = b.type === 'video' ? b.item.timestamp : b.item.startTime

@@ -11,7 +11,6 @@ import ReplaceFromLibraryModal from './modals/ReplaceFromLibraryModal'
 import ExportModal from './modals/ExportModal'
 import PlaybackControls from './PlaybackControls'
 import UnifiedRow from './tracks/UnifiedRow'
-import AudioTrack from './tracks/AudioTrack'
 import MainTrack from './tracks/MainTrack'
 import ContextMenu from './ui/ContextMenu'
 import { useTimelineShortcuts } from '@/app/hooks/useTimelineShortcuts'
@@ -324,6 +323,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
   useEffect(() => {
     const handler = (e: WheelEvent) => {
       if (replaceVideoData) return
+      if (e.target instanceof Element && e.target.closest('[role="dialog"]')) return
       const container = scrollContainerRef.current
       if (!container) return
       const r = container.getBoundingClientRect()
@@ -411,7 +411,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
           speedEasing={replaceVideoData.speedEasing}
           initialTrimStart={replaceVideoData.initialTrimStart}
           projectStartTime={replaceVideoData.projectStartTime}
-          mainAudio={audios.find((a) => !a.isOverlay) ?? null}
+          audios={audios}
           confirmLabel={replaceVideoData.targetType === 'image' ? 'Replace' : 'Update'}
           isProcessing={isReplacingClip}
           onConfirm={handleConfirmReplaceVideo}
@@ -482,13 +482,6 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
                   style={{ width: `${totalTimelineWidth}%` }}
                   onClick={handleTimelineDeselect}
                 >
-                  <AudioTrack
-                    totalDuration={totalDuration}
-                    effectivePadding={effectivePadding}
-                    getContentPosition={getContentPosition}
-                    handleAudioBodyDragStart={handleAudioBodyDragStart}
-                    handleAudioTrimStart={handleAudioTrimStart}
-                  />
                   {overlayRows.map((rowIndex) => (
                     <UnifiedRow
                       key={`unified-row-${rowIndex}`}

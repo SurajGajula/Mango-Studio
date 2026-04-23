@@ -68,14 +68,23 @@ const UnifiedRow = ({
   const setContextMenu = useSelectionStore((state) => state.setContextMenu)
 
   const items = useMemo(() => {
-    const rowImages = images.filter((img) => img.row === rowIndex && !img.isMainTrack).map(img => ({ type: 'image' as const, item: img, id: img.id, startTime: img.startTime, duration: img.endTime - img.startTime }))
-    const rowVideos = videos.filter((v) => v.row === rowIndex && v.isOverlay).map(v => ({ type: 'video' as const, item: v, id: v.id, startTime: v.timestamp, duration: v.duration ?? 0 }))
+    const rowImages = images.filter((img) => img.row === rowIndex && img.row > 0).map(img => ({ type: 'image' as const, item: img, id: img.id, startTime: img.startTime, duration: img.endTime - img.startTime }))
+    const rowVideos = videos.filter((v) => v.row === rowIndex && v.row > 0).map(v => ({ type: 'video' as const, item: v, id: v.id, startTime: v.timestamp, duration: v.duration ?? 0 }))
     const rowTexts = texts.filter((t) => t.row === rowIndex).map(t => ({ type: 'text' as const, item: t, id: t.id, startTime: t.startTime, duration: t.endTime - t.startTime }))
     const rowEffects = effects.filter((e) => e.row === rowIndex).map(e => ({ type: 'effect' as const, item: e, id: e.id, startTime: e.startTime, duration: e.endTime - e.startTime }))
-    const rowAudios = audios.filter((a) => a.row === rowIndex && a.isOverlay).map(a => ({ type: 'audio' as const, item: a, id: a.id, startTime: a.startTime, duration: (a.originalDuration - a.trimStart - a.trimEnd) / (a.playbackSpeed ?? 1) }))
+    const rowAudios = audios.filter((a) => a.row === rowIndex).map(a => ({ type: 'audio' as const, item: a, id: a.id, startTime: a.startTime, duration: (a.originalDuration - a.trimStart - a.trimEnd) / (a.playbackSpeed ?? 1) }))
     
     return [...rowImages, ...rowVideos, ...rowTexts, ...rowEffects, ...rowAudios].sort((a, b) => a.startTime - b.startTime)
   }, [images, videos, texts, effects, audios, rowIndex])
+
+  const imageManifestNumberById = useMemo(() => {
+    const map = new Map<string, number>()
+    const sorted = [...images].sort((a, b) => a.startTime - b.startTime)
+    sorted.forEach((img, index) => {
+      map.set(img.id, index + 1)
+    })
+    return map
+  }, [images])
 
   if (items.length === 0 && !showEmptyForDrag) return null
 
@@ -96,6 +105,8 @@ const UnifiedRow = ({
         if (type === 'image') {
           const isSelected = selectedImageId === id
           const imgItem = item as ImageClass
+          const imageNumber = imageManifestNumberById.get(id) ?? 1
+          const imageLabel = `Image #${imageNumber}`
           const activeEndPct = getContentPosition(startTime + duration)
           const segWImg = Math.max(1e-6, activeEndPct - leftPercent)
           const kfImg = keyframeTimelineEntries(startTime, duration, imgItem.keyframes ?? [], totalDuration)
@@ -115,7 +126,7 @@ const UnifiedRow = ({
               <div className={styles.overlayHandleEnd} onMouseDown={(e) => { e.stopPropagation(); handleImageDragStart(id, 'end', e) }} />
               <div className={styles.overlayBox}>
                 <img src={(item as any).url} className={styles.overlayThumbnail} alt="" draggable={false} />
-                <span className={styles.overlayName}>Image</span>
+                <span className={styles.overlayName}>{imageLabel}</span>
               </div>
               {kfImg.map(({ id: kfId, timelinePos }) => (
                 <div

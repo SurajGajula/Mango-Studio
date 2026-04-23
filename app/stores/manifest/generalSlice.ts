@@ -68,6 +68,10 @@ export const createGeneralSlice = (set: any, get: any) => ({
 
     if (!item) return
 
+    if (type === 'audio') {
+      targetRow = Math.max(1, targetRow)
+    }
+
     const startTime = type === 'video' ? item.timestamp : item.startTime
     const duration = type === 'audio' ? (item.originalDuration - item.trimStart - item.trimEnd) / (item.playbackSpeed ?? 1) : (item.duration ?? (item.endTime - item.startTime))
     const finalTime = newTime !== undefined ? newTime : startTime
@@ -89,18 +93,6 @@ export const createGeneralSlice = (set: any, get: any) => ({
       let nextAudios = [...s.audios]
       let nextEffects = [...s.effects]
 
-      if (oldRow === 0 && (type === 'video' || (type === 'image' && item.isMainTrack))) {
-        const delta = -duration
-        nextVideos = nextVideos.map(v => (v.row === 0 && v.timestamp > startTime) ? v.copy({ timestamp: v.timestamp + delta }) : v)
-        nextImages = nextImages.map(img => (img.row === 0 && img.startTime > startTime) ? img.copy({ startTime: img.startTime + delta, endTime: img.endTime + delta }) : img)
-      }
-
-      if (targetRow === 0 && (type === 'video' || type === 'image')) {
-        const delta = duration
-        nextVideos = nextVideos.map(v => (v.row === 0 && v.timestamp >= finalTime) ? v.copy({ timestamp: v.timestamp + delta }) : v)
-        nextImages = nextImages.map(img => (img.row === 0 && img.startTime >= finalTime) ? img.copy({ startTime: img.startTime + delta, endTime: img.endTime + delta }) : img)
-      }
-
       const updates: any = { row: targetRow }
       if (newTime !== undefined) {
         if (type === 'video') updates.timestamp = newTime
@@ -110,10 +102,6 @@ export const createGeneralSlice = (set: any, get: any) => ({
         }
       }
       
-      if (type === 'video') updates.isOverlay = targetRow !== 0
-      if (type === 'image') updates.isMainTrack = targetRow === 0
-      if (type === 'audio') updates.isOverlay = targetRow >= 1
-
       if (type === 'video') nextVideos = nextVideos.map(v => v.id === id ? v.copy(updates) : v)
       else if (type === 'image') nextImages = nextImages.map(img => img.id === id ? img.copy(updates) : img)
       else if (type === 'text') nextTexts = nextTexts.map(t => t.id === id ? t.copy(updates) : t)
@@ -138,18 +126,18 @@ export const createGeneralSlice = (set: any, get: any) => ({
       videos: s.videos.map((v) => {
         if (v.row < atIndex) return v
         const row = v.row + 1
-        return v.copy({ row, isOverlay: row !== 0 })
+        return v.copy({ row })
       }),
       images: s.images.map((img) => {
         if (img.row < atIndex) return img
         const row = img.row + 1
-        return img.copy({ row, isMainTrack: row === 0 })
+        return img.copy({ row })
       }),
       texts: s.texts.map(t => t.row >= atIndex ? t.copy({ row: t.row + 1 }) : t),
       audios: s.audios.map((a) => {
         if (a.row < atIndex) return a
         const row = a.row + 1
-        return a.copy({ row, isOverlay: row >= 1 })
+        return a.copy({ row })
       }),
       effects: s.effects.map(e => e.row >= atIndex ? e.copy({ row: e.row + 1 }) : e),
     }))
@@ -163,18 +151,18 @@ export const createGeneralSlice = (set: any, get: any) => ({
         videos: s.videos.map((v) => {
           if (v.row < atIndex) return v
           const row = v.row - 1
-          return v.copy({ row, isOverlay: row !== 0 })
+          return v.copy({ row })
         }),
         images: s.images.map((img) => {
           if (img.row < atIndex) return img
           const row = img.row - 1
-          return img.copy({ row, isMainTrack: row === 0 })
+          return img.copy({ row })
         }),
         texts: s.texts.map(t => t.row === atIndex ? t.copy({ row: t.row - 1 }) : (t.row > atIndex ? t.copy({ row: t.row - 1 }) : t)),
         audios: s.audios.map((a) => {
           if (a.row < atIndex) return a
           const row = a.row - 1
-          return a.copy({ row, isOverlay: row >= 1 })
+          return a.copy({ row })
         }),
         effects: s.effects.map(e => e.row === atIndex ? e.copy({ row: e.row - 1 }) : (e.row > atIndex ? e.copy({ row: e.row - 1 }) : e)),
       }
@@ -182,7 +170,40 @@ export const createGeneralSlice = (set: any, get: any) => ({
     get().pushHistory()
   },
 
-  recalculateTimestamps: () => {},
+  recalculateTimestamps: () => {
+    set((state: ManifestStore) => {
+      const orderedMain = [
+        ...state.videos
+          .filter((v) => v.row === 0)
+          .map((v) => ({ kind: 'video' as const, id: v.id, start: v.timestamp, duration: v.duration ?? 0 })),
+        ...state.images
+          .filter((img) => img.row === 0)
+          .map((img) => ({ kind: 'image' as const, id: img.id, start: img.startTime, duration: img.duration })),
+      ].sort((a, b) => a.start - b.start)
+
+      let cursor = 0
+      const videoStarts = new Map<string, number>()
+      const imageStarts = new Map<string, number>()
+      for (const item of orderedMain) {
+        if (item.kind === 'video') videoStarts.set(item.id, cursor)
+        else imageStarts.set(item.id, cursor)
+        cursor += Math.max(0, item.duration)
+      }
+
+      return {
+        videos: state.videos.map((v) => {
+          const nextStart = videoStarts.get(v.id)
+          return nextStart === undefined ? v : v.copy({ timestamp: nextStart })
+        }),
+        images: state.images.map((img) => {
+          const nextStart = imageStarts.get(img.id)
+          return nextStart === undefined
+            ? img
+            : img.copy({ startTime: nextStart, endTime: nextStart + img.duration })
+        }),
+      }
+    })
+  },
 
   bulkUpdateMainTrackItems: (imagePatches: any[], videoTimestampPatches: any[]) => {
     const imgMap = new Map(imagePatches.map((p) => [p.id, p]))
@@ -295,7 +316,6 @@ export const createGeneralSlice = (set: any, get: any) => ({
 
     if (!item) return
 
-    const isMainTrack = type === 'video' ? item.row === 0 : (type === 'image' ? item.isMainTrack : (type === 'audio' ? !item.isOverlay : false))
     const startTime = type === 'video' ? item.timestamp : item.startTime
     const duration = type === 'audio' ? (item.originalDuration - item.trimStart - item.trimEnd) / (item.playbackSpeed ?? 1) : (item.duration ?? 0)
     const endTime = startTime + duration
@@ -322,39 +342,11 @@ export const createGeneralSlice = (set: any, get: any) => ({
     }
 
     set((s: ManifestStore) => {
-      const nextVideos = s.videos.map((v) => {
-        if (isMainTrack && v.row === 0 && v.timestamp >= endTime) {
-          return v.copy({ timestamp: v.timestamp + duration })
-        }
-        return v
-      })
-
-      const nextImages = s.images.map((img) => {
-        if (isMainTrack && img.row === 0 && img.startTime >= endTime) {
-          return img.copy({ startTime: img.startTime + duration, endTime: img.endTime + duration })
-        }
-        return img
-      })
-
-      const nextTexts = s.texts.map((t) => {
-        if (isMainTrack && t.row === 0 && t.startTime >= endTime) {
-          return t.copy({ startTime: t.startTime + duration, endTime: t.endTime + duration })
-        }
-        return t
-      })
-
-      const nextAudios = s.audios.map((a) => {
-        if (isMainTrack && !a.isOverlay && a.startTime >= endTime) {
-          return a.copy({ startTime: a.startTime + duration, endTime: a.endTime + duration })
-        }
-        return a
-      })
-
       return {
-        videos: type === 'video' ? [...nextVideos, newItem] : nextVideos,
-        images: type === 'image' ? [...nextImages, newItem] : nextImages,
-        texts: type === 'text' ? [...nextTexts, newItem] : nextTexts,
-        audios: type === 'audio' ? [...nextAudios, newItem] : nextAudios,
+        videos: type === 'video' ? [...s.videos, newItem] : s.videos,
+        images: type === 'image' ? [...s.images, newItem] : s.images,
+        texts: type === 'text' ? [...s.texts, newItem] : s.texts,
+        audios: type === 'audio' ? [...s.audios, newItem] : s.audios,
       }
     })
 
@@ -379,7 +371,6 @@ export const createGeneralSlice = (set: any, get: any) => ({
       const blockStart = Math.min(...slice.map((i) => i.startTime))
       const blockEnd = Math.max(...slice.map((i) => i.endTime))
       const delta = blockEnd - blockStart
-      const shiftMainTrack = slice.some((i) => i.row === 0 && i.isMainTrack)
       const newItems = slice.map((img) =>
         img.copy({
           id: generateId('image'),
@@ -391,33 +382,17 @@ export const createGeneralSlice = (set: any, get: any) => ({
       )
 
       set((s: ManifestStore) => {
-        const nextVideos = s.videos.map((v) => {
-          if (shiftMainTrack && v.row === 0 && v.timestamp >= blockEnd) {
-            return v.copy({ timestamp: v.timestamp + delta })
-          }
-          return v
-        })
+        const rowsInSlice = new Set(slice.map((img) => img.row))
+        const selectedIds = new Set(slice.map((img) => img.id))
         const nextImages = s.images
           .map((img) => {
-            if (shiftMainTrack && img.row === 0 && img.startTime >= blockEnd) {
-              return img.copy({ startTime: img.startTime + delta, endTime: img.endTime + delta })
-            }
-            return img
+            if (!rowsInSlice.has(img.row)) return img
+            if (selectedIds.has(img.id)) return img
+            if (img.startTime < blockEnd) return img
+            return img.copy({ startTime: img.startTime + delta, endTime: img.endTime + delta })
           })
           .concat(newItems)
-        const nextTexts = s.texts.map((t) => {
-          if (shiftMainTrack && t.row === 0 && t.startTime >= blockEnd) {
-            return t.copy({ startTime: t.startTime + delta, endTime: t.endTime + delta })
-          }
-          return t
-        })
-        const nextAudios = s.audios.map((a) => {
-          if (shiftMainTrack && !a.isOverlay && a.startTime >= blockEnd) {
-            return a.copy({ startTime: a.startTime + delta, endTime: a.endTime + delta })
-          }
-          return a
-        })
-        return { videos: nextVideos, images: nextImages, texts: nextTexts, audios: nextAudios }
+        return { videos: s.videos, images: nextImages, texts: s.texts, audios: s.audios }
       })
 
       set({ playbackTime: blockEnd })
@@ -431,7 +406,6 @@ export const createGeneralSlice = (set: any, get: any) => ({
     const blockStart = Math.min(...slice.map((v) => v.timestamp))
     const blockEnd = Math.max(...slice.map((v) => v.timestamp + (v.duration ?? 0)))
     const delta = blockEnd - blockStart
-    const shiftMainTrack = slice.some((v) => v.row === 0)
     const newItems = slice.map((vid) =>
       vid.copy({
         id: generateId('video'),
@@ -442,33 +416,17 @@ export const createGeneralSlice = (set: any, get: any) => ({
     )
 
     set((s: ManifestStore) => {
+      const rowsInSlice = new Set(slice.map((v) => v.row))
+      const selectedIds = new Set(slice.map((v) => v.id))
       const nextVideos = s.videos
         .map((v) => {
-          if (shiftMainTrack && v.row === 0 && v.timestamp >= blockEnd) {
-            return v.copy({ timestamp: v.timestamp + delta })
-          }
-          return v
+          if (!rowsInSlice.has(v.row)) return v
+          if (selectedIds.has(v.id)) return v
+          if (v.timestamp < blockEnd) return v
+          return v.copy({ timestamp: v.timestamp + delta })
         })
         .concat(newItems)
-      const nextImages = s.images.map((img) => {
-        if (shiftMainTrack && img.row === 0 && img.startTime >= blockEnd) {
-          return img.copy({ startTime: img.startTime + delta, endTime: img.endTime + delta })
-        }
-        return img
-      })
-      const nextTexts = s.texts.map((t) => {
-        if (shiftMainTrack && t.row === 0 && t.startTime >= blockEnd) {
-          return t.copy({ startTime: t.startTime + delta, endTime: t.endTime + delta })
-        }
-        return t
-      })
-      const nextAudios = s.audios.map((a) => {
-        if (shiftMainTrack && !a.isOverlay && a.startTime >= blockEnd) {
-          return a.copy({ startTime: a.startTime + delta, endTime: a.endTime + delta })
-        }
-        return a
-      })
-      return { videos: nextVideos, images: nextImages, texts: nextTexts, audios: nextAudios }
+      return { videos: nextVideos, images: s.images, texts: s.texts, audios: s.audios }
     })
 
     set({ playbackTime: blockEnd })

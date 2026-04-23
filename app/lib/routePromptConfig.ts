@@ -94,7 +94,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   {
     name: 'delete_timeline_items',
     description:
-      'Remove one or more items from the timeline by id. Use when the user asks to delete, remove, or clear specific images, videos, text overlays, audio clips, or effects — for example "delete images 19 through 31" (resolve to ids from the manifest #N order). Include every item to remove in one call. Main-track removals shift later clips earlier automatically.',
+      'Remove one or more items from the timeline by id. Use when the user asks to delete, remove, or clear specific images, videos, text overlays, audio clips, or effects — for example "delete images 19 through 31" (resolve to ids from the manifest #N order). Include every item to remove in one call.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -226,8 +226,48 @@ export const functionDeclarations: FunctionDeclaration[] = [
     },
   },
   {
+    name: 'set_step_growth',
+    description:
+      'Create stepped size growth for an image clip by splitting it into equal parts and making each part progressively larger, ending at the maximum centered size that fits the canvas. Use this when the user asks for commands like "make image #3 grow in 4 steps", "grow selected image to full frame in 4 steps", or "make this image grow in 4 steps".',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        grows: {
+          type: Type.ARRAY,
+          description: 'List of image growth instructions.',
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              id: {
+                type: Type.STRING,
+                description: 'The image id to apply stepped growth to.',
+              },
+              imageNumber: {
+                type: Type.NUMBER,
+                description: 'Optional global 1-based image number (#N in manifest order, across all rows).',
+              },
+              target: {
+                type: Type.STRING,
+                description: 'Target selector: "image_id", "image_number", or "selected".',
+              },
+              steps: {
+                type: Type.NUMBER,
+                description: 'Number of equal growth steps. Use 4 unless user explicitly asks for another value.',
+              },
+            },
+          },
+        },
+        message: {
+          type: Type.STRING,
+          description: 'A short confirmation message describing the applied step growth.',
+        },
+      },
+      required: ['grows', 'message'],
+    },
+  },
+  {
     name: 'set_transitions',
-    description: 'Set the animation (none, pulse, shake, or jitter) or transition (none, split, fade, morph, slide-in, circle, rotate, or flash) on one or more images or videos. Use this when the user asks to set, apply, add, or remove animations or transitions on timeline images or videos — for example "set pulse on images 2 to 25", "add shake to image 1", "add split transition", "add fade transition", "add morph or motion blur transition", "add slide in from left", "add circle transition", "add rotate transition", "add white flash transition", "add black flash transition", "add negative flash transition", or "remove animations from all images". For consolidated transitions like flash, slide-in, circle, and split, you should also set the corresponding parameters (transitionColor, transitionFlashMode, transitionDirection, transitionAxis, transitionSlideEasing for slide-in speed curve, transitionCircleEasing for circle expand speed) if specified. Use the image/video ids from the manifest.',
+    description: 'Set the animation (none, zoom-in, zoom-out, shake, or jitter) or transition (none, split, fade, morph, slide-in, circle, rotate, or flash) on one or more images or videos. For zoom-in and zoom-out, use animationDuration for how long the zoom runs and animationZoomEasing "fast-slow" (ease-out) or "slow-fast" (ease-in). Use this when the user asks to set, apply, add, or remove animations or transitions on timeline images or videos — for example "zoom in images 2 to 25", "zoom out with slow then fast easing", "add shake to image 1", "add split transition", "add fade transition", "add morph or motion blur transition", "add slide in from left", "add circle transition", "add rotate transition", "add white flash transition", "add black flash transition", "add negative flash transition", or "remove animations from all images". Image numbers/ranges use global image numbering from the manifest (#N across all rows). For consolidated transitions like flash, slide-in, circle, and split, you should also set the corresponding parameters (transitionColor, transitionFlashMode, transitionDirection, transitionAxis, transitionSlideEasing for slide-in speed curve, transitionCircleEasing for circle expand speed) if specified. Use the image/video ids from the manifest.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -247,7 +287,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
               },
               animation: {
                 type: Type.STRING,
-                description: 'The animation mode to apply: "none", "pulse", "shake", or "jitter".',
+                description: 'The animation mode: "none", "zoom-in", "zoom-out", "shake", or "jitter". Legacy combined names like "zoom-in-fast-slow" or "pulse" are accepted and normalized.',
               },
               transition: {
                 type: Type.STRING,
@@ -255,7 +295,11 @@ export const functionDeclarations: FunctionDeclaration[] = [
               },
               zoomIntensity: {
                 type: Type.NUMBER,
-                description: 'Zoom intensity as a fraction from 0.05 to 1.0. Default is 0.15 (15%). Only include if the user specifies an intensity or percentage, e.g. "50% intensity" → 0.5.',
+                description: 'Effect intensity as a fraction from 0.05 to 1.0 for shake/jitter animations. Only include if the user specifies an intensity or percentage, e.g. "50% intensity" → 0.5.',
+              },
+              zoomDistanceIntensity: {
+                type: Type.NUMBER,
+                description: 'Zoom distance multiplier for zoom-in/zoom-out from 0.25 to 2.5. 1.0 is the default distance, values below 1.0 soften zoom travel and values above 1.0 increase zoom travel.',
               },
               transitionDuration: {
                 type: Type.NUMBER,
@@ -263,7 +307,11 @@ export const functionDeclarations: FunctionDeclaration[] = [
               },
               animationDuration: {
                 type: Type.NUMBER,
-                description: 'Duration of the animation (Pulse) in seconds (min 0.1s). Defaults to 1.0s.',
+                description: 'Duration in seconds for one zoom-in or zoom-out animation (min 0.1s), or other animation timing where applicable. Defaults to 1.0s.',
+              },
+              animationZoomEasing: {
+                type: Type.STRING,
+                description: 'For zoom-in and zoom-out only: "fast-slow" (ease-out, default) or "slow-fast" (ease-in).',
               },
               transitionColor: {
                 type: Type.STRING,
@@ -404,7 +452,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'add_effect',
-    description: 'Add one or more visual effects (e.g. "crt-dither", "flashing-black-vignette", "black-and-white", "vivid-sharp", or "pixel-glitch-scan") to the timeline. Use this when the user asks to add, apply, or insert an effect over a specific time range — for example "add a crt dither from image 12 to 22" or "apply flashing vignette to the first 5 seconds". Compute startTime and endTime from the manifest data.',
+    description: 'Add one or more visual effects (e.g. "crt-dither", "flashing-black-vignette" / vignette, "black-and-white", "vivid-sharp", or "pixel-glitch-scan") to the timeline. Use this when the user asks to add, apply, or insert an effect over a specific time range — for example "add a crt dither from image 12 to 22" or "apply vignette to the first 5 seconds". Compute startTime and endTime from the manifest data.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -416,7 +464,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
             properties: {
               type: {
                 type: Type.STRING,
-                description: 'The type of effect: "crt-dither", "flashing-black-vignette", "black-and-white", "vivid-sharp", or "pixel-glitch-scan".',
+                description: 'The type of effect: "crt-dither", "flashing-black-vignette" (vignette), "black-and-white", "vivid-sharp", or "pixel-glitch-scan".',
               },
               startTime: {
                 type: Type.NUMBER,
@@ -428,11 +476,17 @@ export const functionDeclarations: FunctionDeclaration[] = [
               },
               intensity: {
                 type: Type.NUMBER,
-                description: 'The intensity of the effect (0.0 to 1.0). For "flashing-black-vignette" and "black-and-white" (0 = none / full color, 1 = full effect). For "vivid-sharp", intensity controls sharpening only (0 = vivid color only, 1 = maximum sharpness). For "pixel-glitch-scan", intensity controls macro block size (0 = finer blocks, 1 = larger blocks). Default is 0.5.',
+                description:
+                  'The intensity of the effect (0.0 to 1.0). For "flashing-black-vignette" (vignette): vignette edge strength. For "black-and-white": Rec.709 grayscale then extra darkening only for luma below mid-gray (L < 0.5); light areas unchanged; 0 = off, 1 = strongest). For "vivid-sharp", intensity controls sharpening only (0 = vivid color only, 1 = maximum sharpness). For "pixel-glitch-scan", intensity controls macro block size (0 = finer blocks, 1 = larger blocks). Default is 0.5.',
               },
               contrast: {
                 type: Type.NUMBER,
-                description: 'For "flashing-black-vignette" only: dark-filter strength — deepens shadows without brightening highlights (0.0 = off, 1.0 = strongest). Omit for default 0.5.',
+                description: 'Optional; reserved for future use. Prefer intensity for all effect types.',
+              },
+              flashSpeed: {
+                type: Type.NUMBER,
+                description:
+                  'For "flashing-black-vignette" (vignette) only: pulsing flash amount 0.0–1.0. 0 = solid vignette (no pulse, full edge strength); 1 = strongest pulse. Omit for default 1.',
               },
             },
             required: ['type', 'startTime', 'endTime'],
@@ -457,13 +511,14 @@ export const systemInstruction =
     '- edit_manifest: when the user asks to change timing, duration, position, playback speed, or mute status of existing items. You MUST include all affected items as separate entries in the mutations array in a SINGLE call — never call edit_manifest multiple times. For audio mutations (type=updateAudio): ALWAYS use trimStart and trimEnd fields (not endTime). To restore an audio to its full original length set trimStart=0 and trimEnd=0. The active playing duration of an audio is: originalDuration - trimStart - trimEnd. Use playbackSpeed for constant video and audio playback speed changes (e.g. 0.5 for half speed). For speed ramps (e.g. "0.5x start to 0.1x end"), use both speedStart and speedEnd (and optionally speedEasing: "linear" or "ease"). If speedStart/speedEnd are used, they will override any constant playbackSpeed. Use muted for video mute status (true to mute, false to unmute). ALWAYS use the exact id strings from the manifest (e.g. "audio-1234-abc") — never make up or shorten ids.\n' +
   '- split_at_marks: when the user asks to split, cut, or divide images or videos at specific positions, or into equal parts (like halves or fourths). You must compute the absolute timeline split times yourself from the item\'s timing data (halves = 1 split at midpoint, fourths = 3 splits at 25%/50%/75%). For splitting at audio marks, use splitAtMarksTimelineSeconds from each audio line — do not use marksSourceFileSeconds (those are source-file seconds, not timeline positions).\n' +
   '- add_text: when the user asks to add text overlays to the timeline at a computed time range\n' +
-  '- add_effect: when the user asks to add visual effects (like "crt-dither", "flashing-black-vignette", "black-and-white", "vivid-sharp", or "pixel-glitch-scan") over a specific time range; include intensity (0.0–1.0) if specified for flashing-black-vignette, black-and-white, vivid-sharp, or pixel-glitch-scan; for flashing-black-vignette include contrast (0.0–1.0) if specified\n' +
+  '- add_effect: when the user asks to add visual effects (like "crt-dither", "flashing-black-vignette" / vignette, "black-and-white", "vivid-sharp", or "pixel-glitch-scan") over a specific time range; include intensity (0.0–1.0) if specified; for vignette optionally flashSpeed (0.0 = solid edge, 1.0 = full pulse)\n' +
+    '- set_step_growth: when the user asks to make an image grow in equal steps (e.g. "make image #3 grow in 4 steps", "grow selected image to full frame in 4 steps", or "make this image grow in 4 steps"). If the user says "this image", "selected image", or "current image", use target="selected". Use id when available; otherwise use global imageNumber (#N from manifest across all rows). Set steps to the requested count (default 4).\n' +
     '- replace_with_solid: when the user asks to replace timeline images or videos with a solid/flat color (white, black, hex, named CSS colors) without uploading a file — e.g. "replace videos 3–16 with white", "blank frames", "solid red background clip"\n' +
     '- replace_images: ONLY when the user has attached image/video files AND asks to replace timeline items with those uploads\n' +
-  '- set_transitions: when the user asks to set, apply, add, or remove animations (none, pulse, shake, or jitter) or transitions (none, split, fade, morph, slide-in, circle, rotate, or flash) on images or videos; include zoomIntensity (0.05–1.0) if specified, transitionDuration if specified, transitionColor if specified (for solid flash), transitionFlashMode if specified (solid or negative for flash), transitionDirection if specified (for slide-in), transitionAxis if specified (for split), transitionSlideEasing if specified (for slide-in), or transitionCircleEasing if specified (for circle)\n' +
+  '- set_transitions: when the user asks to set, apply, add, or remove animations (none, zoom-in, zoom-out, shake, or jitter) or transitions (none, split, fade, morph, slide-in, circle, rotate, or flash) on images or videos; include zoomIntensity (0.05–1.0) only for shake/jitter when specified, include zoomDistanceIntensity (0.25–2.5) when the user specifies lowering/raising zoom distance for zoom-in or zoom-out, animationDuration and animationZoomEasing ("fast-slow" or "slow-fast") for zoom animations, transitionDuration if specified, transitionColor if specified (for solid flash), transitionFlashMode if specified (solid or negative for flash), transitionDirection if specified (for slide-in), transitionAxis if specified (for split), transitionSlideEasing if specified (for slide-in), or transitionCircleEasing if specified (for circle). For image numbers/ranges, use global image numbering from the manifest (#N across all rows).\n' +
   '- set_crop: when the user asks to set or change the aspect ratio of images or videos (e.g. "make images 2-25 16:9"); cropAspect must be one of "16:9", "4:3", "1:1", "3:4", "9:16", or "none"\n' +
   '- no_op: for anything else\n' +
   'Always call exactly one function. Compute exact numeric values from the timeline data provided.\n' +
-  'When the user refers to "image 3", "video 2", etc., the number refers to the item\'s position when all items of that type are sorted by startTime — so "image 1" is the one with the earliest startTime, "image 2" is the next earliest, and so on. This ordering is reflected by the #N labels in the manifest context.'
+  'For images, numbering is global: "image 1", "image 2", etc. always refer to the global manifest #N order by startTime across all rows. If the user says "this image", "selected image", or "current image", target the selected item instead of requiring a number.'
 
 export { FunctionCallingConfigMode }
