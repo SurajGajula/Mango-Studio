@@ -36,10 +36,9 @@ export function applyStandardZoom(params: TransformParams): void {
   let t = 0
   const ease = animationZoomEasing ?? 'fast-slow'
   if (animation === 'zoom-in' || animation === 'zoom-out') {
-    let dur = animationDuration
-    if (dur === undefined || dur <= 0) {
-      dur = itemDuration && itemDuration > 0 ? itemDuration : 1
-    }
+    const fallbackDuration = 1
+    const requestedDuration = animationDuration && animationDuration > 0 ? animationDuration : fallbackDuration
+    const dur = itemDuration && itemDuration > 0 ? Math.min(requestedDuration, itemDuration) : requestedDuration
     const u = dur > 0 ? Math.min(1, Math.max(0, elapsedTime / dur)) : 0
     const f = easedProgress(u, ease)
     t = animation === 'zoom-in' ? f : 1 - f

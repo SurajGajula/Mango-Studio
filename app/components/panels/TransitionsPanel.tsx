@@ -12,6 +12,7 @@ import {
   ImageClass,
 } from '@/app/models/ImageClass'
 import { VideoClass } from '@/app/models/VideoClass'
+import type { MediaKeyframe } from '@/app/models/mediaKeyframe'
 import styles from './TransitionsPanel.module.css'
 
 interface Props {
@@ -360,6 +361,23 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
     if (!selectedItem) return
     const val = Object.values(updates)[0]
     localSetter(val)
+    const shouldSyncKeyframeZoom =
+      updates.zoomIntensity !== undefined &&
+      mode === 'animation' &&
+      (currentAnimation === 'shake' || currentAnimation === 'jitter') &&
+      Array.isArray((selectedItem as ImageClass | VideoClass).keyframes) &&
+      ((selectedItem as ImageClass | VideoClass).keyframes?.length ?? 0) > 0
+
+    if (shouldSyncKeyframeZoom) {
+      const keyframes = (selectedItem as ImageClass | VideoClass).keyframes ?? []
+      const syncedKeyframes: MediaKeyframe[] = keyframes.map((kf) => ({
+        ...kf,
+        zoomIntensity: updates.zoomIntensity,
+      }))
+      applyItemUpdate({ ...updates, keyframes: syncedKeyframes })
+      return
+    }
+
     applyItemUpdate(updates)
   }
 

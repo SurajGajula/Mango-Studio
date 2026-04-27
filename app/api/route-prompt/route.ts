@@ -32,6 +32,9 @@ interface ManifestItem {
   speedEasing?: 'linear' | 'ease'
   muted?: boolean
   row?: number
+  fontFamily?: string
+  fontWeight?: string
+  style?: string
 }
 
 interface SerializedManifest {
@@ -53,6 +56,12 @@ interface RoutePromptRequest {
   uploadedFiles?: UploadedFileMeta[]
 }
 
+interface ZoomDistanceRangeDirective {
+  zoomDistanceIntensity: number
+  startImageNumber: number
+  endImageNumber?: number
+}
+
 export interface ManifestMutation {
   type: 'updateImage' | 'updateVideo' | 'updateText' | 'updateAudio'
   id: string
@@ -67,6 +76,10 @@ export interface ManifestMutation {
   speedEnd?: number
   speedEasing?: 'linear' | 'ease'
   muted?: boolean
+  fontFamily?: string
+  fontWeight?: string
+  animation?: 'none' | 'keyboard'
+  style?: 'normal' | 'negative' | 'highlight'
 }
 
 export interface SplitInstruction {
@@ -201,7 +214,9 @@ function buildManifestContext(manifest: SerializedManifest): string {
     const sorted = [...manifest.texts].sort((a, b) => (a.startTime ?? 0) - (b.startTime ?? 0))
     lines.push(`Texts (${sorted.length}):`)
     sorted.forEach((txt, i) => {
-      lines.push(`  - #${i + 1} id="${txt.id}" content="${txt.content}" startTime=${txt.startTime}s endTime=${txt.endTime}s`)
+      lines.push(
+        `  - #${i + 1} id="${txt.id}" content="${txt.content}" startTime=${txt.startTime}s endTime=${txt.endTime}s fontFamily="${txt.fontFamily ?? 'Inter, sans-serif'}" fontWeight="${txt.fontWeight ?? '600'}" animation=${txt.animation ?? 'none'} style=${txt.style ?? 'normal'}`
+      )
     })
   }
   if (manifest.audios?.length) {
@@ -240,6 +255,112 @@ function buildManifestContext(manifest: SerializedManifest): string {
   if (lines.length === 2) lines.push('  (empty — no items yet)')
 
   return lines.join('\n')
+}
+
+function parseZoomDistanceRangeDirective(prompt: string): ZoomDistanceRangeDirective | null {
+  const normalized = prompt.toLowerCase()
+  if (!normalized.includes('zoom')) return null
+  if (!normalized.includes('distance')) return null
+
+  const explicitIntensityMatch = normalized.match(/zoomdistanceintensity\s*(?:to|=)?\s*(\d*\.?\d+)/)
+  const xMatches = Array.from(normalized.matchAll(/(\d*\.?\d+)\s*x\b/g))
+  const trailingXMatch = xMatches.length > 0 ? xMatches[xMatches.length - 1] : null
+  const zoomDistanceMatch = explicitIntensityMatch ?? trailingXMatch
+  if (!zoomDistanceMatch) return null
+  const parsedIntensity = Number.parseFloat(zoomDistanceMatch[1])
+  if (!Number.isFinite(parsedIntensity)) return null
+
+  const rangeMatch = normalized.match(/images?\s*#?\s*(\d+)\s*(?:through|thru|to|-|–|—)\s*#?\s*(\d+)/)
+  if (rangeMatch) {
+    const start = Number.parseInt(rangeMatch[1], 10)
+    const end = Number.parseInt(rangeMatch[2], 10)
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return null
+    return {
+      zoomDistanceIntensity: parsedIntensity,
+      startImageNumber: Math.min(start, end),
+      endImageNumber: Math.max(start, end),
+    }
+  }
+
+  const onwardMatch = normalized.match(/images?\s*#?\s*(\d+)\s*(?:onward|onwards|and onward|and onwards)/)
+  if (onwardMatch) {
+    const start = Number.parseInt(onwardMatch[1], 10)
+    if (!Number.isFinite(start)) return null
+    return {
+      zoomDistanceIntensity: parsedIntensity,
+      startImageNumber: start,
+    }
+  }
+
+  return null
+}
+
+function enforcePromptZoomDistanceDirective(
+  transitions: TransitionInstruction[],
+  manifest: SerializedManifest | undefined,
+  prompt: string
+): TransitionInstruction[] {
+  if (!manifest?.images?.length || transitions.length === 0) return transitions
+
+  const directive = parseZoomDistanceRangeDirective(prompt)
+  if (!directive) return transitions
+
+  const sortedImages = [...manifest.images].sort((a, b) => (a.startTime ?? 0) - (b.startTime ?? 0))
+  const maxImageNumber = sortedImages.length
+  const start = Math.max(1, directive.startImageNumber)
+  const end = Math.max(start, Math.min(directive.endImageNumber ?? maxImageNumber, maxImageNumber))
+
+  const targetIds = new Set(
+    sortedImages
+      .slice(start - 1, end)
+      .map((img) => img.id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0)
+  )
+  if (targetIds.size === 0) return transitions
+
+  const seenTargetIds = new Set<string>()
+  const normalizedTransitions = transitions.map((transition) => {
+    if (transition.type === 'image' && targetIds.has(transition.id)) {
+      seenTargetIds.add(transition.id)
+      return { ...transition, zoomDistanceIntensity: directive.zoomDistanceIntensity }
+    }
+    return transition
+  })
+
+  for (const imageId of targetIds) {
+    if (!seenTargetIds.has(imageId)) {
+      normalizedTransitions.push({
+        type: 'image',
+        id: imageId,
+        zoomDistanceIntensity: directive.zoomDistanceIntensity,
+      })
+    }
+  }
+
+  return normalizedTransitions
+}
+
+function buildZoomDistanceTransitionsFromPrompt(
+  manifest: SerializedManifest | undefined,
+  prompt: string
+): TransitionInstruction[] {
+  if (!manifest?.images?.length) return []
+  const directive = parseZoomDistanceRangeDirective(prompt)
+  if (!directive) return []
+
+  const sortedImages = [...manifest.images].sort((a, b) => (a.startTime ?? 0) - (b.startTime ?? 0))
+  const maxImageNumber = sortedImages.length
+  const start = Math.max(1, directive.startImageNumber)
+  const end = Math.max(start, Math.min(directive.endImageNumber ?? maxImageNumber, maxImageNumber))
+
+  return sortedImages
+    .slice(start - 1, end)
+    .filter((img): img is ManifestItem & { id: string } => typeof img.id === 'string' && img.id.length > 0)
+    .map((img) => ({
+      type: 'image',
+      id: img.id,
+      zoomDistanceIntensity: directive.zoomDistanceIntensity,
+    }))
 }
 
 export async function POST(request: NextRequest) {
@@ -338,10 +459,19 @@ export async function POST(request: NextRequest) {
     let result: RoutePromptResponse
 
     if (action === 'edit_manifest') {
+      const forcedTransitions = buildZoomDistanceTransitionsFromPrompt(body.manifest, body.prompt)
+      if (forcedTransitions.length > 0) {
+        result = {
+          action: 'set_transitions',
+          transitions: forcedTransitions,
+          message: 'Zoom distance updated for requested image range.',
+        }
+      } else {
       result = {
         action: 'edit_manifest',
         mutations: (args?.mutations as ManifestMutation[]) || [],
         message: (args?.message as string) || 'Timeline updated.',
+      }
       }
     } else if (action === 'delete_timeline_items') {
       result = {
@@ -383,9 +513,10 @@ export async function POST(request: NextRequest) {
         message: (args?.message as string) || 'Replaced with solid color.',
       }
     } else if (action === 'set_transitions') {
+      const modelTransitions = (args?.transitions as TransitionInstruction[]) || []
       result = {
         action: 'set_transitions',
-        transitions: (args?.transitions as TransitionInstruction[]) || [],
+        transitions: enforcePromptZoomDistanceDirective(modelTransitions, body.manifest, body.prompt),
         message: (args?.message as string) || 'Transitions updated.',
       }
     } else if (action === 'set_step_growth') {

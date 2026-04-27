@@ -103,7 +103,82 @@ export class VideoRenderingEngine {
     const bufferCtx = bufferCanvas.getContext('2d', { alpha: false })!
     const visibleCtx = canvas.getContext('2d', { alpha: false })!
 
-    const stateKey = `${cr.width}-${cr.height}-${state.videos.length}-${state.images.length}-${effects.length}`
+    const videoVisualKey = state.videos
+      .map((video) =>
+        [
+          video.id,
+          video.url,
+          video.sourceUrl,
+          video.timestamp,
+          video.duration,
+          video.x,
+          video.y,
+          video.width,
+          video.height,
+          video.cropAspect,
+          video.cropSx,
+          video.cropSy,
+          video.cropSw,
+          video.cropSh,
+          video.opacity,
+          video.row,
+          video.animation,
+          video.transition,
+          video.transitionDuration,
+          video.animationDuration,
+          video.animationZoomEasing,
+          video.transitionColor,
+          video.transitionFlashMode,
+          video.transitionDirection,
+          video.transitionAxis,
+          video.transitionSlideEasing,
+          video.transitionCircleEasing,
+          video.zoomIntensity,
+          video.zoomDistanceIntensity,
+        ].join('|')
+      )
+      .join('~')
+    const imageVisualKey = state.images
+      .map((image) =>
+        [
+          image.id,
+          image.url,
+          image.startTime,
+          image.endTime,
+          image.x,
+          image.y,
+          image.width,
+          image.height,
+          image.cropAspect,
+          image.cropSx,
+          image.cropSy,
+          image.cropSw,
+          image.cropSh,
+          image.opacity,
+          image.row,
+          image.animation,
+          image.transition,
+          image.transitionDuration,
+          image.animationDuration,
+          image.animationZoomEasing,
+          image.transitionColor,
+          image.transitionFlashMode,
+          image.transitionDirection,
+          image.transitionAxis,
+          image.transitionSlideEasing,
+          image.transitionCircleEasing,
+          image.zoomIntensity,
+          image.zoomDistanceIntensity,
+          image.rotation,
+        ].join('|')
+      )
+      .join('~')
+    const effectsKey = effects
+      .map((effect) =>
+        [effect.id, effect.type, effect.startTime, effect.endTime, effect.row, effect.intensity, effect.contrast, effect.flashSpeed].join('|')
+      )
+      .join('~')
+    const stateKey = `${cr.width}-${cr.height}-${videoVisualKey}-${imageVisualKey}-${effectsKey}`
     const stateChanged = stateKey !== this.lastStateKey
     const timeChanged = Math.abs(newTime - this.lastRenderedTime) > 0.001
     const shouldSwap = isPlaying || stateChanged

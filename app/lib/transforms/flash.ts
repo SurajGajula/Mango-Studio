@@ -2,12 +2,30 @@ import type { TransformParams } from './types'
 import { drawWithAnimation } from './animationUtils'
 
 export function applyFlash(params: TransformParams): void {
-  const { ctx, progress, x, y, w, h, prevEl, prevParams, prevAnimation, prevAnimationProgress, prevElapsedTime, prevZoomIntensity, prevAnimationDuration, transitionColor, transitionFlashMode } = params
+  const {
+    ctx,
+    progress,
+    x,
+    y,
+    w,
+    h,
+    prevEl,
+    prevParams,
+    prevAnimation,
+    prevAnimationProgress,
+    prevElapsedTime,
+    prevZoomIntensity,
+    prevItemDuration,
+    prevAnimationDuration,
+    prevZoomDistanceIntensity,
+    transitionColor,
+    transitionFlashMode
+  } = params
   
   ctx.save()
   const flashAlpha = progress < 0.5 ? Math.min(1, progress * 2) : Math.max(0, (1 - progress) * 2)
   
-  if (prevEl && prevParams && (transitionFlashMode === 'negative' || progress < 0.5)) {
+  if (prevEl && prevParams && progress < 0.5) {
     const { x: px, y: py, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh } = prevParams
     drawWithAnimation(
       { ...params, x: px, y: py, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh },
@@ -16,7 +34,9 @@ export function applyFlash(params: TransformParams): void {
       prevAnimationProgress ?? 0,
       prevElapsedTime ?? 0,
       prevZoomIntensity ?? 0.5,
-      prevAnimationDuration
+      prevItemDuration,
+      prevAnimationDuration,
+      prevZoomDistanceIntensity ?? 1
     )
   }
 

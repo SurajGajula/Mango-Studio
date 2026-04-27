@@ -337,20 +337,24 @@ export function calculateSourceTime(
 }
 
 export function findActiveAndNextItems(items: MainItem[], time: number) {
-  const activeIdx = items.findIndex((it) => time >= it.startTime && time < it.startTime + it.duration)
+  let activeIdx = -1
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i]
+    if (time >= it.startTime && time < it.startTime + it.duration) activeIdx = i
+  }
   const activeItem = activeIdx !== -1 ? items[activeIdx] : null
   const nextItem =
     activeIdx !== -1 && activeIdx < items.length - 1 ? items[activeIdx + 1] : items.find((it) => it.startTime > time) || null
 
   if (activeItem && activeIdx > 0 && activeItem.item.transition === 'flash') {
     const previousItem = items[activeIdx - 1]
-    if (clipsTransitionLayoutCompatible(previousItem.item, activeItem.item)) {
-      const rawTransDur = Math.max(0.1, activeItem.item.transitionDuration ?? 1.0)
-      const transDur = Math.min(rawTransDur, previousItem.duration, activeItem.duration)
-      const halfDur = transDur * 0.5
-      if (time >= activeItem.startTime && time < activeItem.startTime + halfDur) {
-        return { activeItem: previousItem, nextItem: activeItem }
-      }
+    const adjacent = Math.abs(previousItem.startTime + previousItem.duration - activeItem.startTime) < 0.01
+    const compatible = clipsTransitionLayoutCompatible(previousItem.item, activeItem.item)
+    const rawTransDur = Math.max(0.1, activeItem.item.transitionDuration ?? 1.0)
+    const transDur = Math.min(rawTransDur, previousItem.duration, activeItem.duration)
+    const halfDur = transDur * 0.5
+    if (adjacent && compatible && time >= activeItem.startTime && time < activeItem.startTime + halfDur) {
+      return { activeItem: previousItem, nextItem: activeItem }
     }
   }
 
@@ -363,13 +367,14 @@ export function checkTransition(activeItem: MainItem | null, nextItem: MainItem 
   const isTransitionType = nextItem.item.transition !== 'none'
   if (!isTransitionType) return { transitionActive: false, progress: 0 }
 
-  if (!clipsTransitionLayoutCompatible(activeItem.item, nextItem.item)) {
+  const isFlashTransition = nextItem.item.transition === 'flash'
+  if (!isFlashTransition && !clipsTransitionLayoutCompatible(activeItem.item, nextItem.item)) {
     return { transitionActive: false, progress: 0 }
   }
 
   const rawTransDur = Math.max(0.1, nextItem.item.transitionDuration ?? 1.0)
   const transDur = Math.min(rawTransDur, activeItem.duration, nextItem.duration)
-  if (nextItem.item.transition === 'flash') {
+  if (isFlashTransition) {
     const halfDur = transDur * 0.5
     const start = nextItem.startTime - halfDur
     const end = nextItem.startTime + halfDur

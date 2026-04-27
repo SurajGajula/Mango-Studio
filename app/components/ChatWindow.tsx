@@ -51,6 +51,11 @@ interface UploadedFile {
   mimeType: string
 }
 
+interface EqualSplitRequest {
+  imageNumber: number
+  parts: number
+}
+
 export default function ChatWindow() {
   const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState('')
@@ -106,7 +111,16 @@ export default function ChatWindow() {
           if (!setItemPlaybackSpeed(m.id, m.playbackSpeed)) continue
         }
         updateVideo(m.id, { timestamp: m.timestamp, duration: m.duration, muted: m.muted })
-      } else if (m.type === 'updateText') updateText(m.id, { startTime: m.startTime, endTime: m.endTime })
+      } else if (m.type === 'updateText') {
+        updateText(m.id, {
+          startTime: m.startTime,
+          endTime: m.endTime,
+          fontFamily: m.fontFamily,
+          fontWeight: m.fontWeight,
+          animation: m.animation,
+          style: m.style,
+        })
+      }
       else if (m.type === 'updateAudio') {
         if (m.speedStart !== undefined || m.speedEnd !== undefined) {
           setItemPlaybackSpeed(m.id, m.playbackSpeed ?? 1, m.speedStart, m.speedEnd, m.speedEasing)
@@ -433,6 +447,17 @@ export default function ChatWindow() {
     }
   }
 
+  const parseEqualSplitPrompt = (prompt: string): EqualSplitRequest | null => {
+    const normalized = prompt.toLowerCase().replace(/#/g, ' ')
+    const match = normalized.match(/split\s+image\s+(\d+)\s+(?:into|in|to)\s+(\d+)\s+(?:equal\s+)?(?:parts?|pieces?|segments?)/i)
+    if (!match) return null
+    const imageNumber = Number.parseInt(match[1], 10)
+    const parts = Number.parseInt(match[2], 10)
+    if (!Number.isFinite(imageNumber) || !Number.isFinite(parts)) return null
+    if (imageNumber < 1 || parts < 2) return null
+    return { imageNumber, parts }
+  }
+
   const handleSend = async () => {
     if (!inputValue.trim() || isProcessing) return
 
@@ -461,11 +486,54 @@ export default function ChatWindow() {
     ])
 
     try {
+      const equalSplitRequest = parseEqualSplitPrompt(userPrompt)
+      if (equalSplitRequest) {
+        const { images } = useManifestStore.getState()
+        const sortedImages = [...images].sort((a, b) => a.startTime - b.startTime)
+        const targetImage = sortedImages[equalSplitRequest.imageNumber - 1]
+
+        if (!targetImage) {
+          updateStatus(`Error: image #${equalSplitRequest.imageNumber} was not found.`, false)
+          return
+        }
+
+        const duration = targetImage.endTime - targetImage.startTime
+        if (!(duration > 0)) {
+          updateStatus(`Error: image #${equalSplitRequest.imageNumber} has invalid duration.`, false)
+          return
+        }
+
+        const splitTimes: number[] = []
+        for (let i = 1; i < equalSplitRequest.parts; i++) {
+          splitTimes.push(targetImage.startTime + (duration * i) / equalSplitRequest.parts)
+        }
+
+        pauseHistory()
+        try {
+          splitImageAtTimes(targetImage.id, splitTimes)
+        } finally {
+          resumeHistory()
+          pushHistory()
+        }
+
+        updateStatus(`Split image #${equalSplitRequest.imageNumber} into ${equalSplitRequest.parts} equal parts.`, false)
+        return
+      }
+
       const { videos, images, texts, audios, effects } = useManifestStore.getState()
       const manifest = {
         images: images.map((i) => ({ id: i.id, name: i.name, startTime: i.startTime, endTime: i.endTime, row: i.row, animation: i.animation, transition: i.transition, zoomIntensity: i.zoomIntensity, zoomDistanceIntensity: i.zoomDistanceIntensity, transitionDuration: i.transitionDuration, animationDuration: i.animationDuration, animationZoomEasing: i.animationZoomEasing, cropAspect: i.cropAspect, transitionColor: i.transitionColor, transitionFlashMode: i.transitionFlashMode, transitionDirection: i.transitionDirection, transitionAxis: i.transitionAxis, transitionSlideEasing: i.transitionSlideEasing, transitionCircleEasing: i.transitionCircleEasing })),
         videos: videos.map((v) => ({ id: v.id, title: v.title, timestamp: v.timestamp, duration: v.duration, playbackSpeed: v.playbackSpeed, speedStart: v.speedStart, speedEnd: v.speedEnd, speedEasing: v.speedEasing, muted: v.muted, row: v.row, animation: v.animation, transition: v.transition, zoomIntensity: v.zoomIntensity, zoomDistanceIntensity: v.zoomDistanceIntensity, transitionDuration: v.transitionDuration, animationDuration: v.animationDuration, animationZoomEasing: v.animationZoomEasing, cropAspect: v.cropAspect, transitionColor: v.transitionColor, transitionFlashMode: v.transitionFlashMode, transitionDirection: v.transitionDirection, transitionAxis: v.transitionAxis, transitionSlideEasing: v.transitionSlideEasing, transitionCircleEasing: v.transitionCircleEasing })),
-        texts: texts.map((t) => ({ id: t.id, content: t.content, startTime: t.startTime, endTime: t.endTime })),
+        texts: texts.map((t) => ({
+          id: t.id,
+          content: t.content,
+          startTime: t.startTime,
+          endTime: t.endTime,
+          fontFamily: t.fontFamily,
+          fontWeight: t.fontWeight,
+          animation: t.animation,
+          style: t.style,
+        })),
         audios: audios.map((a) => ({ id: a.id, name: a.name, startTime: a.startTime, endTime: a.endTime, originalDuration: a.originalDuration, trimStart: a.trimStart, trimEnd: a.trimEnd, playbackSpeed: a.playbackSpeed, speedStart: a.speedStart, speedEnd: a.speedEnd, speedEasing: a.speedEasing, marks: a.marks })),
         effects: effects.map((e) => ({
           id: e.id,

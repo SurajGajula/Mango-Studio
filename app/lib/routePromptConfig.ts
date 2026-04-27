@@ -17,7 +17,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'edit_manifest',
-    description: 'Edit, rearrange, resize, or synchronise existing items on the timeline. Use this when the user asks to change timing, duration, position, playback speed, or mute status of existing images, videos, texts, or audio tracks — for example "make the image the same length as the audio", "move the video to start at 5 seconds", "slow down the video to 0.5x speed", or "mute all videos". For audio, you can also set trimStart and trimEnd to trim the audio file, or set both to 0 to restore the full original length.',
+    description: 'Edit, rearrange, resize, or synchronise existing items on the timeline. Use this when the user asks to change timing, duration, position, playback speed, mute status, or text typography/style of existing images, videos, texts, or audio tracks — for example "make the image the same length as the audio", "move the video to start at 5 seconds", "slow down the video to 0.5x speed", "mute all videos", "make all text negative style", or "change text font to Playfair". For audio, you can also set trimStart and trimEnd to trim the audio file, or set both to 0 to restore the full original length.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -78,6 +78,22 @@ export const functionDeclarations: FunctionDeclaration[] = [
               muted: {
                 type: Type.BOOLEAN,
                 description: 'Whether the video should be muted. Only for videos.',
+              },
+              fontFamily: {
+                type: Type.STRING,
+                description: 'Text font family to use on text overlays, e.g. "Inter, sans-serif" or "\\\"Playfair Display\\\", Georgia, serif". Only for updateText.',
+              },
+              fontWeight: {
+                type: Type.STRING,
+                description: 'Text font weight value for text overlays, e.g. "300" or "600". Only for updateText.',
+              },
+              animation: {
+                type: Type.STRING,
+                description: 'Text animation mode for text overlays: "none" or "keyboard". Only for updateText.',
+              },
+              style: {
+                type: Type.STRING,
+                description: 'Text style mode for text overlays: "normal", "negative", or "highlight". Only for updateText.',
               },
             },
             required: ['type', 'id'],
@@ -508,7 +524,7 @@ export const systemInstruction =
   'You are a timeline editing assistant for a media studio. Your only job is to call the correct function:\n' +
     '- delete_timeline_items: when the user asks to delete, remove, or clear one or more timeline items (images, videos, texts, audios, or effects). Map phrases like "images 19–31" to the manifest #N order (sorted by start time for images, by timestamp for videos) and include one { type, id } per item in the items array in a SINGLE call.\n' +
     '- duplicate_timeline_range: when the user asks to duplicate, repeat, or copy a range of images or videos so the copy plays immediately after the original block ends. Use kind "image" or "video" and firstNumber/lastNumber inclusive (same #N as the manifest).\n' +
-    '- edit_manifest: when the user asks to change timing, duration, position, playback speed, or mute status of existing items. You MUST include all affected items as separate entries in the mutations array in a SINGLE call — never call edit_manifest multiple times. For audio mutations (type=updateAudio): ALWAYS use trimStart and trimEnd fields (not endTime). To restore an audio to its full original length set trimStart=0 and trimEnd=0. The active playing duration of an audio is: originalDuration - trimStart - trimEnd. Use playbackSpeed for constant video and audio playback speed changes (e.g. 0.5 for half speed). For speed ramps (e.g. "0.5x start to 0.1x end"), use both speedStart and speedEnd (and optionally speedEasing: "linear" or "ease"). If speedStart/speedEnd are used, they will override any constant playbackSpeed. Use muted for video mute status (true to mute, false to unmute). ALWAYS use the exact id strings from the manifest (e.g. "audio-1234-abc") — never make up or shorten ids.\n' +
+    '- edit_manifest: when the user asks to change timing, duration, position, playback speed, mute status, or text typography/style of existing items. You MUST include all affected items as separate entries in the mutations array in a SINGLE call — never call edit_manifest multiple times. For audio mutations (type=updateAudio): ALWAYS use trimStart and trimEnd fields (not endTime). To restore an audio to its full original length set trimStart=0 and trimEnd=0. The active playing duration of an audio is: originalDuration - trimStart - trimEnd. Use playbackSpeed for constant video and audio playback speed changes (e.g. 0.5 for half speed). For speed ramps (e.g. "0.5x start to 0.1x end"), use both speedStart and speedEnd (and optionally speedEasing: "linear" or "ease"). If speedStart/speedEnd are used, they will override any constant playbackSpeed. Use muted for video mute status (true to mute, false to unmute). For text mutations (type=updateText), use fontFamily, fontWeight, animation ("none" or "keyboard"), and style ("normal", "negative", or "highlight") as needed. ALWAYS use the exact id strings from the manifest (e.g. "audio-1234-abc") — never make up or shorten ids.\n' +
   '- split_at_marks: when the user asks to split, cut, or divide images or videos at specific positions, or into equal parts (like halves or fourths). You must compute the absolute timeline split times yourself from the item\'s timing data (halves = 1 split at midpoint, fourths = 3 splits at 25%/50%/75%). For splitting at audio marks, use splitAtMarksTimelineSeconds from each audio line — do not use marksSourceFileSeconds (those are source-file seconds, not timeline positions).\n' +
   '- add_text: when the user asks to add text overlays to the timeline at a computed time range\n' +
   '- add_effect: when the user asks to add visual effects (like "crt-dither", "flashing-black-vignette" / vignette, "black-and-white", "vivid-sharp", or "pixel-glitch-scan") over a specific time range; include intensity (0.0–1.0) if specified; for vignette optionally flashSpeed (0.0 = solid edge, 1.0 = full pulse)\n' +

@@ -266,7 +266,7 @@
   position: relative;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  overscroll-behavior-x: contain;
+  overscroll-behavior-x: none;
   overscroll-behavior-y: contain;
 }
 

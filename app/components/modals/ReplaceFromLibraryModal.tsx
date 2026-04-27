@@ -37,10 +37,8 @@ export default function ReplaceFromLibraryModal({ open, onClose, onPick }: Repla
 
   useEffect(() => {
     if (!open) return
-    setFolderTrail([{ id: null, name: 'Root' }])
-    setCurrentFolderId(null)
     setSearch('')
-  }, [open, setCurrentFolderId, setSearch])
+  }, [open, setSearch])
 
   const visualAssets = useMemo(() => assets.filter((a) => a.kind === 'image' || a.kind === 'video'), [assets])
 

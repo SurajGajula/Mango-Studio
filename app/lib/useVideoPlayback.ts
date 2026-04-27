@@ -29,6 +29,15 @@ function audioDecodeLeadSeconds(ctx: AudioContext): number {
   return Math.min(0.12, Math.max(0, lead))
 }
 
+function clampAudioSeekTime(el: HTMLAudioElement, requestedTime: number): number {
+  if (!Number.isFinite(requestedTime)) return 0
+  const clampedMin = Math.max(0, requestedTime)
+  const duration = el.duration
+  if (!Number.isFinite(duration) || duration <= 0) return clampedMin
+  // Avoid seeking to exact duration, which can keep the element in ended state.
+  return Math.min(clampedMin, Math.max(0, duration - 0.001))
+}
+
 type PersistenceCanvasMap = Map<string, { current: HTMLCanvasElement; accumulation: HTMLCanvasElement }>
 
 function syncManifestVideoPool(
@@ -146,6 +155,7 @@ export function useVideoPlayback(
   const bufferCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const videoPlayPromisesRef = useRef<Map<string, Promise<void>>>(new Map())
   const audioPlayPromisesRef = useRef<Map<string, Promise<void>>>(new Map())
+  const wasPlayingRef = useRef(false)
   const internalPlaybackTimeRef = useRef(0)
   const [contentRect, setContentRect] = useState({ x: 0, y: 0, width: 0, height: 0 })
   const contentRectRef = useRef({ x: 0, y: 0, width: 0, height: 0 })
@@ -384,6 +394,7 @@ export function useVideoPlayback(
       lastTimestamp = timestamp
 
       let newTime = 0
+      let didWrapPlayback = false
       if (isPlaying) {
         internalPlaybackTimeRef.current += delta * rate
         newTime = internalPlaybackTimeRef.current
@@ -395,6 +406,7 @@ export function useVideoPlayback(
             internalPlaybackTimeRef.current = 0
             newTime = 0
             lastTimestamp = null
+            didWrapPlayback = true
           } else {
             state.setIsPlaying(false)
             state.setPlaybackTime(0)
@@ -417,8 +429,33 @@ export function useVideoPlayback(
 
       const canvas = canvasRef.current; const container = containerRef.current
       
-      const decodeLead = state.audios.length > 0 ? audioDecodeLeadSeconds(getAudioCtx()) : 0
+      const audioCtx = getAudioCtx()
+      if (isPlaying && audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => {})
+      }
+
+      const decodeLead = state.audios.length > 0 ? audioDecodeLeadSeconds(audioCtx) : 0
       const audioDriftSeek = 0.055
+
+      if (!isPlaying && wasPlayingRef.current) {
+        audioPlayPromisesRef.current.clear()
+        state.audios.forEach((audioItem) => {
+          const el = audioElementsRef.current.get(audioItem.id)
+          if (!el) return
+          if (!el.paused) el.pause()
+        })
+      }
+
+      if (didWrapPlayback) {
+        audioPlayPromisesRef.current.clear()
+        state.audios.forEach((audioItem) => {
+          const el = audioElementsRef.current.get(audioItem.id)
+          if (!el) return
+          if (!el.paused) el.pause()
+          const restartAt = Math.max(0, (audioItem.trimStart ?? 0) + decodeLead)
+          el.currentTime = clampAudioSeekTime(el, restartAt)
+        })
+      }
 
       state.audios.forEach((audioItem) => {
         const el = audioElementsRef.current.get(audioItem.id)
@@ -445,7 +482,7 @@ export function useVideoPlayback(
 
           const vol = audioItem.volume ?? 1.0
           if (Math.abs(nodes.gain.gain.value - vol) > 0.001) {
-            nodes.gain.gain.setTargetAtTime(vol, getAudioCtx().currentTime, 0.01)
+            nodes.gain.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.01)
           }
 
           const x = elapsed / Math.max(0.1, timelineDuration)
@@ -463,11 +500,11 @@ export function useVideoPlayback(
 
           const drift = Math.abs(el.currentTime - syncTarget)
           if (drift > audioDriftSeek) {
-            el.currentTime = syncTarget
+            el.currentTime = clampAudioSeekTime(el, syncTarget)
           }
 
           if (el.paused && !audioPlayPromisesRef.current.has(audioItem.id)) {
-            el.currentTime = syncTarget
+            el.currentTime = clampAudioSeekTime(el, syncTarget)
             const p = el.play()
             audioPlayPromisesRef.current.set(audioItem.id, p)
             p.catch(() => {}).finally(() => {
@@ -494,7 +531,7 @@ export function useVideoPlayback(
             const target = (audioItem.trimStart ?? 0) + sourceTimeOffset * pitch
             const syncTarget = target + decodeLead
             if (Math.abs(el.currentTime - syncTarget) > 0.04) {
-              el.currentTime = syncTarget
+              el.currentTime = clampAudioSeekTime(el, syncTarget)
             }
           }
         }
@@ -567,6 +604,7 @@ export function useVideoPlayback(
           )
         }
       }
+      wasPlayingRef.current = isPlaying
       rafRef.current = requestAnimationFrame(loop)
     }
     rafRef.current = requestAnimationFrame(loop)
