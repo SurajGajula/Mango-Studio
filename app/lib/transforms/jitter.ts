@@ -4,7 +4,8 @@ export function applyJitter(params: TransformParams): void {
   const { ctx, imgEl, x, y, w, h, sx, sy, sw, sh, zoomIntensity, elapsedTime, animationDuration } = params
   
   const jitterDuration = animationDuration ?? 0.4
-  const scale = 1.0 + zoomIntensity * 0.75
+  const remappedIntensity = zoomIntensity * 0.5
+  const scale = 1.0 + remappedIntensity * 0.75
   
   const zoomedSw = sw / scale
   const zoomedSh = sh / scale
@@ -35,7 +36,6 @@ export function applyJitter(params: TransformParams): void {
     ctx.drawImage(imgEl, centerSx + shakeX, centerSy + shakeY, zoomedSw, zoomedSh, x, y, w, h)
     ctx.restore()
   } else {
-    // Stay zoomed in at the target scale after jitter is done
-    ctx.drawImage(imgEl, centerSx, centerSy, zoomedSw, zoomedSh, x, y, w, h)
+    ctx.drawImage(imgEl, sx, sy, sw, sh, x, y, w, h)
   }
 }

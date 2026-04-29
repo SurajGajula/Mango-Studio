@@ -10,7 +10,9 @@ function easeInQuad(v: number): number {
 }
 
 function easedProgress(u: number, ease: AnimationZoomEasing): number {
-  return ease === 'fast-slow' ? easeOutQuad(u) : easeInQuad(u)
+  if (ease === 'fast-slow') return easeOutQuad(u)
+  if (ease === 'slow-fast') return easeInQuad(u)
+  return u
 }
 
 export function applyStandardZoom(params: TransformParams): void {

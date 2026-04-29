@@ -171,55 +171,7 @@ export const createGeneralSlice = (set: any, get: any) => ({
   },
 
   recalculateTimestamps: () => {
-    set((state: ManifestStore) => {
-      const orderedMain = [
-        ...state.videos
-          .filter((v) => v.row === 0)
-          .map((v) => ({ kind: 'video' as const, id: v.id, start: v.timestamp, duration: v.duration ?? 0 })),
-        ...state.images
-          .filter((img) => img.row === 0)
-          .map((img) => ({ kind: 'image' as const, id: img.id, start: img.startTime, duration: img.duration })),
-      ].sort((a, b) => a.start - b.start)
-
-      let cursor = 0
-      const videoStarts = new Map<string, number>()
-      const imageStarts = new Map<string, number>()
-      for (const item of orderedMain) {
-        if (item.kind === 'video') videoStarts.set(item.id, cursor)
-        else imageStarts.set(item.id, cursor)
-        cursor += Math.max(0, item.duration)
-      }
-
-      return {
-        videos: state.videos.map((v) => {
-          const nextStart = videoStarts.get(v.id)
-          return nextStart === undefined ? v : v.copy({ timestamp: nextStart })
-        }),
-        images: state.images.map((img) => {
-          const nextStart = imageStarts.get(img.id)
-          return nextStart === undefined
-            ? img
-            : img.copy({ startTime: nextStart, endTime: nextStart + img.duration })
-        }),
-      }
-    })
-  },
-
-  bulkUpdateMainTrackItems: (imagePatches: any[], videoTimestampPatches: any[]) => {
-    const imgMap = new Map(imagePatches.map((p) => [p.id, p]))
-    const vidMap = new Map(videoTimestampPatches.map((p) => [p.id, p]))
-    set((state: ManifestStore) => ({
-      images: state.images.map((img) => {
-        const patch = imgMap.get(img.id)
-        if (!patch) return img
-        return img.copy({ startTime: patch.startTime ?? img.startTime, endTime: patch.endTime ?? img.endTime })
-      }),
-      videos: state.videos.map((v) => {
-        const patch = vidMap.get(v.id)
-        if (!patch) return v
-        return v.copy({ timestamp: patch.timestamp ?? v.timestamp })
-      }),
-    }))
+    return
   },
 
   setItemPlaybackSpeed: (id: string, speed: number, speedStart?: number, speedEnd?: number, speedEasing?: 'linear' | 'ease') => {
@@ -319,16 +271,43 @@ export const createGeneralSlice = (set: any, get: any) => ({
     const startTime = type === 'video' ? item.timestamp : item.startTime
     const duration = type === 'audio' ? (item.originalDuration - item.trimStart - item.trimEnd) / (item.playbackSpeed ?? 1) : (item.duration ?? 0)
     const endTime = startTime + duration
+    const duplicateStart = endTime
+    const duplicateEnd = duplicateStart + duration
 
     let newItem: any
     const newId = `${type}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
 
+    let targetRow = item.row
+    if (overlapsAny(duplicateStart, duplicateEnd, occupancyIntervalsOnRow(state, targetRow, null, null), 0.01)) {
+      while (overlapsAny(duplicateStart, duplicateEnd, occupancyIntervalsOnRow(state, targetRow, null, null), 0.01)) {
+        targetRow += 1
+      }
+    }
+
     if (type === 'video') {
-      newItem = item.copy({ id: newId, timestamp: endTime, createdAt: new Date(), updatedAt: new Date() })
+      newItem = item.copy({
+        id: newId,
+        row: targetRow,
+        timestamp: duplicateStart,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
     } else if (type === 'audio') {
-      newItem = item.copy({ id: newId, startTime: endTime, endTime: endTime + duration, createdAt: new Date() })
+      newItem = item.copy({
+        id: newId,
+        row: targetRow,
+        startTime: duplicateStart,
+        endTime: duplicateEnd,
+        createdAt: new Date(),
+      })
     } else {
-      newItem = item.copy({ id: newId, startTime: endTime, endTime: endTime + duration, createdAt: new Date() })
+      newItem = item.copy({
+        id: newId,
+        row: targetRow,
+        startTime: duplicateStart,
+        endTime: duplicateEnd,
+        createdAt: new Date(),
+      })
     }
     if (type === 'video' || type === 'image') {
       newItem = newItem.copy({

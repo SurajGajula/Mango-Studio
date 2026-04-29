@@ -35,7 +35,9 @@ export function useTimelineScroll({
     const scrollPercent = scrollableWidth > 0 ? centerScrollPosition / scrollableWidth : 0
     const totalWithPadding = totalDuration + effectivePadding * 2
     const timeWithPadding = scrollPercent * totalWithPadding
-    let newTime = Math.max(0, Math.min(totalDuration, timeWithPadding - effectivePadding))
+    const newTime = scrollLeft <= 1
+      ? 0
+      : Math.max(0, Math.min(totalDuration, timeWithPadding - effectivePadding))
 
     playbackFromUserScrollRef.current = true
     setPlaybackTime(newTime)

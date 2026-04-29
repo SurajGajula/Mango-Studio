@@ -29,7 +29,6 @@ function makeVideo(
     undefined,
     undefined,
     undefined,
-    undefined,
     0,
     0,
     w,
@@ -77,7 +76,6 @@ function makeImage(id: string, row: number, start: number, end: number) {
     1920,
     1,
     undefined,
-    false,
     'none',
     'none',
     '9:16',
@@ -134,6 +132,18 @@ describe('checkTransition with layout guard', () => {
     ]
     const atCut = b.timestamp - 0.05
     const r = checkTransition(items[0], items[1], atCut)
+    expect(r.transitionActive).toBe(false)
+  })
+
+  it('disables transition when clips are not adjacent', () => {
+    const a = makeVideo('a', 0, 0, 2)
+    const b = makeVideo('b', 0, 2.3, 2, { transition: 'wipe', transitionDuration: 1 })
+    const atEndOfA = 1.9
+    const r = checkTransition(
+      { id: a.id, type: 'video', item: a, startTime: a.timestamp, duration: a.duration || 0 },
+      { id: b.id, type: 'video', item: b, startTime: b.timestamp, duration: b.duration || 0 },
+      atEndOfA
+    )
     expect(r.transitionActive).toBe(false)
   })
 })

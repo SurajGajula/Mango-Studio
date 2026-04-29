@@ -116,14 +116,6 @@ export default function MainView() {
     setTransitionItemId(id)
   }, [])
 
-  const onCloseTransitions = useCallback(() => {
-    setRightPanel((prev) => {
-      if (prev === 'transitions') return 'chat'
-      return prev
-    })
-    setTransitionItemId(null)
-  }, [])
-
   const onOpenAnimations = useCallback((id?: string) => {
     setRightPanel('animations')
     if (id) {
@@ -231,7 +223,6 @@ export default function MainView() {
       <div className={styles.timelineContainer}>
         <Timeline
           onOpenTransitions={onOpenTransitions}
-          onCloseTransitions={onCloseTransitions}
           onOpenAnimations={onOpenAnimations}
           onOpenFont={onOpenFont}
           onOpenEffects={onOpenEffects}

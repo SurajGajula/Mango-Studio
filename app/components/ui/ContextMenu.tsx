@@ -17,6 +17,7 @@ interface ContextMenuProps {
   onOpenPitch?: (id: string) => void
   onReplace?: (id: string) => void
   onReplaceFromLibrary?: (id: string) => void
+  onRemoveBackground?: (id: string) => void
   playbackTime: number
 }
 
@@ -28,6 +29,7 @@ export default function ContextMenu({
   onOpenPitch,
   onReplace,
   onReplaceFromLibrary,
+  onRemoveBackground,
   playbackTime,
 }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
@@ -59,6 +61,7 @@ export default function ContextMenu({
 
   const volumeSliderHistory = useSliderHistorySession()
   const pitchSliderHistory = useSliderHistorySession()
+  const fadeOutSliderHistory = useSliderHistorySession()
 
   const clearSelection = useSelectionStore((s) => s.clearSelection)
 
@@ -255,6 +258,29 @@ export default function ContextMenu({
               {(currentAudio.pitch ?? 1).toFixed(2)}x
             </span>
           </div>
+          <div className={styles.contextMenuSliderItem}>
+            <div className={styles.contextMenuIcon}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12a9 9 0 1 1-9-9"></path>
+                <path d="M12 7v5l4 2"></path>
+              </svg>
+            </div>
+            <span style={{ fontSize: '0.75rem', color: '#cccccc', marginRight: '8px', minWidth: '45px' }}>Fade out</span>
+            <input
+              type="range"
+              min="0"
+              max="5"
+              step="0.05"
+              value={Math.max(0, currentAudio.fadeOutDuration ?? 0)}
+              onPointerDown={fadeOutSliderHistory}
+              onChange={(e) => updateAudio(itemId, { fadeOutDuration: parseFloat(e.target.value) })}
+              onClick={(e) => e.stopPropagation()}
+              className={styles.contextMenuSlider}
+            />
+            <span style={{ fontSize: '0.7rem', color: '#888', marginLeft: '8px', minWidth: '36px' }}>
+              {(currentAudio.fadeOutDuration ?? 0).toFixed(2)}s
+            </span>
+          </div>
           <div className={styles.contextMenuSeparator} />
         </>
       )}
@@ -302,6 +328,21 @@ export default function ContextMenu({
             </div>
             Replace from library
           </button>
+          {itemType === 'image' && (
+            <button
+              className={styles.contextMenuItem}
+              onClick={() => handleAction(() => onRemoveBackground?.(itemId))}
+            >
+              <div className={styles.contextMenuIcon}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 6h16" />
+                  <path d="M7 6l1 12h8l1-12" />
+                  <path d="M9 10h6" />
+                </svg>
+              </div>
+              Remove background
+            </button>
+          )}
           <button
             className={styles.contextMenuItem}
             onClick={() => handleAction(() => onOpenAnimations?.(itemId))}

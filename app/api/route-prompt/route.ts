@@ -22,6 +22,7 @@ interface ManifestItem {
   animationDuration?: number
   animationZoomEasing?: string
   transitionFlashMode?: 'solid' | 'negative'
+  transitionWipeEasing?: 'ease-in' | 'ease-out' | 'linear'
   cropAspect?: string
   originalDuration?: number
   trimStart?: number
@@ -65,6 +66,7 @@ interface ZoomDistanceRangeDirective {
 export interface ManifestMutation {
   type: 'updateImage' | 'updateVideo' | 'updateText' | 'updateAudio'
   id: string
+  row?: number
   startTime?: number
   endTime?: number
   timestamp?: number
@@ -78,7 +80,7 @@ export interface ManifestMutation {
   muted?: boolean
   fontFamily?: string
   fontWeight?: string
-  animation?: 'none' | 'keyboard'
+  animation?: 'none' | 'keyboard' | 'shake'
   style?: 'normal' | 'negative' | 'highlight'
 }
 
@@ -117,18 +119,19 @@ export interface TransitionInstruction {
   type: 'image' | 'video'
   id: string
   animation?: 'none' | 'zoom-in' | 'zoom-out' | 'shake' | 'jitter' | 'last-frame-hold' | string
-  transition?: 'none' | 'split' | 'fade' | 'morph' | 'slide-in' | 'circle' | 'rotate' | 'flash'
+  transition?: 'none' | 'split' | 'fade' | 'morph' | 'slide-in' | 'wipe' | 'circle' | 'rotate' | 'flash'
   zoomIntensity?: number
   zoomDistanceIntensity?: number
   transitionDuration?: number
   animationDuration?: number
-  animationZoomEasing?: 'fast-slow' | 'slow-fast'
+  animationZoomEasing?: 'constant' | 'fast-slow' | 'slow-fast'
   transitionColor?: string
   transitionFlashMode?: 'solid' | 'negative'
-  transitionDirection?: 'left' | 'right' | 'top' | 'bottom'
+  transitionDirection?: 'left' | 'right' | 'top' | 'bottom' | 'up' | 'down'
   transitionAxis?: 'horizontal' | 'vertical'
   transitionSlideEasing?: 'smooth' | 'ease-in' | 'ease-out' | 'linear'
   transitionCircleEasing?: 'smooth' | 'ease-in' | 'ease-out' | 'linear'
+  transitionWipeEasing?: 'ease-in' | 'ease-out' | 'linear'
 }
 
 export interface CropInstruction {
@@ -197,7 +200,7 @@ function buildManifestContext(manifest: SerializedManifest): string {
     lines.push(`Images (${sorted.length}):`)
     sorted.forEach((img, i) => {
       const row = img.row ?? 0
-      lines.push(`  - #${i + 1} row=${row} id="${img.id}" name="${img.name}" startTime=${img.startTime}s endTime=${img.endTime}s animation=${img.animation ?? 'none'} transition=${img.transition ?? 'none'}${img.zoomIntensity ? ` zoomIntensity=${img.zoomIntensity}` : ''}${img.zoomDistanceIntensity ? ` zoomDistanceIntensity=${img.zoomDistanceIntensity}` : ''}${img.transitionDuration ? ` transitionDuration=${img.transitionDuration}s` : ''}${img.animationDuration ? ` animationDuration=${img.animationDuration}s` : ''}${img.animationZoomEasing ? ` animationZoomEasing=${img.animationZoomEasing}` : ''} cropAspect=${img.cropAspect ?? 'none'}`)
+      lines.push(`  - #${i + 1} row=${row} id="${img.id}" name="${img.name}" startTime=${img.startTime}s endTime=${img.endTime}s animation=${img.animation ?? 'none'} transition=${img.transition ?? 'none'}${img.zoomIntensity ? ` zoomIntensity=${img.zoomIntensity}` : ''}${img.zoomDistanceIntensity ? ` zoomDistanceIntensity=${img.zoomDistanceIntensity}` : ''}${img.transitionDuration ? ` transitionDuration=${img.transitionDuration}s` : ''}${img.animationDuration ? ` animationDuration=${img.animationDuration}s` : ''}${img.animationZoomEasing ? ` animationZoomEasing=${img.animationZoomEasing}` : ''}${img.transitionWipeEasing ? ` transitionWipeEasing=${img.transitionWipeEasing}` : ''} cropAspect=${img.cropAspect ?? 'none'}`)
     })
   }
   if (manifest.videos?.length) {
@@ -207,7 +210,7 @@ function buildManifestContext(manifest: SerializedManifest): string {
       const speedStr = vid.speedStart !== undefined && vid.speedEnd !== undefined && vid.speedStart !== vid.speedEnd
         ? `speedStart=${vid.speedStart}x speedEnd=${vid.speedEnd}x easing=${vid.speedEasing ?? 'linear'}`
         : `playbackSpeed=${vid.playbackSpeed ?? 1}x`
-      lines.push(`  - #${i + 1} id="${vid.id}" title="${vid.title}" timestamp=${vid.timestamp}s duration=${vid.duration}s ${speedStr} muted=${vid.muted ?? false} row=${vid.row ?? 0} animation=${vid.animation ?? 'none'} transition=${vid.transition ?? 'none'}${vid.zoomIntensity ? ` zoomIntensity=${vid.zoomIntensity}` : ''}${vid.zoomDistanceIntensity ? ` zoomDistanceIntensity=${vid.zoomDistanceIntensity}` : ''}${vid.transitionDuration ? ` transitionDuration=${vid.transitionDuration}s` : ''}${vid.animationDuration ? ` animationDuration=${vid.animationDuration}s` : ''}${vid.animationZoomEasing ? ` animationZoomEasing=${vid.animationZoomEasing}` : ''} cropAspect=${vid.cropAspect ?? 'none'}`)
+      lines.push(`  - #${i + 1} id="${vid.id}" title="${vid.title}" timestamp=${vid.timestamp}s duration=${vid.duration}s ${speedStr} muted=${vid.muted ?? false} row=${vid.row ?? 0} animation=${vid.animation ?? 'none'} transition=${vid.transition ?? 'none'}${vid.zoomIntensity ? ` zoomIntensity=${vid.zoomIntensity}` : ''}${vid.zoomDistanceIntensity ? ` zoomDistanceIntensity=${vid.zoomDistanceIntensity}` : ''}${vid.transitionDuration ? ` transitionDuration=${vid.transitionDuration}s` : ''}${vid.animationDuration ? ` animationDuration=${vid.animationDuration}s` : ''}${vid.animationZoomEasing ? ` animationZoomEasing=${vid.animationZoomEasing}` : ''}${vid.transitionWipeEasing ? ` transitionWipeEasing=${vid.transitionWipeEasing}` : ''} cropAspect=${vid.cropAspect ?? 'none'}`)
     })
   }
   if (manifest.texts?.length) {

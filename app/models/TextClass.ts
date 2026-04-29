@@ -1,4 +1,4 @@
-export type TextAnimation = 'none' | 'keyboard'
+export type TextAnimation = 'none' | 'keyboard' | 'shake'
 export type TextStyle = 'normal' | 'negative' | 'highlight'
 
 export class TextClass {

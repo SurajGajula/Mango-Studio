@@ -38,6 +38,23 @@ function clampAudioSeekTime(el: HTMLAudioElement, requestedTime: number): number
   return Math.min(clampedMin, Math.max(0, duration - 0.001))
 }
 
+function resetAudioElementForLoop(el: HTMLAudioElement, restartAt: number) {
+  if (!el.paused) el.pause()
+  el.playbackRate = 1
+  el.currentTime = clampAudioSeekTime(el, restartAt)
+  // Safari can keep media ended/paused after a wrap unless we rewind off the end.
+  if (el.ended) {
+    el.currentTime = 0
+  }
+}
+
+function isAudioElementReady(el: HTMLAudioElement): boolean {
+  if (el.readyState < 3) return false
+  if (el.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) return false
+  const duration = el.duration
+  return !Number.isNaN(duration)
+}
+
 type PersistenceCanvasMap = Map<string, { current: HTMLCanvasElement; accumulation: HTMLCanvasElement }>
 
 function syncManifestVideoPool(
@@ -155,6 +172,7 @@ export function useVideoPlayback(
   const bufferCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const videoPlayPromisesRef = useRef<Map<string, Promise<void>>>(new Map())
   const audioPlayPromisesRef = useRef<Map<string, Promise<void>>>(new Map())
+  const audioWarmupUntilRef = useRef<Map<string, number>>(new Map())
   const wasPlayingRef = useRef(false)
   const internalPlaybackTimeRef = useRef(0)
   const [contentRect, setContentRect] = useState({ x: 0, y: 0, width: 0, height: 0 })
@@ -253,6 +271,7 @@ export function useVideoPlayback(
         el = new Audio(audioItem.url)
         el.preload = 'auto'
         el.crossOrigin = 'anonymous'
+        el.load()
         ;(el as HTMLAudioElement & { preservesPitch?: boolean; webkitPreservesPitch?: boolean }).preservesPitch = false
         ;(el as HTMLAudioElement & { preservesPitch?: boolean; webkitPreservesPitch?: boolean }).webkitPreservesPitch = false
         audioElementsRef.current.set(audioItem.id, el)
@@ -439,6 +458,7 @@ export function useVideoPlayback(
 
       if (!isPlaying && wasPlayingRef.current) {
         audioPlayPromisesRef.current.clear()
+        audioWarmupUntilRef.current.clear()
         state.audios.forEach((audioItem) => {
           const el = audioElementsRef.current.get(audioItem.id)
           if (!el) return
@@ -448,12 +468,12 @@ export function useVideoPlayback(
 
       if (didWrapPlayback) {
         audioPlayPromisesRef.current.clear()
+        audioWarmupUntilRef.current.clear()
         state.audios.forEach((audioItem) => {
           const el = audioElementsRef.current.get(audioItem.id)
           if (!el) return
-          if (!el.paused) el.pause()
-          const restartAt = Math.max(0, (audioItem.trimStart ?? 0) + decodeLead)
-          el.currentTime = clampAudioSeekTime(el, restartAt)
+          const restartAt = Math.max(0, audioItem.trimStart ?? 0)
+          resetAudioElementForLoop(el, restartAt)
         })
       }
 
@@ -465,6 +485,13 @@ export function useVideoPlayback(
         const isInside = newTime >= audioItem.startTime && newTime < audioItem.endTime
 
         if (isInside && isPlaying) {
+          if (!isAudioElementReady(el)) {
+            if (el.networkState === HTMLMediaElement.NETWORK_EMPTY) {
+              el.load()
+            }
+            return
+          }
+
           const elapsed = newTime - audioItem.startTime
           const timelineDuration = audioItem.endTime - audioItem.startTime
           const sourceTimeOffset = calculateSourceTime(
@@ -481,8 +508,15 @@ export function useVideoPlayback(
           const syncTarget = target + decodeLead
 
           const vol = audioItem.volume ?? 1.0
-          if (Math.abs(nodes.gain.gain.value - vol) > 0.001) {
-            nodes.gain.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.01)
+          const fadeOutDuration = Math.max(0, audioItem.fadeOutDuration ?? 0)
+          const timeRemaining = Math.max(0, audioItem.endTime - newTime)
+          const fadeOutGain =
+            fadeOutDuration > 0 ? Math.min(1, Math.max(0, timeRemaining / fadeOutDuration)) : 1
+          const effectiveVol = vol * fadeOutGain
+          const warmupUntil = audioWarmupUntilRef.current.get(audioItem.id) ?? 0
+          const isWarmingUp = timestamp < warmupUntil
+          if (!isWarmingUp && Math.abs(nodes.gain.gain.value - effectiveVol) > 0.001) {
+            nodes.gain.gain.setTargetAtTime(effectiveVol, audioCtx.currentTime, 0.01)
           }
 
           const x = elapsed / Math.max(0.1, timelineDuration)
@@ -499,12 +533,15 @@ export function useVideoPlayback(
           }
 
           const drift = Math.abs(el.currentTime - syncTarget)
-          if (drift > audioDriftSeek) {
+          if (!isWarmingUp && drift > audioDriftSeek) {
             el.currentTime = clampAudioSeekTime(el, syncTarget)
           }
 
           if (el.paused && !audioPlayPromisesRef.current.has(audioItem.id)) {
             el.currentTime = clampAudioSeekTime(el, syncTarget)
+            nodes.gain.gain.setValueAtTime(0, audioCtx.currentTime)
+            nodes.gain.gain.linearRampToValueAtTime(effectiveVol, audioCtx.currentTime + 0.05)
+            audioWarmupUntilRef.current.set(audioItem.id, timestamp + 140)
             const p = el.play()
             audioPlayPromisesRef.current.set(audioItem.id, p)
             p.catch(() => {}).finally(() => {
@@ -512,11 +549,15 @@ export function useVideoPlayback(
             })
           }
         } else {
+          audioWarmupUntilRef.current.delete(audioItem.id)
           if (!el.paused) {
             el.pause()
           }
 
           if (isInside) {
+            if (!isAudioElementReady(el)) {
+              return
+            }
             const elapsed = newTime - audioItem.startTime
             const timelineDuration = audioItem.endTime - audioItem.startTime
             const sourceTimeOffset = calculateSourceTime(
@@ -563,6 +604,7 @@ export function useVideoPlayback(
             playbackRate: rate,
             videos: state.videos,
             images: state.images,
+            texts: state.texts,
             effects: state.effects
           }
 

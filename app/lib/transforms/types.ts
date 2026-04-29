@@ -3,6 +3,7 @@ import type {
   AnimationZoomEasing,
   FlashTransitionMode,
   SlideTransitionEasing,
+  WipeTransitionEasing,
   TransitionMode,
 } from '@/app/models/ImageClass'
 
@@ -46,8 +47,9 @@ export interface TransformParams {
   };
   transitionColor?: string;
   transitionFlashMode?: FlashTransitionMode;
-  transitionDirection?: 'left' | 'right' | 'top' | 'bottom';
+  transitionDirection?: 'left' | 'right' | 'top' | 'bottom' | 'up' | 'down';
   transitionAxis?: 'horizontal' | 'vertical';
   transitionSlideEasing?: SlideTransitionEasing;
   transitionCircleEasing?: SlideTransitionEasing;
+  transitionWipeEasing?: WipeTransitionEasing;
 }

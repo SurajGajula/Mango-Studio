@@ -27,6 +27,11 @@ let ffmpegInstance: FFmpeg | null = null
 let ffmpegLoading: Promise<FFmpeg> | null = null
 let ffmpegLock = false
 
+function videoElementHasDrawableFrame(el: HTMLVideoElement): boolean {
+  if (el.videoWidth <= 0 || el.videoHeight <= 0) return false
+  return el.readyState >= 1
+}
+
 async function getFFmpeg(): Promise<FFmpeg> {
   if (ffmpegInstance) return ffmpegInstance
   if (ffmpegLoading) return ffmpegLoading
@@ -145,6 +150,7 @@ export async function exportVideo(
             const pitch = audioItem.pitch ?? 1
             const timelineDuration = audioItem.endTime - audioItem.startTime
             const easing = audioItem.speedEasing ?? 'linear'
+            const fadeOutDuration = Math.max(0, audioItem.fadeOutDuration ?? 0)
             
             if (Math.abs(sStart - sEnd) > 0.001) {
               if (easing === 'ease') {
@@ -168,6 +174,14 @@ export async function exportVideo(
             
             source.connect(gainNode)
             gainNode.connect(offlineCtx.destination)
+
+            if (fadeOutDuration > 0 && timelineDuration > 0) {
+              const fadeStart = Math.max(audioItem.startTime, audioItem.endTime - fadeOutDuration)
+              const baseVolume = audioItem.volume ?? 1.0
+              gainNode.gain.setValueAtTime(baseVolume, audioItem.startTime)
+              gainNode.gain.setValueAtTime(baseVolume, fadeStart)
+              gainNode.gain.linearRampToValueAtTime(0, audioItem.endTime)
+            }
 
             // Calculate how much source duration to consume
             const avgSpeed = (sStart + sEnd) / 2
@@ -302,28 +316,37 @@ export async function exportVideo(
         }
       }
       overlayEntries.sort((a, b) => a.row - b.row || a.t0 - b.t0)
+      const overlayEntriesByRow = new Map<number, OverlayExportEntry[]>()
+      for (const entry of overlayEntries) {
+        const list = overlayEntriesByRow.get(entry.row) ?? []
+        list.push(entry)
+        overlayEntriesByRow.set(entry.row, list)
+      }
+      const rows = Array.from(new Set<number>([
+        ...Array.from(overlayEntriesByRow.keys()),
+        ...Array.from(overlayRowIdsForSeek.values()),
+      ])).sort((a, b) => a - b)
 
-      const skipOverlayExportIds = new Set<string>()
-      for (const row of overlayRowIdsForSeek) {
+      const skipOverlayExportIdsByRow = new Map<number, Set<string>>()
+      for (const row of rows) {
         const sortedR = getSortedRowItems(row, allVideos, images || [])
         const pr = findActiveAndNextItems(sortedR, t)
         const tr = checkTransition(pr.activeItem, pr.nextItem, t)
-        if (!pr.activeItem || !pr.nextItem || !tr.transitionActive || tr.progress >= 1) continue
-        if (
-          renderClipTransitionPair(ctx, exportCr, t, pr.activeItem, pr.nextItem, tr.progress, (id) => {
+        if (pr.activeItem && pr.nextItem && tr.transitionActive && tr.progress < 1) {
+          const renderedPair = renderClipTransitionPair(ctx, exportCr, t, pr.activeItem, pr.nextItem, tr.progress, (id) => {
             const el = videoElements.get(id)
-            return el && el.readyState >= 2 ? el : undefined
+            return el && videoElementHasDrawableFrame(el) ? el : undefined
           }, (id) => imageElements.get(id) ?? undefined)
-        ) {
-          skipOverlayExportIds.add(pr.activeItem.id)
-          skipOverlayExportIds.add(pr.nextItem.id)
+          if (renderedPair) {
+            skipOverlayExportIdsByRow.set(row, new Set([pr.activeItem.id, pr.nextItem.id]))
+          }
         }
-      }
-
-      for (let oi = 0; oi < overlayEntries.length; oi++) {
-        const entry = overlayEntries[oi]
-        if (entry.kind === 'image' && skipOverlayExportIds.has(entry.img.id)) continue
-        if (entry.kind === 'video' && skipOverlayExportIds.has(entry.video.id)) continue
+        const rowEntries = overlayEntriesByRow.get(row) ?? []
+        for (let oi = 0; oi < rowEntries.length; oi++) {
+          const entry = rowEntries[oi]
+        const skippedIds = skipOverlayExportIdsByRow.get(entry.row)
+        if (entry.kind === 'image' && skippedIds?.has(entry.img.id)) continue
+        if (entry.kind === 'video' && skippedIds?.has(entry.video.id)) continue
         if (entry.kind === 'image') {
           const img = entry.img
           const iEl = imageElements.get(img.id); if (!iEl) continue
@@ -335,17 +358,17 @@ export async function exportVideo(
           const iw = img.width * xScale
           const ih = img.height * yScale
           runWithPlacementRotation(ctx, ix, iy, iw, ih, img.rotation, (ox, oy) => {
-            applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, ox, oy, iw, ih, kox.cropSx, kox.cropSy, kox.cropSw, kox.cropSh, kox.zoomIntensity, img.duration, img.animationDuration, t - img.startTime, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, img.transitionColor, img.transitionFlashMode, img.transitionDirection, img.transitionAxis, img.transitionSlideEasing, img.transitionCircleEasing, img.animationZoomEasing, undefined, img.zoomDistanceIntensity, undefined)
+            applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, ox, oy, iw, ih, kox.cropSx, kox.cropSy, kox.cropSw, kox.cropSh, kox.zoomIntensity, img.duration, img.animationDuration, t - img.startTime, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, img.transitionColor, img.transitionFlashMode, img.transitionDirection, img.transitionAxis, img.transitionSlideEasing, img.transitionCircleEasing, img.transitionWipeEasing, img.animationZoomEasing, undefined, img.zoomDistanceIntensity, undefined)
           })
           ctx.restore()
         } else if (entry.kind === 'video') {
           const v = entry.video
-          const vEl = videoElements.get(v.id); if (!vEl || vEl.readyState < 2) continue
+          const vEl = videoElements.get(v.id); if (!vEl || !videoElementHasDrawableFrame(vEl)) continue
           const prog = calculateAnimationProgress(v, t, v.timestamp)
           const elV = Math.max(0, t - v.timestamp)
           const kvx = resolveMediaKeyframeTransform(v, elV, v.duration ?? 0)
           ctx.save(); ctx.globalAlpha = v.opacity
-          applyZoomTransform(ctx, v.animation, v.transition, prog, vEl, v.x * xScale, v.y * yScale, v.width * xScale, v.height * yScale, kvx.cropSx, kvx.cropSy, kvx.cropSw, kvx.cropSh, kvx.zoomIntensity, v.duration, v.animationDuration, elV, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, v.transitionColor, v.transitionFlashMode, v.transitionDirection, v.transitionAxis, v.transitionSlideEasing, v.transitionCircleEasing, v.animationZoomEasing, undefined, v.zoomDistanceIntensity, undefined)
+          applyZoomTransform(ctx, v.animation, v.transition, prog, vEl, v.x * xScale, v.y * yScale, v.width * xScale, v.height * yScale, kvx.cropSx, kvx.cropSy, kvx.cropSw, kvx.cropSh, kvx.zoomIntensity, v.duration, v.animationDuration, elV, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, v.transitionColor, v.transitionFlashMode, v.transitionDirection, v.transitionAxis, v.transitionSlideEasing, v.transitionCircleEasing, v.transitionWipeEasing, v.animationZoomEasing, undefined, v.zoomDistanceIntensity, undefined)
           ctx.restore()
         } else {
           const text = entry.text
@@ -417,12 +440,35 @@ export async function exportVideo(
             }
             ctx.textAlign = savedAlign
           }
-          drawTextLines()
-          if (text.style !== 'negative' && text.style !== 'highlight') {
+          const drawWithOptionalShake = () => {
+            if (text.animation !== 'shake') {
+              drawTextLines()
+              return
+            }
+            const duration = Math.max(0.001, text.endTime - text.startTime)
+            const localTime = Math.max(0, t - text.startTime)
+            const normalized = Math.min(1, localTime / duration)
+            const envelope = 0.6 + 0.4 * Math.sin(normalized * Math.PI)
+            const angle = localTime * 2 * Math.PI
+            const shiftX = Math.sin(angle * 2.0) * 0.06 * fontPx * envelope
+            const shiftY = Math.cos(angle * 2.3) * 0.04 * fontPx * envelope
+            const rotate = Math.sin(angle * 1.6) * 0.9 * envelope * (Math.PI / 180)
+            const centerX = text.x * xScale + (text.width * xScale) / 2
+            const centerY = text.y * yScale + (lines.length * lineHeight) / 2
+            ctx.save()
+            ctx.translate(centerX + shiftX, centerY + shiftY)
+            ctx.rotate(rotate)
+            ctx.translate(-centerX, -centerY)
             drawTextLines()
+            ctx.restore()
+          }
+          drawWithOptionalShake()
+          if (text.style !== 'negative' && text.style !== 'highlight') {
+            drawWithOptionalShake()
           }
           ctx.restore()
         }
+      }
       }
 
       if (effects && effects.length > 0) {

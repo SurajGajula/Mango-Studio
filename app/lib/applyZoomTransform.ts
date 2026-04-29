@@ -3,6 +3,7 @@ import type {
   AnimationZoomEasing,
   FlashTransitionMode,
   SlideTransitionEasing,
+  WipeTransitionEasing,
   TransitionMode,
 } from '@/app/models/ImageClass'
 import { drawWithAnimation } from './transforms/animationUtils'
@@ -13,6 +14,7 @@ import { applyFlash } from './transforms/flash'
 import { applySlide } from './transforms/slide'
 import { applyCircle } from './transforms/circle'
 import { applyRotate } from './transforms/rotate'
+import { applyWipe } from './transforms/wipe'
 import type { TransformParams } from './transforms/types'
 
 export function applyZoomTransform(
@@ -52,10 +54,11 @@ export function applyZoomTransform(
   },
   transitionColor?: string,
   transitionFlashMode?: FlashTransitionMode,
-  transitionDirection?: 'left' | 'right' | 'top' | 'bottom',
+  transitionDirection?: 'left' | 'right' | 'top' | 'bottom' | 'up' | 'down',
   transitionAxis?: 'horizontal' | 'vertical',
   transitionSlideEasing?: SlideTransitionEasing,
   transitionCircleEasing?: SlideTransitionEasing,
+  transitionWipeEasing?: WipeTransitionEasing,
   animationZoomEasing?: AnimationZoomEasing,
   prevAnimationZoomEasing?: AnimationZoomEasing,
   zoomDistanceIntensity = 1,
@@ -83,21 +86,21 @@ export function applyZoomTransform(
     zoomIntensity: zoomIntensity !== undefined ? zoomIntensity : 0.5,
     zoomDistanceIntensity: zoomDistanceIntensity !== undefined ? zoomDistanceIntensity : 1,
     itemDuration, animationDuration, animationZoomEasing: animationZoomEasing ?? 'fast-slow', elapsedTime, prevEl, prevAnimation, prevAnimationProgress, prevElapsedTime, prevZoomIntensity, prevZoomDistanceIntensity, prevItemDuration, prevAnimationDuration, prevParams,
-    transitionColor, transitionFlashMode, transitionDirection, transitionAxis, transitionSlideEasing, transitionCircleEasing
+    transitionColor, transitionFlashMode, transitionDirection, transitionAxis, transitionSlideEasing, transitionCircleEasing, transitionWipeEasing
   }
 
   ctx.save()
-  // Clip to the target bounds to ensure everything (animations, transitions) stays within the video frame
-  // EXCEPT for rotate transition which needs more space
+  // Clip to the target bounds so transition frames never spill outside the item
+  // or outside the 9:16 preview content rect for full-frame media.
   const isSlideTransition = transition === 'slide-in'
   const isCircleTransition = transition === 'circle'
-  const isRotateTransition = transition === 'rotate'
+  const isWipeTransition = transition === 'wipe'
 
   // Optimization: Only clip if necessary.
-  // Clipping is expensive. If the item is a standard full-frame item with no rotation,
-  // and it's not a special transition that needs it, we can skip clipping.
+  // Clipping is expensive. If the item is a standard full-frame item with no
+  // transition, we can skip it.
   const isFullFrame = Math.abs(x) < 0.1 && Math.abs(y) < 0.1 && Math.abs(w - ctx.canvas.width) < 0.1 && Math.abs(h - ctx.canvas.height) < 0.1
-  const needsClip = !isRotateTransition && (!isFullFrame || (transition && transition !== 'none'))
+  const needsClip = !isFullFrame || (transition && transition !== 'none')
 
   if (needsClip) {
     ctx.beginPath()
@@ -105,9 +108,9 @@ export function applyZoomTransform(
     ctx.clip()
   }
 
-  if ((isSlideTransition || isCircleTransition || isRotateTransition) && prevEl && prevParams && progress < 1) {
+  if ((isSlideTransition || isCircleTransition || isWipeTransition || transition === 'rotate') && prevEl && prevParams && progress < 1) {
     // 1. Draw previous item first (outgoing)
-    if (isRotateTransition) {
+    if (transition === 'rotate') {
       applyRotate(params)
     } else {
       const { x: px, y: py, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh } = prevParams
@@ -126,6 +129,8 @@ export function applyZoomTransform(
       // 2. Draw current item on top (incoming)
       if (isCircleTransition) {
         applyCircle(params)
+      } else if (isWipeTransition) {
+        applyWipe(params)
       } else {
         applySlide(params)
       }

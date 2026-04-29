@@ -64,36 +64,42 @@ export function useAccountMediaLibrary(enabled: boolean) {
 
   const renameFolder = useCallback(
     async (folderId: string, name: string) => {
+      const previousFolders = folders
+      setFolders((prev) => prev.map((folder) => (folder.id === folderId ? { ...folder, name } : folder)))
       const response = await fetch('/api/media/folders', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ folderId, name }),
       })
       if (!response.ok) {
+        setFolders(previousFolders)
         const body = await response.json().catch(() => null)
         throw new Error(body?.error ?? 'Failed to rename folder')
       }
-      await fetchList()
       window.dispatchEvent(new Event('account-media-updated'))
+      void fetchList()
     },
-    [fetchList]
+    [fetchList, folders]
   )
 
   const renameAsset = useCallback(
     async (assetId: string, name: string) => {
+      const previousAssets = assets
+      setAssets((prev) => prev.map((asset) => (asset.id === assetId ? { ...asset, name } : asset)))
       const response = await fetch('/api/media/rename', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ assetId, name }),
       })
       if (!response.ok) {
+        setAssets(previousAssets)
         const body = await response.json().catch(() => null)
         throw new Error(body?.error ?? 'Failed to rename asset')
       }
-      await fetchList()
       window.dispatchEvent(new Event('account-media-updated'))
+      void fetchList()
     },
-    [fetchList]
+    [assets, fetchList]
   )
 
   const deleteFolder = useCallback(
@@ -128,19 +134,22 @@ export function useAccountMediaLibrary(enabled: boolean) {
 
   const moveAsset = useCallback(
     async (assetId: string, folderId: string | null) => {
+      const previousAssets = assets
+      setAssets((prev) => prev.filter((asset) => (asset.id === assetId ? folderId === currentFolderId : true)))
       const response = await fetch('/api/media/move', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ assetId, folderId }),
       })
       if (!response.ok) {
+        setAssets(previousAssets)
         const body = await response.json().catch(() => null)
         throw new Error(body?.error ?? 'Failed to move asset')
       }
-      await fetchList()
       window.dispatchEvent(new Event('account-media-updated'))
+      void fetchList()
     },
-    [fetchList]
+    [assets, currentFolderId, fetchList]
   )
 
   return {

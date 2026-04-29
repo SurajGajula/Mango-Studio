@@ -75,10 +75,6 @@ export interface ManifestStore {
     videoId: string,
     image: ImageClass
   ) => void
-  bulkUpdateMainTrackItems: (
-    imagePatches: Array<{ id: string; startTime?: number; endTime?: number }>,
-    videoTimestampPatches: Array<{ id: string; timestamp: number }>
-  ) => void
   addText: (text: TextClass) => void
   updateText: (id: string, updates: Partial<TextClass>) => void
   removeText: (id: string) => void

@@ -53,7 +53,6 @@ export async function addVideoToTimelineAtTime(url: string, title: string, start
       0,
       0,
       undefined,
-      undefined,
       crop.x,
       crop.y,
       crop.width,
@@ -119,7 +118,6 @@ export async function addAudioToTimelineAtTime(url: string, name: string, atTime
     0,
     duration,
     1,
-    undefined,
     row,
     1
   )

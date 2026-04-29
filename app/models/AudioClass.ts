@@ -18,6 +18,7 @@ export class AudioClass {
   row: number
   volume: number
   pitch: number
+  fadeOutDuration: number
   createdAt: Date
 
   constructor(
@@ -32,10 +33,10 @@ export class AudioClass {
     trimEnd?: number,
     originalDuration?: number,
     playbackSpeed?: number,
-    _legacyOverlayFlag?: boolean,
     row?: number,
     volume?: number,
     pitch?: number,
+    fadeOutDuration?: number,
     speedStart?: number,
     speedEnd?: number,
     speedEasing?: 'linear' | 'ease'
@@ -53,6 +54,7 @@ export class AudioClass {
     this.row = row ?? 0
     this.volume = volume ?? 1.0
     this.pitch = pitch ?? 1.0
+    this.fadeOutDuration = fadeOutDuration ?? 0
     this.speedStart = speedStart ?? this.playbackSpeed
     this.speedEnd = speedEnd ?? this.playbackSpeed
     this.speedEasing = speedEasing ?? 'linear'
@@ -73,10 +75,10 @@ export class AudioClass {
       updates.trimEnd ?? this.trimEnd,
       updates.originalDuration ?? this.originalDuration,
       updates.playbackSpeed ?? this.playbackSpeed,
-      undefined,
       updates.row ?? this.row,
       updates.volume ?? this.volume,
       updates.pitch ?? this.pitch,
+      updates.fadeOutDuration ?? this.fadeOutDuration,
       updates.speedStart ?? this.speedStart,
       updates.speedEnd ?? this.speedEnd,
       updates.speedEasing ?? this.speedEasing

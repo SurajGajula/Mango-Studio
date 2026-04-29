@@ -36,6 +36,14 @@ function timelineSnapThresholdSeconds(visibleDuration: number): number {
 }
 
 type TimelineItemType = 'video' | 'image' | 'text' | 'audio' | 'effect'
+export type TimelineSelectionItem = { id: string; type: TimelineItemType }
+export type TimelineDragPreviewItem = {
+  itemId: string
+  itemType: TimelineItemType
+  targetRow: number
+  targetTime: number
+  duration: number
+}
 type RowItem = {
   type: TimelineItemType
   id: string
@@ -62,6 +70,7 @@ interface UseTimelineDragProps {
   moveItemToRow: (id: string, targetRow: number, newTime?: number) => void
   insertRow: (atIndex: number) => void
   pushHistory: () => void
+  multiSelectedItems: TimelineSelectionItem[]
 }
 
 export function useTimelineDrag({
@@ -82,6 +91,7 @@ export function useTimelineDrag({
   moveItemToRow,
   insertRow,
   pushHistory,
+  multiSelectedItems,
 }: UseTimelineDragProps) {
   const snapThresholdSec = useMemo(() => timelineSnapThresholdSeconds(visibleDuration), [visibleDuration])
 
@@ -110,6 +120,7 @@ export function useTimelineDrag({
     targetTime: number
     isInsertion: boolean
     isValid: boolean
+    previewItems?: TimelineDragPreviewItem[]
   } | null>(null)
   const [holdDragPreview, setHoldDragPreview] = useState<{
     targetRow: number
@@ -382,9 +393,83 @@ export function useTimelineDrag({
   const calculateDragState = useCallback(
     (e: MouseEvent) => {
       if (!activeDrag) return null
-      return computePreviewForDrag(activeDrag, e.clientX, e.clientY, false)
+      const preview = computePreviewForDrag(activeDrag, e.clientX, e.clientY, false)
+      if (!preview) return null
+      const st = useManifestStore.getState()
+      const group = multiSelectedItems
+      const inGroup = group.some((entry) => entry.id === activeDrag.itemId && entry.type === activeDrag.itemType)
+      const canGroupMove = inGroup && group.length > 1
+      if (!canGroupMove) return preview
+      const getSpan = (type: TimelineItemType, id: string) => {
+        if (type === 'video') {
+          const item = st.videos.find((entry) => entry.id === id)
+          if (!item) return null
+          return { start: item.timestamp, end: item.timestamp + (item.duration ?? 0), row: item.row }
+        }
+        if (type === 'image') {
+          const item = st.images.find((entry) => entry.id === id)
+          if (!item) return null
+          return { start: item.startTime, end: item.endTime, row: item.row }
+        }
+        if (type === 'text') {
+          const item = st.texts.find((entry) => entry.id === id)
+          if (!item) return null
+          return { start: item.startTime, end: item.endTime, row: item.row }
+        }
+        if (type === 'effect') {
+          const item = st.effects.find((entry) => entry.id === id)
+          if (!item) return null
+          return { start: item.startTime, end: item.endTime, row: item.row }
+        }
+        const item = st.audios.find((entry) => entry.id === id)
+        if (!item) return null
+        return { start: item.startTime, end: item.endTime, row: item.row }
+      }
+      const activeSpan = getSpan(activeDrag.itemType, activeDrag.itemId)
+      if (!activeSpan) return preview
+      const delta = preview.targetTime - activeSpan.start
+      const rowDelta = preview.targetRow - activeSpan.row
+      const spans = group
+        .map((entry) => ({ entry, span: getSpan(entry.type, entry.id) }))
+        .filter((entry): entry is { entry: TimelineSelectionItem; span: { start: number; end: number; row: number } } => Boolean(entry.span))
+      const planned = spans.map(({ entry, span }) => {
+        const nextRowRaw = span.row + rowDelta
+        const nextRow = entry.type === 'audio' ? Math.max(1, nextRowRaw) : nextRowRaw
+        const start = span.start + delta
+        const end = span.end + delta
+        return { entry, span, start, end, row: nextRow }
+      })
+      const movedSet = new Set(planned.map(({ entry }) => `${entry.type}:${entry.id}`))
+      const hasNegativeTime = planned.some(({ start }) => start < 0)
+      const hasInternalOverlap = planned.some((item, idx) =>
+        planned.some((other, otherIdx) =>
+          idx !== otherIdx &&
+          item.row === other.row &&
+          item.start < other.end - 0.01 &&
+          other.start < item.end - 0.01
+        )
+      )
+      const hasRowOverlap = planned.some(({ row, start, end }) => {
+        if (row < 0) return false
+        const intervals = getRowItems(row)
+          .filter((rowItem) => !movedSet.has(`${rowItem.type}:${rowItem.id}`))
+          .map((rowItem) => ({ start: rowItem.start, end: rowItem.end }))
+        return overlapsAny(start, end, intervals, 0.01)
+      })
+      const previewItems: TimelineDragPreviewItem[] = planned.map(({ entry, start, row, span }) => ({
+        itemId: entry.id,
+        itemType: entry.type,
+        targetRow: row,
+        targetTime: start,
+        duration: span.end - span.start,
+      }))
+      return {
+        ...preview,
+        isValid: !hasNegativeTime && !hasInternalOverlap && !hasRowOverlap,
+        previewItems,
+      }
     },
-    [activeDrag, computePreviewForDrag]
+    [activeDrag, computePreviewForDrag, getRowItems, multiSelectedItems]
   )
 
   const scheduleHoldMoveDrag = useCallback(
@@ -850,7 +935,7 @@ export function useTimelineDrag({
     [images, scheduleVisualMoveStart, beginVisualEdgeDrag]
   )
 
-  const handleOverlayVideoDragStart = useCallback(
+  const handleVideoDragStart = useCallback(
     (videoId: string, e: React.MouseEvent) => {
       if (e.button !== 0) return
       scheduleHoldMoveDrag(e, () => {
@@ -1034,19 +1119,109 @@ export function useTimelineDrag({
     const { itemId } = activeDrag
     const { targetRow, targetTime, isInsertion, isValid } = dragPreview
 
-    if (isValid) {
+    const group = multiSelectedItems
+    const inGroup = group.some((entry) => entry.id === itemId)
+    const canGroupMove = inGroup && group.length > 1
+    let didMutate = false
+    const st = useManifestStore.getState()
+    st.pauseHistory()
+
+    if (isValid && canGroupMove) {
+      const getSpan = (type: TimelineItemType, id: string) => {
+        if (type === 'video') {
+          const item = st.videos.find((entry) => entry.id === id)
+          if (!item) return null
+          return { start: item.timestamp, end: item.timestamp + (item.duration ?? 0), row: item.row }
+        }
+        if (type === 'image') {
+          const item = st.images.find((entry) => entry.id === id)
+          if (!item) return null
+          return { start: item.startTime, end: item.endTime, row: item.row }
+        }
+        if (type === 'text') {
+          const item = st.texts.find((entry) => entry.id === id)
+          if (!item) return null
+          return { start: item.startTime, end: item.endTime, row: item.row }
+        }
+        if (type === 'effect') {
+          const item = st.effects.find((entry) => entry.id === id)
+          if (!item) return null
+          return { start: item.startTime, end: item.endTime, row: item.row }
+        }
+        const item = st.audios.find((entry) => entry.id === id)
+        if (!item) return null
+        return { start: item.startTime, end: item.endTime, row: item.row }
+      }
+
+      const activeSpan = getSpan(activeDrag.itemType, itemId)
+      if (activeSpan) {
+        const delta = targetTime - activeSpan.start
+        const rowDelta = targetRow - activeSpan.row
+        const spans = group
+          .map((entry) => ({ entry, span: getSpan(entry.type, entry.id) }))
+          .filter((entry): entry is { entry: TimelineSelectionItem; span: { start: number; end: number; row: number } } => Boolean(entry.span))
+        const movedKey = ({ type, id }: TimelineSelectionItem) => `${type}:${id}`
+        const movedSet = new Set(spans.map(({ entry }) => movedKey(entry)))
+        const planned = spans.map(({ entry, span }) => {
+          const nextRowRaw = span.row + rowDelta
+          const nextRow = entry.type === 'audio' ? Math.max(1, nextRowRaw) : nextRowRaw
+          return {
+            entry,
+            span,
+            start: span.start + delta,
+            end: span.end + delta,
+            row: nextRow,
+          }
+        })
+        const hasNegativeTime = planned.some(({ start }) => start < 0)
+        const hasInternalOverlap = planned.some((item, idx) =>
+          planned.some((other, otherIdx) =>
+            idx !== otherIdx &&
+            item.row === other.row &&
+            item.start < other.end - 0.01 &&
+            other.start < item.end - 0.01
+          )
+        )
+        const hasRowOverlap = planned.some(({ row, start, end }) => {
+          if (row < 0) return false
+          const intervals = getRowItems(row)
+            .filter((rowItem) => !movedSet.has(`${rowItem.type}:${rowItem.id}`))
+            .map((rowItem) => ({ start: rowItem.start, end: rowItem.end }))
+          return overlapsAny(start, end, intervals, 0.01)
+        })
+        if (!hasNegativeTime && !hasInternalOverlap && !hasRowOverlap) {
+          planned.forEach(({ entry, start, end, row }) => {
+            if (entry.type === 'video') {
+              useManifestStore.getState().updateVideo(entry.id, { timestamp: start, row })
+            } else if (entry.type === 'image') {
+              useManifestStore.getState().updateImage(entry.id, { startTime: start, endTime: end, row })
+            } else if (entry.type === 'text') {
+              useManifestStore.getState().updateText(entry.id, { startTime: start, endTime: end, row })
+            } else if (entry.type === 'effect') {
+              useManifestStore.getState().updateEffect(entry.id, { startTime: start, endTime: end, row })
+            } else {
+              useManifestStore.getState().updateAudio(entry.id, { startTime: start, endTime: end, row })
+            }
+          })
+          didMutate = planned.length > 0
+        }
+      }
+    } else if (isValid) {
       if (isInsertion) {
         insertRow(targetRow)
         moveItemToRow(itemId, targetRow, targetTime)
+        didMutate = true
       } else {
         moveItemToRow(itemId, targetRow, targetTime)
+        didMutate = true
       }
     }
+    st.resumeHistory()
 
     setActiveDrag(null)
     setDragPreview(null)
-    pushHistory()
-  }, [activeDrag, dragPreview, moveItemToRow, insertRow, pushHistory])
+    if (didMutate) pushHistory()
+  }, [activeDrag, dragPreview, moveItemToRow, insertRow, pushHistory, multiSelectedItems])
 
   useDocumentDragListeners(Boolean(activeDrag), handleDragMove, handleDragEnd)
 
@@ -1060,7 +1235,7 @@ export function useTimelineDrag({
     handleAudioTrimStart,
     handleAudioBodyDragStart,
     handleImageDragStart,
-    handleOverlayVideoDragStart,
+    handleVideoDragStart,
     handleTextDragStart,
     handleEffectDragStart
   }

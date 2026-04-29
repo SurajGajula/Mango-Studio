@@ -34,17 +34,14 @@ export function clipsTransitionLayoutCompatible(a: VideoClass | ImageClass, b: V
   const pa = resolvedClipPlacement(a)
   const pb = resolvedClipPlacement(b)
   const near = (u: number, v: number) => Math.abs(u - v) < PL_EPS
+  const aAspect = pa.h !== 0 ? pa.w / pa.h : 0
+  const bAspect = pb.h !== 0 ? pb.w / pb.h : 0
   return (
     near(pa.x, pb.x) &&
     near(pa.y, pb.y) &&
     near(pa.w, pb.w) &&
     near(pa.h, pb.h) &&
-    pa.cropAspect === pb.cropAspect &&
-    near(pa.cropSx, pb.cropSx) &&
-    near(pa.cropSy, pb.cropSy) &&
-    near(pa.cropSw, pb.cropSw) &&
-    near(pa.cropSh, pb.cropSh) &&
-    near(pa.rotation, pb.rotation)
+    near(aAspect, bAspect)
   )
 }
 
@@ -204,6 +201,110 @@ export function renderClipTransitionPair(
       ? resolveMediaKeyframeTransform(activeItem as VideoClass, elapsedA, (activeItem as VideoClass).duration ?? 0)
       : resolveMediaKeyframeTransform(activeItem as ImageClass, elapsedA, (activeItem as ImageClass).duration)
 
+  if (nextItem.transition === 'wipe') {
+    const direction = nextItem.transitionDirection ?? 'right'
+    const p = Math.max(0, Math.min(1, transProgress))
+    let revealX = nextParams.x
+    let revealY = nextParams.y
+    let revealW = nextParams.w
+    let revealH = nextParams.h
+    if (direction === 'right') {
+      revealW = nextParams.w * p
+    } else if (direction === 'left') {
+      revealW = nextParams.w * p
+      revealX = nextParams.x + nextParams.w - revealW
+    } else if (direction === 'down' || direction === 'bottom') {
+      revealH = nextParams.h * p
+    } else {
+      revealH = nextParams.h * p
+      revealY = nextParams.y + nextParams.h - revealH
+    }
+
+    applyZoomTransform(
+      ctx,
+      activeItem.animation,
+      'none',
+      progA,
+      curEl,
+      curParams.x,
+      curParams.y,
+      curParams.w,
+      curParams.h,
+      ka.cropSx,
+      ka.cropSy,
+      ka.cropSw,
+      ka.cropSh,
+      ka.zoomIntensity,
+      activeItem.duration,
+      activeItem.animationDuration,
+      elapsedA,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      activeItem.transitionColor,
+      activeItem.transitionFlashMode,
+      activeItem.transitionDirection,
+      activeItem.transitionAxis,
+      activeItem.transitionSlideEasing,
+      activeItem.transitionCircleEasing,
+      activeItem.transitionWipeEasing,
+      activeItem.animationZoomEasing,
+      undefined,
+      activeItem.zoomDistanceIntensity,
+      undefined
+    )
+
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(revealX, revealY, revealW, revealH)
+    ctx.clip()
+    applyZoomTransform(
+      ctx,
+      nextItem.animation,
+      'none',
+      progB,
+      nextEl,
+      nextParams.x,
+      nextParams.y,
+      nextParams.w,
+      nextParams.h,
+      kn.cropSx,
+      kn.cropSy,
+      kn.cropSw,
+      kn.cropSh,
+      kn.zoomIntensity,
+      nextItem.duration,
+      nextItem.animationDuration,
+      elapsedB,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      nextItem.transitionColor,
+      nextItem.transitionFlashMode,
+      nextItem.transitionDirection,
+      nextItem.transitionAxis,
+      nextItem.transitionSlideEasing,
+      nextItem.transitionCircleEasing,
+      nextItem.transitionWipeEasing,
+      nextItem.animationZoomEasing,
+      undefined,
+      nextItem.zoomDistanceIntensity,
+      undefined
+    )
+    ctx.restore()
+    return true
+  }
+
   applyZoomTransform(
     ctx,
     nextItem.animation,
@@ -236,6 +337,7 @@ export function renderClipTransitionPair(
     nextItem.transitionAxis,
     nextItem.transitionSlideEasing,
     nextItem.transitionCircleEasing,
+    nextItem.transitionWipeEasing,
     nextItem.animationZoomEasing,
     activeItem.animationZoomEasing,
     nextItem.zoomDistanceIntensity,
@@ -366,6 +468,8 @@ export function checkTransition(activeItem: MainItem | null, nextItem: MainItem 
 
   const isTransitionType = nextItem.item.transition !== 'none'
   if (!isTransitionType) return { transitionActive: false, progress: 0 }
+  const adjacent = Math.abs(activeItem.startTime + activeItem.duration - nextItem.startTime) < 0.01
+  if (!adjacent) return { transitionActive: false, progress: 0 }
 
   const isFlashTransition = nextItem.item.transition === 'flash'
   if (!isFlashTransition && !clipsTransitionLayoutCompatible(activeItem.item, nextItem.item)) {

@@ -25,6 +25,11 @@ const FONT_OPTIONS: { value: string; label: string; desc: string }[] = [
     label: 'Antonio',
     desc: 'Thin modern font',
   },
+  {
+    value: '"Bubble Sans", cursive',
+    label: 'Bubble Sans',
+    desc: 'Custom comic manga style',
+  },
 ]
 
 const ANIMATION_OPTIONS: { value: TextAnimation; label: string; desc: string }[] = [
@@ -37,6 +42,11 @@ const ANIMATION_OPTIONS: { value: TextAnimation; label: string; desc: string }[]
     value: 'keyboard',
     label: 'Keyboard',
     desc: 'Words appear one by one',
+  },
+  {
+    value: 'shake',
+    label: 'Shake',
+    desc: 'Smooth camera-like shake for full duration',
   },
 ]
 
@@ -77,6 +87,8 @@ export default function FontPanel({ onClose }: Props) {
         updates.fontWeight = '600'
       } else if (fontFamily.includes('Playfair')) {
         updates.fontWeight = '600'
+      } else if (fontFamily.includes('Bubble Sans')) {
+        updates.fontWeight = '400'
       }
       updateText(selectedTextId, updates)
     }
@@ -177,7 +189,12 @@ export default function FontPanel({ onClose }: Props) {
                         fontSize: '0.9rem',
                         fontWeight: 600,
                         backgroundColor: opt.value === 'negative' ? '#fff' : (opt.value === 'highlight' ? '#000' : undefined),
-                        color: opt.value === 'negative' ? (isActive ? '#000' : '#444') : (opt.value === 'highlight' ? '#ffff00' : (isActive ? '#fff' : '#aaa')),
+                        color:
+                          opt.value === 'negative'
+                            ? (isActive ? '#000' : '#444')
+                            : opt.value === 'highlight'
+                              ? '#ffff00'
+                              : (isActive ? '#fff' : '#aaa'),
                         padding: opt.value === 'highlight' ? '2px 4px' : undefined,
                         borderRadius: opt.value === 'highlight' ? '2px' : undefined,
                       }}

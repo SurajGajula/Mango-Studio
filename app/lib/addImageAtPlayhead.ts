@@ -58,7 +58,6 @@ export async function addImageAtTimelineTime(
       crop.height,
       1,
       new Date(),
-      undefined,
       'none',
       'none',
       crop.cropAspect,

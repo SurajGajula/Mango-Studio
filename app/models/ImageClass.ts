@@ -2,7 +2,7 @@ import type { MediaKeyframe } from './mediaKeyframe'
 
 export type AnimationMode = 'none' | 'zoom-in' | 'zoom-out' | 'shake' | 'jitter' | 'last-frame-hold'
 
-export type AnimationZoomEasing = 'fast-slow' | 'slow-fast'
+export type AnimationZoomEasing = 'constant' | 'fast-slow' | 'slow-fast'
 
 const LEGACY_ANIMATION: Record<string, AnimationMode> = {
   pulse: 'zoom-in',
@@ -24,7 +24,7 @@ export function migrateAnimationValue(raw: string | AnimationMode | undefined | 
 }
 
 export function coerceAnimationZoomEasing(v: unknown): AnimationZoomEasing | undefined {
-  if (v === 'slow-fast' || v === 'fast-slow') return v
+  if (v === 'constant' || v === 'slow-fast' || v === 'fast-slow') return v
   return undefined
 }
 
@@ -62,8 +62,9 @@ export const ANIMATION_FROM_ZOOM_FIELD = new Set<string>([
   'jitter',
 ])
 
-export type TransitionMode = 'none' | 'split' | 'fade' | 'morph' | 'slide-in' | 'circle' | 'rotate' | 'flash'
+export type TransitionMode = 'none' | 'split' | 'fade' | 'morph' | 'slide-in' | 'circle' | 'rotate' | 'flash' | 'wipe'
 export type SlideTransitionEasing = 'smooth' | 'ease-in' | 'ease-out' | 'linear'
+export type WipeTransitionEasing = 'ease-in' | 'ease-out' | 'linear'
 export type FlashTransitionMode = 'solid' | 'negative'
 
 export class ImageClass {
@@ -87,10 +88,11 @@ export class ImageClass {
   animationZoomEasing: AnimationZoomEasing
   transitionColor?: string
   transitionFlashMode?: FlashTransitionMode
-  transitionDirection?: 'left' | 'right' | 'top' | 'bottom'
+  transitionDirection?: 'left' | 'right' | 'top' | 'bottom' | 'up' | 'down'
   transitionAxis?: 'horizontal' | 'vertical'
   transitionSlideEasing?: SlideTransitionEasing
   transitionCircleEasing?: SlideTransitionEasing
+  transitionWipeEasing?: WipeTransitionEasing
   cropAspect?: string
   cropSx: number
   cropSy: number
@@ -112,7 +114,6 @@ export class ImageClass {
     height?: number,
     opacity?: number,
     createdAt?: Date,
-    _legacyMainTrackFlag?: boolean,
     animation?: AnimationMode,
     transition?: any,
     cropAspect?: string,
@@ -125,7 +126,7 @@ export class ImageClass {
     animationDuration?: number,
     animationZoomEasing?: AnimationZoomEasing,
     transitionColor?: string,
-    transitionDirection?: 'left' | 'right' | 'top' | 'bottom',
+    transitionDirection?: 'left' | 'right' | 'top' | 'bottom' | 'up' | 'down',
     transitionAxis?: 'horizontal' | 'vertical',
     transitionSlideEasing?: SlideTransitionEasing,
     transitionCircleEasing?: SlideTransitionEasing,
@@ -134,7 +135,8 @@ export class ImageClass {
     keyframes?: MediaKeyframe[],
     zoom?: any,
     transitionFlashMode?: FlashTransitionMode,
-    zoomDistanceIntensity?: number
+    zoomDistanceIntensity?: number,
+    transitionWipeEasing?: WipeTransitionEasing
   ) {
     this.id = id
     this.name = name
@@ -204,6 +206,7 @@ export class ImageClass {
     this.transitionAxis = transitionAxis ?? this.transitionAxis ?? 'horizontal'
     this.transitionSlideEasing = transitionSlideEasing ?? this.transitionSlideEasing ?? 'smooth'
     this.transitionCircleEasing = transitionCircleEasing ?? this.transitionCircleEasing ?? 'smooth'
+    this.transitionWipeEasing = transitionWipeEasing ?? this.transitionWipeEasing ?? 'linear'
     this.zoomIntensity = zoomIntensity !== undefined ? zoomIntensity : 0.5
     this.zoomDistanceIntensity = zoomDistanceIntensity !== undefined ? zoomDistanceIntensity : 1
     this.transitionDuration = transitionDuration
@@ -229,7 +232,6 @@ export class ImageClass {
       typeof updates.height === 'number' && Number.isFinite(updates.height) ? updates.height : this.height,
       updates.opacity ?? this.opacity,
       updates.createdAt ?? this.createdAt,
-      undefined,
       updates.animation ?? this.animation,
       updates.transition ?? this.transition,
       updates.cropAspect ?? this.cropAspect,
@@ -251,7 +253,8 @@ export class ImageClass {
       updates.keyframes ?? this.keyframes,
       undefined,
       updates.transitionFlashMode ?? this.transitionFlashMode,
-      updates.zoomDistanceIntensity ?? this.zoomDistanceIntensity
+      updates.zoomDistanceIntensity ?? this.zoomDistanceIntensity,
+      updates.transitionWipeEasing ?? this.transitionWipeEasing
     )
   }
 

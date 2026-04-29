@@ -17,7 +17,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'edit_manifest',
-    description: 'Edit, rearrange, resize, or synchronise existing items on the timeline. Use this when the user asks to change timing, duration, position, playback speed, mute status, or text typography/style of existing images, videos, texts, or audio tracks — for example "make the image the same length as the audio", "move the video to start at 5 seconds", "slow down the video to 0.5x speed", "mute all videos", "make all text negative style", or "change text font to Playfair". For audio, you can also set trimStart and trimEnd to trim the audio file, or set both to 0 to restore the full original length.',
+    description: 'Edit, rearrange, resize, or synchronise existing items on the timeline. Use this when the user asks to change timing, duration, position, row/layer, playback speed, mute status, or text typography/style of existing images, videos, texts, or audio tracks — for example "make the image the same length as the audio", "move the video to start at 5 seconds", "move images 11-29 to row 0", "slow down the video to 0.5x speed", "mute all videos", "make all text negative style", or "change text font to Playfair". For audio, you can also set trimStart and trimEnd to trim the audio file, or set both to 0 to restore the full original length.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -79,6 +79,10 @@ export const functionDeclarations: FunctionDeclaration[] = [
                 type: Type.BOOLEAN,
                 description: 'Whether the video should be muted. Only for videos.',
               },
+              row: {
+                type: Type.NUMBER,
+                description: 'Target row/layer index on the timeline. Use 0 for the main visual row. Audio rows are typically 1+.',
+              },
               fontFamily: {
                 type: Type.STRING,
                 description: 'Text font family to use on text overlays, e.g. "Inter, sans-serif" or "\\\"Playfair Display\\\", Georgia, serif". Only for updateText.',
@@ -89,7 +93,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
               },
               animation: {
                 type: Type.STRING,
-                description: 'Text animation mode for text overlays: "none" or "keyboard". Only for updateText.',
+                description: 'Text animation mode for text overlays: "none", "keyboard", or "shake". Only for updateText.',
               },
               style: {
                 type: Type.STRING,
@@ -283,7 +287,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'set_transitions',
-    description: 'Set the animation (none, zoom-in, zoom-out, shake, or jitter) or transition (none, split, fade, morph, slide-in, circle, rotate, or flash) on one or more images or videos. For zoom-in and zoom-out, use animationDuration for how long the zoom runs and animationZoomEasing "fast-slow" (ease-out) or "slow-fast" (ease-in). Use this when the user asks to set, apply, add, or remove animations or transitions on timeline images or videos — for example "zoom in images 2 to 25", "zoom out with slow then fast easing", "add shake to image 1", "add split transition", "add fade transition", "add morph or motion blur transition", "add slide in from left", "add circle transition", "add rotate transition", "add white flash transition", "add black flash transition", "add negative flash transition", or "remove animations from all images". Image numbers/ranges use global image numbering from the manifest (#N across all rows). For consolidated transitions like flash, slide-in, circle, and split, you should also set the corresponding parameters (transitionColor, transitionFlashMode, transitionDirection, transitionAxis, transitionSlideEasing for slide-in speed curve, transitionCircleEasing for circle expand speed) if specified. Use the image/video ids from the manifest.',
+    description: 'Set the animation (none, zoom-in, zoom-out, shake, or jitter) or transition (none, split, fade, morph, slide-in, wipe, circle, rotate, or flash) on one or more images or videos. For zoom-in and zoom-out, use animationDuration for how long the zoom runs and animationZoomEasing "constant" (linear), "fast-slow" (ease-out), or "slow-fast" (ease-in). Use this when the user asks to set, apply, add, or remove animations or transitions on timeline images or videos — for example "zoom in images 2 to 25", "zoom out with slow then fast easing", "add shake to image 1", "add split transition", "add fade transition", "add morph or motion blur transition", "add slide in from left", "add wipe transition from right", "add circle transition", "add rotate transition", "add white flash transition", "add black flash transition", "add negative flash transition", or "remove animations from all images". Image numbers/ranges use global image numbering from the manifest (#N across all rows). For consolidated transitions like flash, slide-in, wipe, circle, and split, you should also set the corresponding parameters (transitionColor, transitionFlashMode, transitionDirection, transitionAxis, transitionSlideEasing for slide-in speed curve, transitionWipeEasing for wipe speed curve, transitionCircleEasing for circle expand speed) if specified. Use the image/video ids from the manifest.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -307,7 +311,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
               },
               transition: {
                 type: Type.STRING,
-                description: 'The transition mode to apply: "none", "split", "fade", "morph" (WebGL: two textures, per-pixel mix, noise + luma-flow distortion; animation none only, otherwise crossfade), "slide-in", "circle", "rotate", or "flash".',
+                description: 'The transition mode to apply: "none", "split", "fade", "morph" (WebGL: two textures, per-pixel mix, noise + luma-flow distortion; animation none only, otherwise crossfade), "slide-in", "wipe", "circle", "rotate", or "flash".',
               },
               zoomIntensity: {
                 type: Type.NUMBER,
@@ -327,7 +331,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
               },
               animationZoomEasing: {
                 type: Type.STRING,
-                description: 'For zoom-in and zoom-out only: "fast-slow" (ease-out, default) or "slow-fast" (ease-in).',
+                description: 'For zoom-in and zoom-out only: "constant" (linear), "fast-slow" (ease-out, default), or "slow-fast" (ease-in).',
               },
               transitionColor: {
                 type: Type.STRING,
@@ -352,6 +356,10 @@ export const functionDeclarations: FunctionDeclaration[] = [
               transitionCircleEasing: {
                 type: Type.STRING,
                 description: 'Circle transition expand speed: "smooth" (default), "ease-in" (slow then fast), "ease-out" (fast then slow), or "linear".',
+              },
+              transitionWipeEasing: {
+                type: Type.STRING,
+                description: 'Wipe transition speed: "linear", "ease-in" (slow then fast), or "ease-out" (fast then slow).',
               },
             },
             required: ['type', 'id'],
@@ -524,14 +532,14 @@ export const systemInstruction =
   'You are a timeline editing assistant for a media studio. Your only job is to call the correct function:\n' +
     '- delete_timeline_items: when the user asks to delete, remove, or clear one or more timeline items (images, videos, texts, audios, or effects). Map phrases like "images 19–31" to the manifest #N order (sorted by start time for images, by timestamp for videos) and include one { type, id } per item in the items array in a SINGLE call.\n' +
     '- duplicate_timeline_range: when the user asks to duplicate, repeat, or copy a range of images or videos so the copy plays immediately after the original block ends. Use kind "image" or "video" and firstNumber/lastNumber inclusive (same #N as the manifest).\n' +
-    '- edit_manifest: when the user asks to change timing, duration, position, playback speed, mute status, or text typography/style of existing items. You MUST include all affected items as separate entries in the mutations array in a SINGLE call — never call edit_manifest multiple times. For audio mutations (type=updateAudio): ALWAYS use trimStart and trimEnd fields (not endTime). To restore an audio to its full original length set trimStart=0 and trimEnd=0. The active playing duration of an audio is: originalDuration - trimStart - trimEnd. Use playbackSpeed for constant video and audio playback speed changes (e.g. 0.5 for half speed). For speed ramps (e.g. "0.5x start to 0.1x end"), use both speedStart and speedEnd (and optionally speedEasing: "linear" or "ease"). If speedStart/speedEnd are used, they will override any constant playbackSpeed. Use muted for video mute status (true to mute, false to unmute). For text mutations (type=updateText), use fontFamily, fontWeight, animation ("none" or "keyboard"), and style ("normal", "negative", or "highlight") as needed. ALWAYS use the exact id strings from the manifest (e.g. "audio-1234-abc") — never make up or shorten ids.\n' +
+    '- edit_manifest: when the user asks to change timing, duration, position, row/layer, playback speed, mute status, or text typography/style of existing items. You MUST include all affected items as separate entries in the mutations array in a SINGLE call — never call edit_manifest multiple times. For audio mutations (type=updateAudio): ALWAYS use trimStart and trimEnd fields (not endTime). To restore an audio to its full original length set trimStart=0 and trimEnd=0. The active playing duration of an audio is: originalDuration - trimStart - trimEnd. Use playbackSpeed for constant video and audio playback speed changes (e.g. 0.5 for half speed). For speed ramps (e.g. "0.5x start to 0.1x end"), use both speedStart and speedEnd (and optionally speedEasing: "linear" or "ease"). If speedStart/speedEnd are used, they will override any constant playbackSpeed. Use muted for video mute status (true to mute, false to unmute). Use row to move items between timeline rows (e.g. row 0 main visual row). For text mutations (type=updateText), use fontFamily, fontWeight, animation ("none" or "keyboard"), and style ("normal", "negative", or "highlight") as needed. ALWAYS use the exact id strings from the manifest (e.g. "audio-1234-abc") — never make up or shorten ids.\n' +
   '- split_at_marks: when the user asks to split, cut, or divide images or videos at specific positions, or into equal parts (like halves or fourths). You must compute the absolute timeline split times yourself from the item\'s timing data (halves = 1 split at midpoint, fourths = 3 splits at 25%/50%/75%). For splitting at audio marks, use splitAtMarksTimelineSeconds from each audio line — do not use marksSourceFileSeconds (those are source-file seconds, not timeline positions).\n' +
   '- add_text: when the user asks to add text overlays to the timeline at a computed time range\n' +
   '- add_effect: when the user asks to add visual effects (like "crt-dither", "flashing-black-vignette" / vignette, "black-and-white", "vivid-sharp", or "pixel-glitch-scan") over a specific time range; include intensity (0.0–1.0) if specified; for vignette optionally flashSpeed (0.0 = solid edge, 1.0 = full pulse)\n' +
     '- set_step_growth: when the user asks to make an image grow in equal steps (e.g. "make image #3 grow in 4 steps", "grow selected image to full frame in 4 steps", or "make this image grow in 4 steps"). If the user says "this image", "selected image", or "current image", use target="selected". Use id when available; otherwise use global imageNumber (#N from manifest across all rows). Set steps to the requested count (default 4).\n' +
     '- replace_with_solid: when the user asks to replace timeline images or videos with a solid/flat color (white, black, hex, named CSS colors) without uploading a file — e.g. "replace videos 3–16 with white", "blank frames", "solid red background clip"\n' +
     '- replace_images: ONLY when the user has attached image/video files AND asks to replace timeline items with those uploads\n' +
-  '- set_transitions: when the user asks to set, apply, add, or remove animations (none, zoom-in, zoom-out, shake, or jitter) or transitions (none, split, fade, morph, slide-in, circle, rotate, or flash) on images or videos; include zoomIntensity (0.05–1.0) only for shake/jitter when specified, include zoomDistanceIntensity (0.25–2.5) when the user specifies lowering/raising zoom distance for zoom-in or zoom-out, animationDuration and animationZoomEasing ("fast-slow" or "slow-fast") for zoom animations, transitionDuration if specified, transitionColor if specified (for solid flash), transitionFlashMode if specified (solid or negative for flash), transitionDirection if specified (for slide-in), transitionAxis if specified (for split), transitionSlideEasing if specified (for slide-in), or transitionCircleEasing if specified (for circle). For image numbers/ranges, use global image numbering from the manifest (#N across all rows).\n' +
+  '- set_transitions: when the user asks to set, apply, add, or remove animations (none, zoom-in, zoom-out, shake, or jitter) or transitions (none, split, fade, morph, slide-in, wipe, circle, rotate, or flash) on images or videos; include zoomIntensity (0.05–1.0) only for shake/jitter when specified, include zoomDistanceIntensity (0.25–2.5) when the user specifies lowering/raising zoom distance for zoom-in or zoom-out, animationDuration and animationZoomEasing ("constant", "fast-slow", or "slow-fast") for zoom animations, transitionDuration if specified, transitionColor if specified (for solid flash), transitionFlashMode if specified (solid or negative for flash), transitionDirection if specified (for slide-in or wipe), transitionAxis if specified (for split), transitionSlideEasing if specified (for slide-in), transitionWipeEasing if specified (for wipe), or transitionCircleEasing if specified (for circle). For image numbers/ranges, use global image numbering from the manifest (#N across all rows).\n' +
   '- set_crop: when the user asks to set or change the aspect ratio of images or videos (e.g. "make images 2-25 16:9"); cropAspect must be one of "16:9", "4:3", "1:1", "3:4", "9:16", or "none"\n' +
   '- no_op: for anything else\n' +
   'Always call exactly one function. Compute exact numeric values from the timeline data provided.\n' +

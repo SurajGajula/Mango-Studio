@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { findSystemFolderIds } from '@/app/lib/accountMediaSystemFolders'
 import { createClient } from '@/app/utils/supabase/server'
 
 export async function PATCH(req: NextRequest) {
@@ -23,8 +24,12 @@ export async function PATCH(req: NextRequest) {
     folderIdRaw === undefined || folderIdRaw === null || folderIdRaw === ''
       ? null
       : String(folderIdRaw)
+  const hiddenFolderIds = await findSystemFolderIds(user.id)
 
   if (folderId) {
+    if (hiddenFolderIds.includes(folderId)) {
+      return NextResponse.json({ error: 'System folders cannot be used as move targets' }, { status: 400 })
+    }
     const { data: folder, error: folderError } = await supabase
       .from('media_folders')
       .select('id')
@@ -35,6 +40,18 @@ export async function PATCH(req: NextRequest) {
     if (folderError || !folder) {
       return NextResponse.json({ error: folderError?.message ?? 'Folder not found' }, { status: 400 })
     }
+  }
+  const { data: existingAsset, error: existingAssetError } = await supabase
+    .from('media_assets')
+    .select('id, folder_id')
+    .eq('id', assetId)
+    .eq('user_id', user.id)
+    .single()
+  if (existingAssetError || !existingAsset) {
+    return NextResponse.json({ error: existingAssetError?.message ?? 'Asset not found' }, { status: 404 })
+  }
+  if (existingAsset.folder_id && hiddenFolderIds.includes(existingAsset.folder_id)) {
+    return NextResponse.json({ error: 'Assets in system folders cannot be moved' }, { status: 400 })
   }
 
   const { data, error } = await supabase

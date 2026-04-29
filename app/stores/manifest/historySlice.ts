@@ -93,7 +93,6 @@ export const createHistorySlice = (set: any, get: any) => ({
       historyIndex: state.historyIndex - 1,
       isPlaying: false,
     })
-    get().recalculateTimestamps()
   },
 
   redo: () => {
@@ -109,6 +108,5 @@ export const createHistorySlice = (set: any, get: any) => ({
       historyIndex: state.historyIndex + 1,
       isPlaying: false,
     })
-    get().recalculateTimestamps()
   },
 })

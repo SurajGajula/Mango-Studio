@@ -436,6 +436,7 @@ export default function PreviewArea() {
                       )
                     }
                     const text = layer.text
+                    if (editingTextId !== text.id && selectedTextId !== text.id) return null
                     return (
                       <TextOverlay
                         key={text.id}

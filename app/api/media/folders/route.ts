@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { BG_REMOVED_SYSTEM_FOLDER_NAME, findSystemFolderIds, isSystemFolderName } from '@/app/lib/accountMediaSystemFolders'
 import { createClient } from '@/app/utils/supabase/server'
 
 export async function GET(req: NextRequest) {
@@ -20,6 +21,7 @@ export async function GET(req: NextRequest) {
     .from('media_folders')
     .select('*')
     .eq('user_id', user.id)
+    .neq('name', BG_REMOVED_SYSTEM_FOLDER_NAME)
     .order('name', { ascending: true })
 
   if (error) {
@@ -45,6 +47,15 @@ export async function POST(req: NextRequest) {
 
   if (!name) {
     return NextResponse.json({ error: 'Folder name is required' }, { status: 400 })
+  }
+  if (isSystemFolderName(name)) {
+    return NextResponse.json({ error: 'Folder name is reserved' }, { status: 400 })
+  }
+  if (parentId) {
+    const hiddenFolderIds = await findSystemFolderIds(user.id)
+    if (hiddenFolderIds.includes(parentId)) {
+      return NextResponse.json({ error: 'Cannot create folders in system folders' }, { status: 400 })
+    }
   }
 
   const { data, error } = await supabase
@@ -80,6 +91,13 @@ export async function PATCH(req: NextRequest) {
 
   if (!folderId || !name) {
     return NextResponse.json({ error: 'folderId and name are required' }, { status: 400 })
+  }
+  if (isSystemFolderName(name)) {
+    return NextResponse.json({ error: 'Folder name is reserved' }, { status: 400 })
+  }
+  const hiddenFolderIds = await findSystemFolderIds(user.id)
+  if (hiddenFolderIds.includes(folderId)) {
+    return NextResponse.json({ error: 'System folders cannot be renamed' }, { status: 400 })
   }
 
   const { data, error } = await supabase

@@ -67,6 +67,7 @@ export default function ChatWindow() {
   const updateImage = useManifestStore((state) => state.updateImage)
   const updateVideo = useManifestStore((state) => state.updateVideo)
   const updateText = useManifestStore((state) => state.updateText)
+  const updateAudio = useManifestStore((state) => state.updateAudio)
   const trimAudio = useManifestStore((state) => state.trimAudio)
   const splitVideoAtTimes = useManifestStore((state) => state.splitVideoAtTimes)
   const splitImageAtTimes = useManifestStore((state) => state.splitImageAtTimes)
@@ -96,7 +97,7 @@ export default function ChatWindow() {
   const applyMutations = (mutations: ManifestMutation[]) => {
     for (const m of mutations) {
       if (m.type === 'updateImage') {
-        const updates: any = { startTime: m.startTime, endTime: m.endTime }
+        const updates: any = { startTime: m.startTime, endTime: m.endTime, row: m.row }
         if (m.duration !== undefined) {
           const image = useManifestStore.getState().images.find((i) => i.id === m.id)
           if (image) {
@@ -110,11 +111,12 @@ export default function ChatWindow() {
         } else if (m.playbackSpeed !== undefined) {
           if (!setItemPlaybackSpeed(m.id, m.playbackSpeed)) continue
         }
-        updateVideo(m.id, { timestamp: m.timestamp, duration: m.duration, muted: m.muted })
+        updateVideo(m.id, { timestamp: m.timestamp, duration: m.duration, muted: m.muted, row: m.row })
       } else if (m.type === 'updateText') {
         updateText(m.id, {
           startTime: m.startTime,
           endTime: m.endTime,
+          row: m.row,
           fontFamily: m.fontFamily,
           fontWeight: m.fontWeight,
           animation: m.animation,
@@ -135,6 +137,11 @@ export default function ChatWindow() {
             newTrimEnd = Math.max(0, audio.originalDuration - m.endTime)
           }
           trimAudio(m.id, newTrimStart, newTrimEnd, m.startTime ?? audio.startTime)
+          if (m.row !== undefined) {
+            updateAudio(m.id, { row: m.row })
+          }
+        } else if (m.row !== undefined) {
+          updateAudio(m.id, { row: m.row })
         }
       }
     }
@@ -190,7 +197,7 @@ export default function ChatWindow() {
         updates.animation = migrateAnimationValue(raw)
         updates.animationZoomEasing = inferAnimationZoomEasing(raw, '', t.animationZoomEasing)
       }
-      if (t.animationZoomEasing === 'slow-fast' || t.animationZoomEasing === 'fast-slow') {
+      if (t.animationZoomEasing === 'slow-fast' || t.animationZoomEasing === 'fast-slow' || t.animationZoomEasing === 'constant') {
         updates.animationZoomEasing = t.animationZoomEasing
       }
       if (t.transition !== undefined) updates.transition = t.transition
@@ -202,6 +209,7 @@ export default function ChatWindow() {
       if (t.transitionAxis !== undefined) updates.transitionAxis = t.transitionAxis
       if (t.transitionSlideEasing !== undefined) updates.transitionSlideEasing = t.transitionSlideEasing
       if (t.transitionCircleEasing !== undefined) updates.transitionCircleEasing = t.transitionCircleEasing
+      if (t.transitionWipeEasing !== undefined) updates.transitionWipeEasing = t.transitionWipeEasing
       
       const item = t.type === 'image' ? images.find(i => i.id === t.id) : videos.find(v => v.id === t.id)
       
@@ -398,7 +406,6 @@ export default function ChatWindow() {
         originalVideo.height,
         1,
         new Date(),
-        undefined,
         originalVideo.animation as AnimationMode,
         originalVideo.transition as TransitionMode,
         originalVideo.cropAspect || patch.cropAspect,
@@ -522,8 +529,8 @@ export default function ChatWindow() {
 
       const { videos, images, texts, audios, effects } = useManifestStore.getState()
       const manifest = {
-        images: images.map((i) => ({ id: i.id, name: i.name, startTime: i.startTime, endTime: i.endTime, row: i.row, animation: i.animation, transition: i.transition, zoomIntensity: i.zoomIntensity, zoomDistanceIntensity: i.zoomDistanceIntensity, transitionDuration: i.transitionDuration, animationDuration: i.animationDuration, animationZoomEasing: i.animationZoomEasing, cropAspect: i.cropAspect, transitionColor: i.transitionColor, transitionFlashMode: i.transitionFlashMode, transitionDirection: i.transitionDirection, transitionAxis: i.transitionAxis, transitionSlideEasing: i.transitionSlideEasing, transitionCircleEasing: i.transitionCircleEasing })),
-        videos: videos.map((v) => ({ id: v.id, title: v.title, timestamp: v.timestamp, duration: v.duration, playbackSpeed: v.playbackSpeed, speedStart: v.speedStart, speedEnd: v.speedEnd, speedEasing: v.speedEasing, muted: v.muted, row: v.row, animation: v.animation, transition: v.transition, zoomIntensity: v.zoomIntensity, zoomDistanceIntensity: v.zoomDistanceIntensity, transitionDuration: v.transitionDuration, animationDuration: v.animationDuration, animationZoomEasing: v.animationZoomEasing, cropAspect: v.cropAspect, transitionColor: v.transitionColor, transitionFlashMode: v.transitionFlashMode, transitionDirection: v.transitionDirection, transitionAxis: v.transitionAxis, transitionSlideEasing: v.transitionSlideEasing, transitionCircleEasing: v.transitionCircleEasing })),
+        images: images.map((i) => ({ id: i.id, name: i.name, startTime: i.startTime, endTime: i.endTime, row: i.row, animation: i.animation, transition: i.transition, zoomIntensity: i.zoomIntensity, zoomDistanceIntensity: i.zoomDistanceIntensity, transitionDuration: i.transitionDuration, animationDuration: i.animationDuration, animationZoomEasing: i.animationZoomEasing, cropAspect: i.cropAspect, transitionColor: i.transitionColor, transitionFlashMode: i.transitionFlashMode, transitionDirection: i.transitionDirection, transitionAxis: i.transitionAxis, transitionSlideEasing: i.transitionSlideEasing, transitionCircleEasing: i.transitionCircleEasing, transitionWipeEasing: i.transitionWipeEasing })),
+        videos: videos.map((v) => ({ id: v.id, title: v.title, timestamp: v.timestamp, duration: v.duration, playbackSpeed: v.playbackSpeed, speedStart: v.speedStart, speedEnd: v.speedEnd, speedEasing: v.speedEasing, muted: v.muted, row: v.row, animation: v.animation, transition: v.transition, zoomIntensity: v.zoomIntensity, zoomDistanceIntensity: v.zoomDistanceIntensity, transitionDuration: v.transitionDuration, animationDuration: v.animationDuration, animationZoomEasing: v.animationZoomEasing, cropAspect: v.cropAspect, transitionColor: v.transitionColor, transitionFlashMode: v.transitionFlashMode, transitionDirection: v.transitionDirection, transitionAxis: v.transitionAxis, transitionSlideEasing: v.transitionSlideEasing, transitionCircleEasing: v.transitionCircleEasing, transitionWipeEasing: v.transitionWipeEasing })),
         texts: texts.map((t) => ({
           id: t.id,
           content: t.content,

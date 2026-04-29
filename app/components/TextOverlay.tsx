@@ -122,6 +122,19 @@ function TextOverlayComponent({
     })
   }, [lines, keyboardVisibleCount])
 
+  const shakeTransform = useMemo(() => {
+    if (text.animation !== 'shake' || isEditing) return undefined
+    const duration = Math.max(0.001, text.endTime - text.startTime)
+    const localTime = Math.max(0, playbackTime - text.startTime)
+    const normalized = Math.min(1, localTime / duration)
+    const envelope = 0.6 + 0.4 * Math.sin(normalized * Math.PI)
+    const angle = localTime * 2 * Math.PI
+    const shiftX = Math.sin(angle * 2.0) * 0.06 * text.fontSize * xScale * envelope
+    const shiftY = Math.cos(angle * 2.3) * 0.04 * text.fontSize * yScale * envelope
+    const rotate = Math.sin(angle * 1.6) * 0.9 * envelope
+    return `translate(${shiftX}px, ${shiftY}px) rotate(${rotate}deg)`
+  }, [text.animation, text.startTime, text.endTime, text.fontSize, playbackTime, xScale, yScale, isEditing])
+
   return (
     <div
       ref={(el) => { textRefs.current.set(text.id, el) }}
@@ -136,6 +149,8 @@ function TextOverlayComponent({
         textAlign: text.textAlign as React.CSSProperties['textAlign'],
         fontFamily: text.fontFamily,
         opacity: text.opacity,
+        transform: shakeTransform,
+        transformOrigin: 'center',
         mixBlendMode: text.style === 'negative' ? 'difference' : 'normal',
         backgroundColor: (text.style === 'negative' || text.style === 'highlight') ? '#000000' : 'transparent',
         textShadow: (text.style === 'negative' || text.style === 'highlight') ? 'none' : undefined,
@@ -201,6 +216,9 @@ export default memo(TextOverlayComponent, (prev, next) => {
     const prevV = getKeyboardVisibleWordCount(prevC, prev.text.startTime, prev.text.endTime, prev.playbackTime)
     const nextV = getKeyboardVisibleWordCount(nextC, next.text.startTime, next.text.endTime, next.playbackTime)
     if (prevV !== nextV) return false
+  }
+  if (prev.text.animation === 'shake' || next.text.animation === 'shake') {
+    if (prev.playbackTime !== next.playbackTime) return false
   }
   
   // If not keyboard animation or no change in visible words, check other props

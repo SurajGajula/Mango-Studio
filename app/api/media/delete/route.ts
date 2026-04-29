@@ -1,5 +1,6 @@
 import { DeleteObjectCommand } from '@aws-sdk/client-s3'
 import { NextRequest, NextResponse } from 'next/server'
+import { findSystemFolderIds } from '@/app/lib/accountMediaSystemFolders'
 import { getR2Client } from '@/app/lib/r2Client'
 import { createClient } from '@/app/utils/supabase/server'
 
@@ -21,17 +22,21 @@ export async function DELETE(req: NextRequest) {
 
   const assetId = req.nextUrl.searchParams.get('assetId')
   const folderId = req.nextUrl.searchParams.get('folderId')
+  const hiddenFolderIds = await findSystemFolderIds(user.id)
 
   if (assetId) {
     const { data: asset, error: assetError } = await supabase
       .from('media_assets')
-      .select('id, object_key')
+      .select('id, object_key, folder_id')
       .eq('id', assetId)
       .eq('user_id', user.id)
       .single()
 
     if (assetError || !asset) {
       return NextResponse.json({ error: assetError?.message ?? 'Asset not found' }, { status: 404 })
+    }
+    if (asset.folder_id && hiddenFolderIds.includes(asset.folder_id)) {
+      return NextResponse.json({ error: 'Assets in system folders cannot be deleted directly' }, { status: 400 })
     }
 
     await r2.client.send(
@@ -55,6 +60,9 @@ export async function DELETE(req: NextRequest) {
   }
 
   if (folderId) {
+    if (hiddenFolderIds.includes(folderId)) {
+      return NextResponse.json({ error: 'System folders cannot be deleted' }, { status: 400 })
+    }
     const [{ count: childFolderCount }, { count: childAssetCount }] = await Promise.all([
       supabase
         .from('media_folders')

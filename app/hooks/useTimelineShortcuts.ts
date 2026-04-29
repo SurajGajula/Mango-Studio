@@ -5,6 +5,9 @@ import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { generateId } from '@/app/lib/idUtils'
 import { resolveMediaKeyframeTransform } from '@/app/lib/resolveMediaKeyframeTransform'
+import { useRef } from 'react'
+import type { TimelineSelectionItem } from '@/app/hooks/timeline/useTimelineDrag'
+import { occupancyIntervalsOnRow, overlapsAny } from '@/app/lib/timeline'
 
 interface UseTimelineShortcutsProps {
   replaceVideoData: any
@@ -15,6 +18,8 @@ interface UseTimelineShortcutsProps {
   selectedAudioId: string | null
   setSelectedAudioId: (id: string | null) => void
   uploadInputRef: React.RefObject<HTMLInputElement>
+  multiSelectedItems: TimelineSelectionItem[]
+  setMultiSelectedItems: React.Dispatch<React.SetStateAction<TimelineSelectionItem[]>>
 }
 
 export function useTimelineShortcuts({
@@ -26,6 +31,8 @@ export function useTimelineShortcuts({
   selectedAudioId,
   setSelectedAudioId,
   uploadInputRef,
+  multiSelectedItems,
+  setMultiSelectedItems,
 }: UseTimelineShortcutsProps) {
   const undo = useManifestStore((state) => state.undo)
   const redo = useManifestStore((state) => state.redo)
@@ -38,8 +45,17 @@ export function useTimelineShortcuts({
   const updateVideo = useManifestStore((state) => state.updateVideo)
   const updateImage = useManifestStore((state) => state.updateImage)
   const updateAudio = useManifestStore((state) => state.updateAudio)
-
   const clearSelection = useSelectionStore((state) => state.clearSelection)
+  const clipboardRef = useRef<{
+    items: Array<{
+      type: TimelineSelectionItem['type']
+      source: any
+      start: number
+      end: number
+    }>
+    blockStart: number
+    blockEnd: number
+  } | null>(null)
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -179,6 +195,174 @@ export function useTimelineShortcuts({
       }
 
       if (!(e.metaKey || e.ctrlKey)) return
+
+      if ((e.key === 'c' || e.key === 'C') && !isEditing) {
+        e.preventDefault()
+        const selection = multiSelectedItems.length > 0
+          ? multiSelectedItems
+          : (() => {
+              const single = useSelectionStore.getState()
+              if (single.selectedVideoId) return [{ type: 'video' as const, id: single.selectedVideoId }]
+              if (single.selectedImageId) return [{ type: 'image' as const, id: single.selectedImageId }]
+              if (single.selectedTextId) return [{ type: 'text' as const, id: single.selectedTextId }]
+              if (single.selectedAudioId) return [{ type: 'audio' as const, id: single.selectedAudioId }]
+              if (single.selectedEffectId) return [{ type: 'effect' as const, id: single.selectedEffectId }]
+              return []
+            })()
+        if (selection.length === 0) return
+        const manifest = useManifestStore.getState()
+        const copiedItems = selection
+          .map((entry) => {
+            if (entry.type === 'video') {
+              const item = manifest.videos.find((v) => v.id === entry.id)
+              if (!item) return null
+              return { type: entry.type, source: item, start: item.timestamp, end: item.timestamp + (item.duration ?? 0) }
+            }
+            if (entry.type === 'image') {
+              const item = manifest.images.find((v) => v.id === entry.id)
+              if (!item) return null
+              return { type: entry.type, source: item, start: item.startTime, end: item.endTime }
+            }
+            if (entry.type === 'text') {
+              const item = manifest.texts.find((v) => v.id === entry.id)
+              if (!item) return null
+              return { type: entry.type, source: item, start: item.startTime, end: item.endTime }
+            }
+            if (entry.type === 'audio') {
+              const item = manifest.audios.find((v) => v.id === entry.id)
+              if (!item) return null
+              return { type: entry.type, source: item, start: item.startTime, end: item.endTime }
+            }
+            const item = manifest.effects.find((v) => v.id === entry.id)
+            if (!item) return null
+            return { type: entry.type, source: item, start: item.startTime, end: item.endTime }
+          })
+          .filter((entry): entry is { type: TimelineSelectionItem['type']; source: any; start: number; end: number } => Boolean(entry))
+        if (copiedItems.length === 0) return
+        const blockStart = Math.min(...copiedItems.map((entry) => entry.start))
+        const blockEnd = Math.max(...copiedItems.map((entry) => entry.end))
+        clipboardRef.current = { items: copiedItems, blockStart, blockEnd }
+      }
+
+      if ((e.key === 'v' || e.key === 'V') && !isEditing) {
+        const clipboard = clipboardRef.current
+        if (!clipboard) return
+        e.preventDefault()
+        const manifest = useManifestStore.getState()
+        const pasteAnchor = manifest.playbackTime
+        const delta = pasteAnchor - clipboard.blockStart
+        const pastedSpans = clipboard.items.map((entry) => {
+          if (entry.type === 'video') {
+            const source = entry.source
+            return {
+              type: entry.type,
+              row: source.row,
+              start: source.timestamp + delta,
+              end: source.timestamp + (source.duration ?? 0) + delta,
+            }
+          }
+          const source = entry.source
+          return {
+            type: entry.type,
+            row: source.row,
+            start: source.startTime + delta,
+            end: source.endTime + delta,
+          }
+        })
+        const hasAnyOverlap = pastedSpans.some((span) =>
+          overlapsAny(span.start, span.end, occupancyIntervalsOnRow(manifest, span.row, null, null), 0.01)
+        )
+        if (hasAnyOverlap) return
+        const nextVideos: any[] = []
+        const nextImages: any[] = []
+        const nextTexts: any[] = []
+        const nextAudios: any[] = []
+        const nextEffects: any[] = []
+        const newSelection: TimelineSelectionItem[] = []
+        clipboard.items.forEach((entry) => {
+          if (entry.type === 'video') {
+            const source = entry.source
+            const id = generateId('video')
+            const copied = source.copy({
+              id,
+              timestamp: source.timestamp + delta,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              keyframes: (source.keyframes ?? []).map((k: any) => ({ ...k, id: generateId('kf') })),
+            })
+            nextVideos.push(copied)
+            newSelection.push({ type: 'video', id })
+            return
+          }
+          if (entry.type === 'image') {
+            const source = entry.source
+            const id = generateId('image')
+            const copied = source.copy({
+              id,
+              startTime: source.startTime + delta,
+              endTime: source.endTime + delta,
+              createdAt: new Date(),
+              keyframes: (source.keyframes ?? []).map((k: any) => ({ ...k, id: generateId('kf') })),
+            })
+            nextImages.push(copied)
+            newSelection.push({ type: 'image', id })
+            return
+          }
+          if (entry.type === 'text') {
+            const source = entry.source
+            const id = generateId('text')
+            const copied = source.copy({
+              id,
+              startTime: source.startTime + delta,
+              endTime: source.endTime + delta,
+              createdAt: new Date(),
+            })
+            nextTexts.push(copied)
+            newSelection.push({ type: 'text', id })
+            return
+          }
+          if (entry.type === 'audio') {
+            const source = entry.source
+            const id = generateId('audio')
+            const copied = source.copy({
+              id,
+              startTime: source.startTime + delta,
+              endTime: source.endTime + delta,
+              createdAt: new Date(),
+              marks: source.marks.map((m: any) => ({ ...m, id: generateId('amark') })),
+            })
+            nextAudios.push(copied)
+            newSelection.push({ type: 'audio', id })
+            return
+          }
+          const source = entry.source
+          const id = generateId('effect')
+          const copied = source.copy({
+            id,
+            startTime: source.startTime + delta,
+            endTime: source.endTime + delta,
+            createdAt: new Date(),
+          })
+          nextEffects.push(copied)
+          newSelection.push({ type: 'effect', id })
+        })
+        useManifestStore.setState((state) => ({
+          videos: state.videos.concat(nextVideos),
+          images: state.images.concat(nextImages),
+          texts: state.texts.concat(nextTexts),
+          audios: state.audios.concat(nextAudios),
+          effects: state.effects.concat(nextEffects),
+          isPlaying: false,
+        }))
+        manifest.pushHistory({ force: true })
+        setMultiSelectedItems(newSelection)
+        const first = newSelection[0]
+        if (first?.type === 'video') useSelectionStore.getState().setSelectedVideoId(first.id)
+        else if (first?.type === 'image') useSelectionStore.getState().setSelectedImageId(first.id)
+        else if (first?.type === 'text') useSelectionStore.getState().setSelectedTextId(first.id)
+        else if (first?.type === 'audio') useSelectionStore.getState().setSelectedAudioId(first.id)
+        else if (first?.type === 'effect') useSelectionStore.getState().setSelectedEffectId(first.id)
+      }
       
       if (e.key === '=' || e.key === '+') {
         e.preventDefault()
@@ -234,6 +418,6 @@ export function useTimelineShortcuts({
     removeAudioFromManifest, removeEffect, duplicateItem, updateVideo, updateImage, updateAudio,
     replaceVideoData, applyZoom, visibleDurationRef, 
     MIN_VISIBLE, MAX_VISIBLE, selectedAudioId, 
-    setSelectedAudioId, uploadInputRef
+    setSelectedAudioId, uploadInputRef, multiSelectedItems, setMultiSelectedItems
   ])
 }

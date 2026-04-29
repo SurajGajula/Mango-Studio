@@ -1,0 +1,233 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.84);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2200;
+}
+
+.modal {
+  width: min(1100px, 94vw);
+  max-height: 90vh;
+  overflow: auto;
+  border: 1px solid #2f2f2f;
+  border-radius: 12px;
+  background: #161616;
+  color: #fff;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.header p {
+  margin: 0.35rem 0 0;
+  color: #a8a8a8;
+  font-size: 0.9rem;
+}
+
+.body {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) 280px;
+  gap: 1rem;
+}
+
+.canvasWrap {
+  position: relative;
+  border: 1px solid #2f2f2f;
+  border-radius: 10px;
+  overflow: hidden;
+  background-image:
+    linear-gradient(45deg, #1d1d1d 25%, transparent 25%),
+    linear-gradient(-45deg, #1d1d1d 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #1d1d1d 75%),
+    linear-gradient(-45deg, transparent 75%, #1d1d1d 75%);
+  background-size: 24px 24px;
+  background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+  min-height: 380px;
+}
+
+.canvas {
+  width: 100%;
+  height: min(70vh, 620px);
+  object-fit: contain;
+  display: block;
+  cursor: none;
+}
+
+.overlayMessage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+}
+
+.cursorOutline {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  border: 1px solid #fff;
+  pointer-events: none;
+  box-sizing: border-box;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.65);
+}
+
+.cursorErase {
+  border-color: #ff7a7a;
+}
+
+.cursorRestore {
+  border-color: #67f0a6;
+}
+
+.controls {
+  border: 1px solid #2f2f2f;
+  border-radius: 10px;
+  background: #121212;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.modeRow {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.modeButton {
+  flex: 1;
+  border: 1px solid #3b3b3b;
+  background: #1e1e1e;
+  color: #ddd;
+  border-radius: 8px;
+  padding: 0.45rem 0.5rem;
+  cursor: pointer;
+}
+
+.modeActive {
+  border-color: #fff;
+  color: #000;
+  background: #fff;
+}
+
+.control {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  color: #cfcfcf;
+}
+
+.control input {
+  width: 100%;
+}
+
+.shadowHeader {
+  margin-top: 0.25rem;
+}
+
+.shadowToggleLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #d8d8d8;
+  font-size: 0.85rem;
+}
+
+.shadowControls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding-top: 0.15rem;
+  border-top: 1px solid #2e2e2e;
+}
+
+.historyRow {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.secondaryBtn {
+  flex: 1;
+  border: 1px solid #444;
+  background: #222;
+  color: #ddd;
+  border-radius: 8px;
+  padding: 0.4rem 0.5rem;
+  cursor: pointer;
+}
+
+.autoButton {
+  border: 1px solid #4d4d4d;
+  background: #262626;
+  color: #fff;
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+  cursor: pointer;
+}
+
+.autoButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.secondaryBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.meta {
+  margin: 0;
+  color: #8f8f8f;
+  font-size: 0.78rem;
+}
+
+.error {
+  margin: 0;
+  color: #ff7f7f;
+  font-size: 0.82rem;
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.cancelBtn,
+.confirmBtn {
+  border-radius: 8px;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid #444;
+  background: #202020;
+  color: #ddd;
+  cursor: pointer;
+}
+
+.confirmBtn {
+  border-color: #fff;
+  background: #fff;
+  color: #000;
+}
+
+.confirmBtn:disabled,
+.cancelBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (max-width: 900px) {
+  .body {
+    grid-template-columns: 1fr;
+  }
+}

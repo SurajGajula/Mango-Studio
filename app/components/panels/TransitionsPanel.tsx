@@ -113,7 +113,14 @@ const REVEAL_CURVE_OPTIONS: { value: SlideTransitionEasing; label: string }[] = 
   { value: 'linear', label: 'Linear' },
 ]
 
+const WIPE_SPEED_OPTIONS: { value: 'linear' | 'ease-in' | 'ease-out'; label: string }[] = [
+  { value: 'linear', label: 'Linear' },
+  { value: 'ease-in', label: 'Slow -> fast' },
+  { value: 'ease-out', label: 'Fast -> slow' },
+]
+
 const ZOOM_SPEED_OPTIONS: { value: AnimationZoomEasing; label: string }[] = [
+  { value: 'constant', label: 'Constant' },
   { value: 'fast-slow', label: 'Fast → slow' },
   { value: 'slow-fast', label: 'Slow → fast' },
 ]
@@ -176,6 +183,17 @@ const TRANSITION_OPTIONS: { value: TransitionMode; label: string; desc: string; 
     ),
   },
   {
+    value: 'wipe',
+    label: 'Wipe',
+    desc: 'A black wipe bar passes across and reveals this item',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <rect x="9" y="3" width="6" height="18" fill="currentColor" opacity="0.5" />
+      </svg>
+    ),
+  },
+  {
     value: 'circle',
     label: 'Circle',
     desc: 'This item expands from a circle in the center to reveal the content',
@@ -230,6 +248,8 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
   
   const currentAnimation = selectedItem?.animation ?? 'none'
   const currentTransition = selectedItem?.transition ?? 'none'
+  const selectedItemDuration = selectedItem?.duration ?? 0
+  const safeSelectedItemDuration = selectedItemDuration > 0 ? selectedItemDuration : 1.0
 
   // For split and fade transitions, the animation/effect involves the PREVIOUS item visually.
   // We need to find the item immediately before the selected one to set the max duration.
@@ -242,7 +262,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
   const previousItem = selectedIdx > 0 ? allMainItems[selectedIdx - 1] : null
   
   // Max duration depends on transition type
-  const isTransitionAffectingPrevious = ['split', 'fade', 'morph', 'slide-in', 'circle', 'rotate', 'flash'].includes(currentTransition)
+  const isTransitionAffectingPrevious = ['split', 'fade', 'morph', 'slide-in', 'wipe', 'circle', 'rotate', 'flash'].includes(currentTransition)
   const isLastFrameHold =
     mode === 'animation' &&
     currentAnimation === 'last-frame-hold' &&
@@ -251,14 +271,16 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
   const maxDuration = (mode === 'transition' && isTransitionAffectingPrevious)
     ? (previousItem?.duration || 1.0)
     : isLastFrameHold
-      ? Math.max(0.1, selectedItem?.duration || 1.0)
-      : (selectedItem?.duration || 1.0)
+      ? Math.max(0.1, safeSelectedItemDuration)
+      : safeSelectedItemDuration
+  const durationMin = Math.min(0.1, maxDuration)
+  const clampDuration = (v: number) => Math.max(durationMin, Math.min(v, maxDuration))
 
   // Use a local state for the slider to ensure it's always responsive
   const initialDuration = selectedItem ? (
     mode === 'animation' 
-      ? (selectedItem.animationDuration && selectedItem.animationDuration > 0 ? selectedItem.animationDuration : 1.0)
-      : (selectedItem.transitionDuration && selectedItem.transitionDuration > 0 ? selectedItem.transitionDuration : 1.0)
+      ? clampDuration(selectedItem.animationDuration && selectedItem.animationDuration > 0 ? selectedItem.animationDuration : safeSelectedItemDuration)
+      : clampDuration(selectedItem.transitionDuration && selectedItem.transitionDuration > 0 ? selectedItem.transitionDuration : safeSelectedItemDuration)
   ) : null
   
   const [localDuration, setLocalDuration] = useState<number | null>(initialDuration)
@@ -299,7 +321,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
         const d = selectedItem.duration ?? 1
         updates.animationDuration = Math.min(Math.max(0.1, d * 0.25), d)
       } else if (val !== 'none' && (selectedItem?.animationDuration === undefined || selectedItem?.animationDuration === 0)) {
-        updates.animationDuration = 1.0
+        updates.animationDuration = clampDuration(safeSelectedItemDuration)
       }
       if (val === 'shake' || val === 'jitter') {
         updates.zoomIntensity = 0.5
@@ -319,16 +341,14 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
       updates.transition = val
       // When switching from 'none' to something, default to 1s if not already set
       if (val !== 'none' && (selectedItem?.transitionDuration === undefined || selectedItem?.transitionDuration === 0)) {
-        updates.transitionDuration = 1.0
+        updates.transitionDuration = clampDuration(safeSelectedItemDuration)
       }
     }
-    
-    const isImage = images.some(img => img.id === selectedItem.id)
-    if (isImage) updateImage(selectedItem.id, updates)
-    else updateVideo(selectedItem.id, updates)
+
+    commitDiscreteChange(updates)
   }
 
-  const itemDuration = selectedItem?.duration || 1.0
+  const itemDuration = safeSelectedItemDuration
   const displayDuration = localDuration !== null ? localDuration : itemDuration
   const displayIntensity = localIntensity !== null ? localIntensity : 0.5
   const displayZoomDistance = localZoomDistance !== null ? localZoomDistance : 1
@@ -421,14 +441,14 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
                 </div>
                 <input
                   type="range"
-                  min="0.1"
+                  min={durationMin}
                   max={maxDuration}
                   step="0.1"
-                  value={Math.min(displayDuration, maxDuration)}
+                  value={clampDuration(displayDuration)}
                   className={styles.durationSlider}
                   onPointerDown={durationSliderHistory}
                   onInput={(e) => {
-                    const val = parseFloat((e.target as HTMLInputElement).value)
+                    const val = clampDuration(parseFloat((e.target as HTMLInputElement).value))
                     const updates = mode === 'animation' ? { animationDuration: val } : { transitionDuration: val }
                     handleSliderUpdate(updates, setLocalDuration)
                   }}
@@ -516,6 +536,40 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
                         type="button"
                         className={`${styles.segmentButton} ${(selectedItem.transitionSlideEasing ?? 'smooth') === opt.value ? styles.segmentActive : ''}`}
                         onClick={() => commitDiscreteChange({ transitionSlideEasing: opt.value })}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {mode === 'transition' && currentTransition === 'wipe' && (
+              <>
+                <div className={styles.durationControl}>
+                  <label className={styles.sectionLabel}>Wipe Direction</label>
+                  <div className={styles.segmentedControl}>
+                    {(['left', 'right', 'up', 'down'] as const).map(dir => (
+                      <button
+                        key={dir}
+                        className={`${styles.segmentButton} ${selectedItem.transitionDirection === dir ? styles.segmentActive : ''}`}
+                        onClick={() => commitDiscreteChange({ transitionDirection: dir })}
+                      >
+                        {dir.charAt(0).toUpperCase() + dir.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={styles.durationControl}>
+                  <label className={styles.sectionLabel}>Wipe Speed</label>
+                  <div className={`${styles.segmentedControl} ${styles.segmentedControlWrap}`}>
+                    {WIPE_SPEED_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        className={`${styles.segmentButton} ${(selectedItem.transitionWipeEasing ?? 'linear') === opt.value ? styles.segmentActive : ''}`}
+                        onClick={() => commitDiscreteChange({ transitionWipeEasing: opt.value })}
                       >
                         {opt.label}
                       </button>

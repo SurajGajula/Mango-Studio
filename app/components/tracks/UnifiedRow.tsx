@@ -9,6 +9,10 @@ import { VideoClass } from '@/app/models/VideoClass'
 import styles from './Timeline.module.css'
 import { audioMarkTimelineEntries } from '@/app/lib/audioMarkTimeline'
 import { keyframeTimelineEntries } from '@/app/lib/mediaKeyframeTimeline'
+import { buildVideoStripThumbnails } from '@/app/lib/timelineVideoStrip'
+import { buildManifestNumberById, canEditTransitionBetween, toVisualTrackItem } from '@/app/lib/timelineVisualTrack'
+import TransitionEditButton from './TransitionEditButton'
+import type { TimelineSelectionItem } from '@/app/hooks/timeline/useTimelineDrag'
 
 interface UnifiedRowProps {
   rowIndex: number
@@ -17,15 +21,20 @@ interface UnifiedRowProps {
   totalDuration: number
   effectivePadding: number
   handleImageDragStart: (imageId: string, handle: 'move' | 'start' | 'end', e: React.MouseEvent) => void
-  handleOverlayVideoDragStart: (videoId: string, e: React.MouseEvent) => void
+  handleVideoDragStart: (videoId: string, e: React.MouseEvent) => void
   handleTrimStart: (videoId: string, handle: 'start' | 'end' | null, e: React.MouseEvent) => void
   handleTextDragStart: (textId: string, handle: 'move' | 'start' | 'end', e: React.MouseEvent) => void
   handleEffectDragStart: (effectId: string, handle: 'move' | 'start' | 'end', e: React.MouseEvent) => void
   handleAudioBodyDragStart: (audioId: string, e: React.MouseEvent) => void
   handleAudioTrimStart: (audioId: string, handle: 'start' | 'end', e: React.MouseEvent) => void
   handleVideoDoubleClick: (videoId: string) => void
+  videoThumbnails: Map<string, Map<number, string>>
+  scrollContainerRef: React.RefObject<HTMLDivElement>
+  timelineInnerWidthPx: number
+  onOpenTransitions?: (id: string) => void
   onOpenEffects?: () => void
-  onCloseTransitions?: () => void
+  multiSelectedItems: TimelineSelectionItem[]
+  onSelectionToggle: (item: TimelineSelectionItem, additive: boolean) => void
 }
 
 const UnifiedRow = ({
@@ -35,15 +44,20 @@ const UnifiedRow = ({
   totalDuration,
   effectivePadding,
   handleImageDragStart,
-  handleOverlayVideoDragStart,
+  handleVideoDragStart,
   handleTrimStart,
   handleTextDragStart,
   handleEffectDragStart,
   handleAudioBodyDragStart,
   handleAudioTrimStart,
   handleVideoDoubleClick,
+  videoThumbnails,
+  scrollContainerRef,
+  timelineInnerWidthPx,
+  onOpenTransitions,
   onOpenEffects,
-  onCloseTransitions,
+  multiSelectedItems,
+  onSelectionToggle,
 }: UnifiedRowProps) => {
   const images = useManifestStore((state) => state.images)
   const videos = useManifestStore((state) => state.videos)
@@ -66,10 +80,14 @@ const UnifiedRow = ({
   const selectEffect = useSelectionStore((state) => state.selectEffect)
   const selectAudio = useSelectionStore((state) => state.selectAudio)
   const setContextMenu = useSelectionStore((state) => state.setContextMenu)
+  const selectedSet = useMemo(
+    () => new Set(multiSelectedItems.map((entry) => `${entry.type}:${entry.id}`)),
+    [multiSelectedItems]
+  )
 
   const items = useMemo(() => {
-    const rowImages = images.filter((img) => img.row === rowIndex && img.row > 0).map(img => ({ type: 'image' as const, item: img, id: img.id, startTime: img.startTime, duration: img.endTime - img.startTime }))
-    const rowVideos = videos.filter((v) => v.row === rowIndex && v.row > 0).map(v => ({ type: 'video' as const, item: v, id: v.id, startTime: v.timestamp, duration: v.duration ?? 0 }))
+    const rowImages = images.filter((img) => img.row === rowIndex).map(img => ({ type: 'image' as const, item: img, id: img.id, startTime: img.startTime, duration: img.endTime - img.startTime }))
+    const rowVideos = videos.filter((v) => v.row === rowIndex).map(v => ({ type: 'video' as const, item: v, id: v.id, startTime: v.timestamp, duration: v.duration ?? 0 }))
     const rowTexts = texts.filter((t) => t.row === rowIndex).map(t => ({ type: 'text' as const, item: t, id: t.id, startTime: t.startTime, duration: t.endTime - t.startTime }))
     const rowEffects = effects.filter((e) => e.row === rowIndex).map(e => ({ type: 'effect' as const, item: e, id: e.id, startTime: e.startTime, duration: e.endTime - e.startTime }))
     const rowAudios = audios.filter((a) => a.row === rowIndex).map(a => ({ type: 'audio' as const, item: a, id: a.id, startTime: a.startTime, duration: (a.originalDuration - a.trimStart - a.trimEnd) / (a.playbackSpeed ?? 1) }))
@@ -77,14 +95,14 @@ const UnifiedRow = ({
     return [...rowImages, ...rowVideos, ...rowTexts, ...rowEffects, ...rowAudios].sort((a, b) => a.startTime - b.startTime)
   }, [images, videos, texts, effects, audios, rowIndex])
 
-  const imageManifestNumberById = useMemo(() => {
-    const map = new Map<string, number>()
-    const sorted = [...images].sort((a, b) => a.startTime - b.startTime)
-    sorted.forEach((img, index) => {
-      map.set(img.id, index + 1)
-    })
-    return map
-  }, [images])
+  const imageManifestNumberById = useMemo(
+    () => buildManifestNumberById(images, (img) => img.id, (img) => img.startTime),
+    [images]
+  )
+  const videoManifestNumberById = useMemo(
+    () => buildManifestNumberById(videos, (video) => video.id, (video) => video.timestamp),
+    [videos]
+  )
 
   if (items.length === 0 && !showEmptyForDrag) return null
 
@@ -97,13 +115,31 @@ const UnifiedRow = ({
           width: `${(totalDuration / (totalDuration + effectivePadding * 2)) * 100}%`,
         }}
       />
-      {items.length === 0 ? null : items.map((entry) => {
+      {items.length === 0 ? null : items.map((entry, idx) => {
         const { type, item, id, startTime, duration } = entry
         const leftPercent = getContentPosition(startTime)
         const widthPercent = totalDuration > 0 ? (duration / (totalDuration + effectivePadding * 2)) * 100 : 0
+        const previousVisualEntry = (() => {
+          for (let i = idx - 1; i >= 0; i -= 1) {
+            const candidate = items[i]
+            if (candidate.type === 'video' || candidate.type === 'image') return candidate
+          }
+          return null
+        })()
+        const currentVisualItem =
+          type === 'video' ? toVisualTrackItem(item as VideoClass, 'video') : type === 'image' ? toVisualTrackItem(item as ImageClass, 'image') : null
+        const previousVisualItem =
+          previousVisualEntry && (previousVisualEntry.type === 'video' || previousVisualEntry.type === 'image')
+            ? toVisualTrackItem(
+                previousVisualEntry.item as VideoClass | ImageClass,
+                previousVisualEntry.type
+              )
+            : null
+        const showTransitionButton =
+          currentVisualItem !== null && canEditTransitionBetween(previousVisualItem, currentVisualItem)
         
         if (type === 'image') {
-          const isSelected = selectedImageId === id
+          const isSelected = selectedImageId === id || selectedSet.has(`image:${id}`)
           const imgItem = item as ImageClass
           const imageNumber = imageManifestNumberById.get(id) ?? 1
           const imageLabel = `Image #${imageNumber}`
@@ -111,92 +147,157 @@ const UnifiedRow = ({
           const segWImg = Math.max(1e-6, activeEndPct - leftPercent)
           const kfImg = keyframeTimelineEntries(startTime, duration, imgItem.keyframes ?? [], totalDuration)
           return (
-            <div
-              key={id}
-              className={`${styles.overlayItem} ${isSelected ? styles.selected : ''}`}
-              style={{ left: `${leftPercent}%`, width: `${widthPercent}%`, position: 'absolute' }}
-              onClick={(e) => { e.stopPropagation(); selectImage(isSelected ? null : id, null) }}
-              onMouseDown={(e) => handleImageDragStart(id, 'move', e)}
-              onContextMenu={(e) => {
-                e.preventDefault(); e.stopPropagation(); selectImage(id)
-                setContextMenu({ isOpen: true, x: e.clientX, y: e.clientY, itemId: id, itemType: 'image' })
-              }}
-            >
-              <div className={styles.overlayHandleStart} onMouseDown={(e) => { e.stopPropagation(); handleImageDragStart(id, 'start', e) }} />
-              <div className={styles.overlayHandleEnd} onMouseDown={(e) => { e.stopPropagation(); handleImageDragStart(id, 'end', e) }} />
-              <div className={styles.overlayBox}>
-                <img src={(item as any).url} className={styles.overlayThumbnail} alt="" draggable={false} />
-                <span className={styles.overlayName}>{imageLabel}</span>
-              </div>
-              {kfImg.map(({ id: kfId, timelinePos }) => (
-                <div
-                  key={kfId}
-                  className={`${styles.keyframeMarker} ${selectedImageId === id && selectedKeyframeId === kfId ? styles.keyframeMarkerSelected : ''}`}
-                  style={{
-                    left: `${((getContentPosition(timelinePos) - leftPercent) / segWImg) * 100}%`,
-                  }}
-                  title={`Keyframe at ${timelinePos.toFixed(2)}s`}
+            <div key={id}>
+              {showTransitionButton && (
+                <TransitionEditButton
+                  leftPercent={leftPercent}
+                  hasTransition={imgItem.transition !== 'none'}
                   onClick={(e) => {
                     e.stopPropagation()
-                    selectImage(id, kfId)
-                    setPlaybackTime(timelinePos)
+                    selectImage(id)
+                    onOpenTransitions?.(id)
                   }}
                 />
-              ))}
+              )}
+              <div
+                className={`${styles.overlayItem} ${isSelected ? styles.selected : ''}`}
+                style={{ left: `${leftPercent}%`, width: `${widthPercent}%`, position: 'absolute' }}
+                data-timeline-selectable="true"
+                data-timeline-item-id={id}
+                data-timeline-item-type="image"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  const additive = e.metaKey || e.ctrlKey
+                  if (!additive) selectImage(id, null)
+                  onSelectionToggle({ id, type: 'image' }, additive)
+                }}
+                onMouseDown={(e) => handleImageDragStart(id, 'move', e)}
+                onContextMenu={(e) => {
+                  e.preventDefault(); e.stopPropagation(); selectImage(id)
+                  setContextMenu({ isOpen: true, x: e.clientX, y: e.clientY, itemId: id, itemType: 'image' })
+                }}
+              >
+                <div className={styles.overlayHandleStart} onMouseDown={(e) => { e.stopPropagation(); handleImageDragStart(id, 'start', e) }} />
+                <div className={styles.overlayHandleEnd} onMouseDown={(e) => { e.stopPropagation(); handleImageDragStart(id, 'end', e) }} />
+                <div className={styles.overlayBox}>
+                  <img src={(item as any).url} className={styles.overlayThumbnail} alt="" draggable={false} />
+                  <span className={styles.overlayName}>{imageLabel}</span>
+                </div>
+                {kfImg.map(({ id: kfId, timelinePos }) => (
+                  <div
+                    key={kfId}
+                    className={`${styles.keyframeMarker} ${selectedImageId === id && selectedKeyframeId === kfId ? styles.keyframeMarkerSelected : ''}`}
+                    style={{
+                      left: `${((getContentPosition(timelinePos) - leftPercent) / segWImg) * 100}%`,
+                    }}
+                    title={`Keyframe at ${timelinePos.toFixed(2)}s`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      selectImage(id, kfId)
+                      setPlaybackTime(timelinePos)
+                    }}
+                  />
+                ))}
+              </div>
             </div>
           )
         }
         if (type === 'video') {
-          const isSelected = selectedVideoId === id
+          const isSelected = selectedVideoId === id || selectedSet.has(`video:${id}`)
           const vidItem = item as VideoClass
           const activeEndPctV = getContentPosition(startTime + duration)
           const segWVid = Math.max(1e-6, activeEndPctV - leftPercent)
           const kfVid = keyframeTimelineEntries(startTime, duration, vidItem.keyframes ?? [], totalDuration)
           return (
-            <div
-              key={id}
-              className={`${styles.overlayItem} ${isSelected ? styles.selected : ''}`}
-              style={{ left: `${leftPercent}%`, width: `${widthPercent}%`, position: 'absolute' }}
-              onClick={(e) => { e.stopPropagation(); selectVideo(isSelected ? null : id, null) }}
-              onDoubleClick={(e) => { e.stopPropagation(); handleVideoDoubleClick(id) }}
-              onMouseDown={(e) => handleOverlayVideoDragStart(id, e)}
-              onContextMenu={(e) => {
-                e.preventDefault(); e.stopPropagation(); selectVideo(id)
-                setContextMenu({ isOpen: true, x: e.clientX, y: e.clientY, itemId: id, itemType: 'video' })
-              }}
-            >
-              <div className={styles.overlayHandleStart} onMouseDown={(e) => { e.stopPropagation(); handleTrimStart(id, 'start', e) }} />
-              <div className={styles.overlayHandleEnd} onMouseDown={(e) => { e.stopPropagation(); handleTrimStart(id, 'end', e) }} />
-              <div className={styles.overlayBox}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21" /></svg>
-                <span className={styles.overlayName}>Video</span>
-              </div>
-              {kfVid.map(({ id: kfId, timelinePos }) => (
-                <div
-                  key={kfId}
-                  className={`${styles.keyframeMarker} ${selectedVideoId === id && selectedKeyframeId === kfId ? styles.keyframeMarkerSelected : ''}`}
-                  style={{
-                    left: `${((getContentPosition(timelinePos) - leftPercent) / segWVid) * 100}%`,
-                  }}
-                  title={`Keyframe at ${timelinePos.toFixed(2)}s`}
+            <div key={id}>
+              {showTransitionButton && (
+                <TransitionEditButton
+                  leftPercent={leftPercent}
+                  hasTransition={vidItem.transition !== 'none'}
                   onClick={(e) => {
                     e.stopPropagation()
-                    selectVideo(id, kfId)
-                    setPlaybackTime(timelinePos)
+                    selectVideo(id)
+                    onOpenTransitions?.(id)
                   }}
                 />
-              ))}
+              )}
+              <div
+                className={`${styles.overlayItem} ${isSelected ? styles.selected : ''}`}
+                style={{ left: `${leftPercent}%`, width: `${widthPercent}%`, position: 'absolute' }}
+                data-timeline-selectable="true"
+                data-timeline-item-id={id}
+                data-timeline-item-type="video"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  const additive = e.metaKey || e.ctrlKey
+                  if (!additive) selectVideo(id, null)
+                  onSelectionToggle({ id, type: 'video' }, additive)
+                }}
+                onDoubleClick={(e) => { e.stopPropagation(); handleVideoDoubleClick(id) }}
+                onMouseDown={(e) => handleVideoDragStart(id, e)}
+                onContextMenu={(e) => {
+                  e.preventDefault(); e.stopPropagation(); selectVideo(id)
+                  setContextMenu({ isOpen: true, x: e.clientX, y: e.clientY, itemId: id, itemType: 'video' })
+                }}
+              >
+                <div className={styles.overlayHandleStart} onMouseDown={(e) => { e.stopPropagation(); handleTrimStart(id, 'start', e) }} />
+                <div className={styles.overlayHandleEnd} onMouseDown={(e) => { e.stopPropagation(); handleTrimStart(id, 'end', e) }} />
+                <div className={styles.videoBox}>
+                  <div className={styles.thumbnailStrip}>
+                    {(() => {
+                      const repeatedThumbs = buildVideoStripThumbnails({
+                        video: vidItem,
+                        videoThumbnails,
+                        widthPercent,
+                        timelineInnerWidthPx,
+                        fallbackViewportWidthPx: scrollContainerRef.current?.clientWidth ?? 800,
+                        totalDuration,
+                      })
+                      if (repeatedThumbs.length === 0) return null
+                      return repeatedThumbs.map((thumb, tIdx) => (
+                        <img key={`${id}-thumb-${tIdx}`} src={thumb} alt="" className={styles.thumbnail} draggable={false} />
+                      ))
+                    })()}
+                  </div>
+                  <div className={styles.videoOverlayText}>
+                    <span className={styles.overlayName}>Video #{videoManifestNumberById.get(id)}</span>
+                  </div>
+                </div>
+                {kfVid.map(({ id: kfId, timelinePos }) => (
+                  <div
+                    key={kfId}
+                    className={`${styles.keyframeMarker} ${selectedVideoId === id && selectedKeyframeId === kfId ? styles.keyframeMarkerSelected : ''}`}
+                    style={{
+                      left: `${((getContentPosition(timelinePos) - leftPercent) / segWVid) * 100}%`,
+                    }}
+                    title={`Keyframe at ${timelinePos.toFixed(2)}s`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      selectVideo(id, kfId)
+                      setPlaybackTime(timelinePos)
+                    }}
+                  />
+                ))}
+              </div>
             </div>
           )
         }
         if (type === 'text') {
-          const isSelected = selectedTextId === id
+          const isSelected = selectedTextId === id || selectedSet.has(`text:${id}`)
           return (
             <div
               key={id}
               className={`${styles.overlayItem} ${styles.textItem} ${isSelected ? styles.selected : ''}`}
               style={{ left: `${leftPercent}%`, width: `${widthPercent}%`, position: 'absolute' }}
-              onClick={(e) => { e.stopPropagation(); selectText(isSelected ? null : id) }}
+              data-timeline-selectable="true"
+              data-timeline-item-id={id}
+              data-timeline-item-type="text"
+              onClick={(e) => {
+                e.stopPropagation()
+                const additive = e.metaKey || e.ctrlKey
+                if (!additive) selectText(id)
+                onSelectionToggle({ id, type: 'text' }, additive)
+              }}
               onMouseDown={(e) => handleTextDragStart(id, 'move', e)}
               onContextMenu={(e) => {
                 e.preventDefault(); e.stopPropagation(); selectText(id)
@@ -210,14 +311,20 @@ const UnifiedRow = ({
           )
         }
         if (type === 'effect') {
-          const isSelected = selectedEffectId === id
+          const isSelected = selectedEffectId === id || selectedSet.has(`effect:${id}`)
           return (
             <div
               key={id}
               className={`${styles.effectItem} ${isSelected ? styles.selected : ''}`}
               style={{ left: `${leftPercent}%`, width: `${widthPercent}%`, position: 'absolute' }}
+              data-timeline-selectable="true"
+              data-timeline-item-id={id}
+              data-timeline-item-type="effect"
               onClick={(e) => {
-                e.stopPropagation(); selectEffect(isSelected ? null : id)
+                e.stopPropagation()
+                const additive = e.metaKey || e.ctrlKey
+                if (!additive) selectEffect(id)
+                onSelectionToggle({ id, type: 'effect' }, additive)
                 if (!isSelected) { setPlaybackTime(startTime + 0.001); onOpenEffects?.() }
               }}
               onMouseDown={(e) => handleEffectDragStart(id, 'move', e)}
@@ -236,7 +343,7 @@ const UnifiedRow = ({
           )
         }
         if (type === 'audio') {
-          const isSelected = selectedAudioId === id
+          const isSelected = selectedAudioId === id || selectedSet.has(`audio:${id}`)
           const audioItem = item as AudioClass
           const markEntries = audioMarkTimelineEntries(audioItem, totalDuration)
           const activeEndPctA = getContentPosition(startTime + duration)
@@ -246,7 +353,15 @@ const UnifiedRow = ({
               key={id}
               className={`${styles.overlayItem} ${isSelected ? styles.selected : ''}`}
               style={{ left: `${leftPercent}%`, width: `${widthPercent}%`, position: 'absolute' }}
-              onClick={(e) => { e.stopPropagation(); selectAudio(isSelected ? null : id, null) }}
+              data-timeline-selectable="true"
+              data-timeline-item-id={id}
+              data-timeline-item-type="audio"
+              onClick={(e) => {
+                e.stopPropagation()
+                const additive = e.metaKey || e.ctrlKey
+                if (!additive) selectAudio(id, null)
+                onSelectionToggle({ id, type: 'audio' }, additive)
+              }}
               onMouseDown={(e) => handleAudioBodyDragStart(id, e)}
               onContextMenu={(e) => {
                 e.preventDefault(); e.stopPropagation(); selectAudio(id)

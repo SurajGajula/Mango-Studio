@@ -826,6 +826,15 @@
   box-shadow: 0 0 8px rgba(74, 158, 255, 0.8);
 }
 
+.selectionBox {
+  position: absolute;
+  pointer-events: none;
+  border: 2px dashed #ffffff;
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.45) inset;
+  z-index: 300;
+}
+
 .draggingActive .overlayItem,
 .draggingActive .timelineItem,
 .draggingActive .audioRow,

@@ -182,7 +182,6 @@ function reviveVideo(o: Record<string, unknown>): VideoClass {
     o.trimStart as number | undefined,
     o.trimEnd as number | undefined,
     o.prompt as string | undefined,
-    undefined,
     o.x as number | undefined,
     o.y as number | undefined,
     o.width as number | undefined,
@@ -216,7 +215,8 @@ function reviveVideo(o: Record<string, unknown>): VideoClass {
     o.keyframes as VideoClass['keyframes'],
     undefined,
     o.transitionFlashMode as VideoClass['transitionFlashMode'],
-    o.zoomDistanceIntensity as number | undefined
+    o.zoomDistanceIntensity as number | undefined,
+    o.transitionWipeEasing as VideoClass['transitionWipeEasing']
   )
 }
 
@@ -234,7 +234,6 @@ function reviveImage(o: Record<string, unknown>): ImageClass {
     o.height as number | undefined,
     o.opacity as number | undefined,
     o.createdAt ? new Date(String(o.createdAt)) : undefined,
-    undefined,
     o.animation as ImageClass['animation'],
     o.transition as ImageClass['transition'],
     o.cropAspect as string | undefined,
@@ -256,7 +255,8 @@ function reviveImage(o: Record<string, unknown>): ImageClass {
     o.keyframes as ImageClass['keyframes'],
     undefined,
     o.transitionFlashMode as ImageClass['transitionFlashMode'],
-    o.zoomDistanceIntensity as number | undefined
+    o.zoomDistanceIntensity as number | undefined,
+    o.transitionWipeEasing as ImageClass['transitionWipeEasing']
   )
 }
 
@@ -297,10 +297,10 @@ function reviveAudio(o: Record<string, unknown>): AudioClass {
     o.trimEnd as number | undefined,
     o.originalDuration as number | undefined,
     o.playbackSpeed as number | undefined,
-    undefined,
     row,
     o.volume as number | undefined,
     o.pitch as number | undefined,
+    o.fadeOutDuration as number | undefined,
     o.speedStart as number | undefined,
     o.speedEnd as number | undefined,
     o.speedEasing as 'linear' | 'ease' | undefined

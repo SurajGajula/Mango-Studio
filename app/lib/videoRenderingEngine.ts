@@ -1,5 +1,6 @@
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
+import { TextClass } from '@/app/models/TextClass'
 import { EffectClass } from '@/app/models/EffectClass'
 import {
   MainItem,
@@ -15,6 +16,7 @@ import { resolveMediaKeyframeTransform } from '@/app/lib/resolveMediaKeyframeTra
 import { runWithPlacementRotation } from '@/app/lib/placementRotation'
 import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
 import { applyEffect } from '@/app/lib/applyEffect'
+import { getKeyboardVisibleWordCount, wrapTextToLines } from '@/app/lib/textUtils'
 
 export interface RenderState {
   playbackTime: number
@@ -22,6 +24,7 @@ export interface RenderState {
   playbackRate: number
   videos: VideoClass[]
   images: ImageClass[]
+  texts: TextClass[]
   effects: EffectClass[]
 }
 
@@ -133,6 +136,7 @@ export class VideoRenderingEngine {
           video.transitionAxis,
           video.transitionSlideEasing,
           video.transitionCircleEasing,
+          video.transitionWipeEasing,
           video.zoomIntensity,
           video.zoomDistanceIntensity,
         ].join('|')
@@ -167,9 +171,32 @@ export class VideoRenderingEngine {
           image.transitionAxis,
           image.transitionSlideEasing,
           image.transitionCircleEasing,
+          image.transitionWipeEasing,
           image.zoomIntensity,
           image.zoomDistanceIntensity,
           image.rotation,
+        ].join('|')
+      )
+      .join('~')
+    const textVisualKey = state.texts
+      .map((text) =>
+        [
+          text.id,
+          text.content,
+          text.startTime,
+          text.endTime,
+          text.x,
+          text.y,
+          text.width,
+          text.fontSize,
+          text.color,
+          text.fontWeight,
+          text.textAlign,
+          text.fontFamily,
+          text.opacity,
+          text.style,
+          text.animation,
+          text.row,
         ].join('|')
       )
       .join('~')
@@ -178,7 +205,16 @@ export class VideoRenderingEngine {
         [effect.id, effect.type, effect.startTime, effect.endTime, effect.row, effect.intensity, effect.contrast, effect.flashSpeed].join('|')
       )
       .join('~')
-    const stateKey = `${cr.width}-${cr.height}-${videoVisualKey}-${imageVisualKey}-${effectsKey}`
+    const imageRuntimeKey = state.images
+      .map((image) => {
+        const active = image.row >= 0 && newTime >= image.startTime && newTime < image.endTime
+        if (!active) return `${image.id}:out`
+        const bitmap = imageBitmaps.get(image.id)
+        if (!bitmap) return `${image.id}:missing`
+        return `${image.id}:ready:${bitmap.width}x${bitmap.height}`
+      })
+      .join('~')
+    const stateKey = `${cr.width}-${cr.height}-${videoVisualKey}-${imageVisualKey}-${textVisualKey}-${effectsKey}-${imageRuntimeKey}`
     const stateChanged = stateKey !== this.lastStateKey
     const timeChanged = Math.abs(newTime - this.lastRenderedTime) > 0.001
     const shouldSwap = isPlaying || stateChanged
@@ -246,6 +282,7 @@ export class VideoRenderingEngine {
             newTime,
             state.images,
             state.videos,
+            state.texts,
             videoElements,
             imageBitmaps,
             isPlaying,
@@ -293,6 +330,7 @@ export class VideoRenderingEngine {
     currentTime: number,
     images: ImageClass[],
     videos: VideoClass[],
+    texts: TextClass[],
     videoElements: Map<string, HTMLVideoElement>,
     imageBitmaps: Map<string, ImageBitmap>,
     isPlaying: boolean,
@@ -304,22 +342,11 @@ export class VideoRenderingEngine {
     const logicalW = 1080
     const logicalH = 1920
     const xScale = cr.width / logicalW; const yScale = cr.height / logicalH
-    const skipOverlayIds = new Set<string>()
-    rowTransitionByRow.forEach((rts) => {
-      if (!rts.transitionActive || rts.transProgress >= 1) return
-      if (
-        renderClipTransitionPair(ctx, cr, currentTime, rts.active, rts.next, rts.transProgress, (id) => {
-          const el = videoElements.get(id)
-          return el instanceof HTMLVideoElement ? el : undefined
-        }, (id) => imageBitmaps.get(id) ?? undefined)
-      ) {
-        skipOverlayIds.add(rts.active.id)
-        skipOverlayIds.add(rts.next.id)
-      }
-    })
+    const skippedOverlayIdsByRow = new Map<number, Set<string>>()
     type OverlayEntry =
       | { kind: 'image'; row: number; t0: number; image: ImageClass }
       | { kind: 'video'; row: number; t0: number; video: VideoClass }
+      | { kind: 'text'; row: number; t0: number; text: TextClass }
     const entries: OverlayEntry[] = []
     for (let i = 0; i < images.length; i++) {
       const image = images[i]
@@ -333,36 +360,189 @@ export class VideoRenderingEngine {
       if (dur <= 0 || currentTime < video.timestamp || currentTime >= video.timestamp + dur) continue
       entries.push({ kind: 'video', row: video.row, t0: video.timestamp, video })
     }
+    for (let i = 0; i < texts.length; i++) {
+      const text = texts[i]
+      if (text.row < 0 || currentTime < text.startTime || currentTime >= text.endTime) continue
+      entries.push({ kind: 'text', row: text.row, t0: text.startTime, text })
+    }
     entries.sort((a, b) => a.row - b.row || a.t0 - b.t0)
+    const entriesByRow = new Map<number, OverlayEntry[]>()
     for (let i = 0; i < entries.length; i++) {
-      const e = entries[i]
-      if (e.kind === 'image' && skipOverlayIds.has(e.image.id)) continue
-      if (e.kind === 'video' && skipOverlayIds.has(e.video.id)) continue
-      if (e.kind === 'image') {
-        const image = e.image
-        const bitmap = imageBitmaps.get(image.id)
-        if (!bitmap) continue
-        const progress = calculateAnimationProgress(image, currentTime, image.startTime)
-        const kOvImg = resolveMediaKeyframeTransform(image, currentTime - image.startTime, image.duration)
-        const ox = cr.x + (image.x ?? 0) * xScale
-        const oy = cr.y + (image.y ?? 0) * yScale
-        const ow = (image.width ?? logicalW) * xScale
-        const oh = (image.height ?? logicalH) * yScale
-        ctx.save(); ctx.globalAlpha = image.opacity
-        runWithPlacementRotation(ctx, ox, oy, ow, oh, image.rotation, (px, py) => {
-          applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, px, py, ow, oh, kOvImg.cropSx, kOvImg.cropSy, kOvImg.cropSw, kOvImg.cropSh, kOvImg.zoomIntensity, image.duration, image.animationDuration, currentTime - image.startTime, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, image.transitionColor, image.transitionFlashMode, image.transitionDirection, image.transitionAxis, image.transitionSlideEasing, image.transitionCircleEasing, image.animationZoomEasing, undefined, image.zoomDistanceIntensity, undefined)
-        })
-        ctx.restore()
-      } else {
-        const video = e.video
-        const elapsed = currentTime - video.timestamp
-        const vEl = videoElements.get(video.id)
-        if (!vEl || !videoElementHasDrawableFrame(vEl)) continue
-        const progress = calculateAnimationProgress(video, currentTime, video.timestamp)
-        const kOvVid = resolveMediaKeyframeTransform(video, elapsed, video.duration ?? 0)
-        ctx.save(); ctx.globalAlpha = video.opacity
-        applyZoomTransform(ctx, video.animation, video.transition, progress, vEl, cr.x + video.x * xScale, cr.y + video.y * yScale, video.width * xScale, video.height * yScale, kOvVid.cropSx, kOvVid.cropSy, kOvVid.cropSw, kOvVid.cropSh, kOvVid.zoomIntensity, video.duration, video.animationDuration, currentTime - video.timestamp, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, video.transitionColor, video.transitionFlashMode, video.transitionDirection, video.transitionAxis, video.transitionSlideEasing, video.transitionCircleEasing, video.animationZoomEasing, undefined, video.zoomDistanceIntensity, undefined)
-        ctx.restore()
+      const entry = entries[i]
+      const list = entriesByRow.get(entry.row) ?? []
+      list.push(entry)
+      entriesByRow.set(entry.row, list)
+    }
+
+    const rows = Array.from(
+      new Set<number>([
+        ...Array.from(entriesByRow.keys()),
+        ...Array.from(rowTransitionByRow.keys()),
+      ])
+    ).sort((a, b) => a - b)
+
+    for (let r = 0; r < rows.length; r++) {
+      const row = rows[r]
+      const transitionState = rowTransitionByRow.get(row)
+      if (transitionState && transitionState.transitionActive && transitionState.transProgress < 1) {
+        const rendered = renderClipTransitionPair(
+          ctx,
+          cr,
+          currentTime,
+          transitionState.active,
+          transitionState.next,
+          transitionState.transProgress,
+          (id) => {
+            const el = videoElements.get(id)
+            return el instanceof HTMLVideoElement ? el : undefined
+          },
+          (id) => imageBitmaps.get(id) ?? undefined
+        )
+        if (rendered) {
+          skippedOverlayIdsByRow.set(
+            row,
+            new Set<string>([transitionState.active.id, transitionState.next.id])
+          )
+        }
+      }
+
+      const rowEntries = entriesByRow.get(row) ?? []
+      const skippedIds = skippedOverlayIdsByRow.get(row)
+      for (let i = 0; i < rowEntries.length; i++) {
+        const e = rowEntries[i]
+        if (e.kind === 'image' && skippedIds?.has(e.image.id)) continue
+        if (e.kind === 'video' && skippedIds?.has(e.video.id)) continue
+        if (e.kind === 'image') {
+          const image = e.image
+          const bitmap = imageBitmaps.get(image.id)
+          if (!bitmap) continue
+          const progress = calculateAnimationProgress(image, currentTime, image.startTime)
+          const kOvImg = resolveMediaKeyframeTransform(image, currentTime - image.startTime, image.duration)
+          const ox = cr.x + (image.x ?? 0) * xScale
+          const oy = cr.y + (image.y ?? 0) * yScale
+          const ow = (image.width ?? logicalW) * xScale
+          const oh = (image.height ?? logicalH) * yScale
+          ctx.save()
+          ctx.globalAlpha = image.opacity
+          runWithPlacementRotation(ctx, ox, oy, ow, oh, image.rotation, (px, py) => {
+            applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, px, py, ow, oh, kOvImg.cropSx, kOvImg.cropSy, kOvImg.cropSw, kOvImg.cropSh, kOvImg.zoomIntensity, image.duration, image.animationDuration, currentTime - image.startTime, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, image.transitionColor, image.transitionFlashMode, image.transitionDirection, image.transitionAxis, image.transitionSlideEasing, image.transitionCircleEasing, image.transitionWipeEasing, image.animationZoomEasing, undefined, image.zoomDistanceIntensity, undefined)
+          })
+          ctx.restore()
+        } else if (e.kind === 'video') {
+          const video = e.video
+          const elapsed = currentTime - video.timestamp
+          const vEl = videoElements.get(video.id)
+          if (!vEl || !videoElementHasDrawableFrame(vEl)) continue
+          const progress = calculateAnimationProgress(video, currentTime, video.timestamp)
+          const kOvVid = resolveMediaKeyframeTransform(video, elapsed, video.duration ?? 0)
+          ctx.save()
+          ctx.globalAlpha = video.opacity
+          applyZoomTransform(ctx, video.animation, video.transition, progress, vEl, cr.x + video.x * xScale, cr.y + video.y * yScale, video.width * xScale, video.height * yScale, kOvVid.cropSx, kOvVid.cropSy, kOvVid.cropSw, kOvVid.cropSh, kOvVid.zoomIntensity, video.duration, video.animationDuration, currentTime - video.timestamp, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, video.transitionColor, video.transitionFlashMode, video.transitionDirection, video.transitionAxis, video.transitionSlideEasing, video.transitionCircleEasing, video.transitionWipeEasing, video.animationZoomEasing, undefined, video.zoomDistanceIntensity, undefined)
+          ctx.restore()
+        } else {
+          const text = e.text
+          const fontPx = text.fontSize * xScale
+          const lineHeight = fontPx * 1.2
+          ctx.save()
+          ctx.font = `${text.fontWeight} ${fontPx}px ${text.fontFamily}`
+          const content = text.content
+          const words = content.split(/\s+/).filter((w) => w.length > 0)
+          const keyboardVisible =
+            text.animation === 'keyboard' && words.length > 0
+              ? getKeyboardVisibleWordCount(content, text.startTime, text.endTime, currentTime)
+              : null
+          const lines = wrapTextToLines(ctx, content, text.width * xScale)
+          const textX =
+            text.textAlign === 'center'
+              ? cr.x + text.x * xScale + (text.width * xScale) / 2
+              : text.textAlign === 'right'
+                ? cr.x + text.x * xScale + text.width * xScale
+                : cr.x + text.x * xScale
+          const textY = cr.y + text.y * yScale
+          const savedAlign = text.textAlign as CanvasTextAlign
+          ctx.textAlign = savedAlign
+          ctx.textBaseline = 'top'
+          ctx.globalAlpha = text.opacity
+          if (text.style === 'negative') {
+            ctx.globalCompositeOperation = 'difference'
+            ctx.fillStyle = '#ffffff'
+          } else if (text.style === 'highlight') {
+            ctx.globalCompositeOperation = 'source-over'
+            ctx.fillStyle = '#000000'
+            ctx.fillRect(cr.x + text.x * xScale, textY, text.width * xScale, lines.length * lineHeight)
+            ctx.fillStyle = '#ffff00'
+          } else {
+            ctx.shadowColor = '#000000'
+            ctx.shadowBlur = fontPx * 0.12
+            ctx.shadowOffsetX = 0
+            ctx.shadowOffsetY = 0
+            ctx.fillStyle = text.color
+          }
+          const drawTextLines = () => {
+            if (keyboardVisible === null) {
+              lines.forEach((line, i) => ctx.fillText(line, textX, textY + i * lineHeight))
+              return
+            }
+            ctx.textAlign = 'left'
+            let nextWordIndex = 0
+            for (let i = 0; i < lines.length; i++) {
+              const line = lines[i]
+              const y = textY + i * lineHeight
+              const parts = line.split(' ')
+              const partWordIndex = parts.map((w) => (w === '' ? null : nextWordIndex++))
+              const lineWidth = ctx.measureText(line).width
+              const startX =
+                savedAlign === 'center' ? textX - lineWidth / 2 : savedAlign === 'right' ? textX - lineWidth : textX
+              let x = startX
+              for (let p = 0; p < parts.length; p++) {
+                const w = parts[p]
+                if (p > 0) {
+                  let j = p
+                  while (j < parts.length && parts[j] === '') j++
+                  const spVis = j < parts.length && partWordIndex[j] !== null && partWordIndex[j]! < keyboardVisible
+                  const sp = ' '
+                  const spW = ctx.measureText(sp).width
+                  if (spVis) ctx.fillText(sp, x, y)
+                  x += spW
+                }
+                if (w !== '' && partWordIndex[p] !== null) {
+                  if (partWordIndex[p]! < keyboardVisible) {
+                    ctx.fillText(w, x, y)
+                  }
+                  x += ctx.measureText(w).width
+                }
+              }
+            }
+            ctx.textAlign = savedAlign
+          }
+          const drawWithOptionalShake = () => {
+            if (text.animation !== 'shake') {
+              drawTextLines()
+              return
+            }
+            const duration = Math.max(0.001, text.endTime - text.startTime)
+            const localTime = Math.max(0, currentTime - text.startTime)
+            const normalized = Math.min(1, localTime / duration)
+            const envelope = 0.6 + 0.4 * Math.sin(normalized * Math.PI)
+            const angle = localTime * 2 * Math.PI
+            const shiftX = Math.sin(angle * 2.0) * 0.06 * fontPx * envelope
+            const shiftY = Math.cos(angle * 2.3) * 0.04 * fontPx * envelope
+            const rotate = Math.sin(angle * 1.6) * 0.9 * envelope * (Math.PI / 180)
+            const centerX = cr.x + text.x * xScale + (text.width * xScale) / 2
+            const centerY = textY + (lines.length * lineHeight) / 2
+            ctx.save()
+            ctx.translate(centerX + shiftX, centerY + shiftY)
+            ctx.rotate(rotate)
+            ctx.translate(-centerX, -centerY)
+            drawTextLines()
+            ctx.restore()
+          }
+          drawWithOptionalShake()
+          if (text.style !== 'negative' && text.style !== 'highlight') {
+            drawWithOptionalShake()
+          }
+          ctx.restore()
+        }
       }
     }
   }

@@ -42,7 +42,7 @@ describe('manifestStore core invariants', () => {
     expect(images[0].duration).toBe(4)
   })
 
-  it('removes a video and shifts a following main-track clip by the removed duration', () => {
+  it('removes a video and preserves following clip timestamp', () => {
     const v1 = makeVideo('v-1', 0, 5)
     const v2 = makeVideo('v-2', 5, 4)
     const store = useManifestStore.getState()
@@ -51,7 +51,7 @@ describe('manifestStore core invariants', () => {
     store.removeVideo('v-1')
     const { videos } = useManifestStore.getState()
     expect(videos.map((v) => v.id)).toEqual(['v-2'])
-    expect(videos[0].timestamp).toBe(0)
+    expect(videos[0].timestamp).toBe(5)
   })
 
   it('removes an image and leaves images empty', () => {

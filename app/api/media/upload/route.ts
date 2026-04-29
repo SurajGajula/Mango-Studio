@@ -1,6 +1,7 @@
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { NextRequest, NextResponse } from 'next/server'
 import { getNextAccountMediaName } from '@/app/lib/accountMediaNaming'
+import { ensureBgRemovedFolderId, findSystemFolderIds } from '@/app/lib/accountMediaSystemFolders'
 import { AccountMediaKind } from '@/app/lib/accountMediaTypes'
 import { getR2Client } from '@/app/lib/r2Client'
 import { createAdminClient } from '@/app/utils/supabase/admin'
@@ -30,8 +31,17 @@ export async function POST(req: NextRequest) {
   const formData = await req.formData()
   const file = formData.get('file')
   const folderIdRaw = formData.get('folderId')
+  const storageScopeRaw = formData.get('storageScope')
+  const sourceAssetIdRaw = formData.get('sourceAssetId')
   const durationSecondsRaw = formData.get('durationSeconds')
-  const folderId = typeof folderIdRaw === 'string' && folderIdRaw.length > 0 ? folderIdRaw : null
+  const storageScope = storageScopeRaw === 'bg-removed' ? 'bg-removed' : 'default'
+  const sourceAssetId =
+    typeof sourceAssetIdRaw === 'string' && sourceAssetIdRaw.trim().length > 0
+      ? sourceAssetIdRaw.trim()
+      : null
+  const requestedFolderId = typeof folderIdRaw === 'string' && folderIdRaw.length > 0 ? folderIdRaw : null
+  const folderId =
+    storageScope === 'bg-removed' ? await ensureBgRemovedFolderId(user.id) : requestedFolderId
   const durationSeconds =
     typeof durationSecondsRaw === 'string' && durationSecondsRaw.length > 0
       ? Number(durationSecondsRaw)
@@ -51,12 +61,30 @@ export async function POST(req: NextRequest) {
   if (!kind) {
     return NextResponse.json({ error: 'Unsupported media type' }, { status: 400 })
   }
+  if (storageScope === 'bg-removed' && kind !== 'image') {
+    return NextResponse.json({ error: 'Only images can use bg-removed storage scope' }, { status: 400 })
+  }
+  if (storageScope === 'bg-removed' && sourceAssetId) {
+    const { data: sourceAsset, error: sourceAssetError } = await supabase
+      .from('media_assets')
+      .select('id, kind')
+      .eq('id', sourceAssetId)
+      .eq('user_id', user.id)
+      .single()
+    if (sourceAssetError || !sourceAsset || sourceAsset.kind !== 'image') {
+      return NextResponse.json({ error: sourceAssetError?.message ?? 'Invalid source asset' }, { status: 400 })
+    }
+  }
 
-  if (folderId) {
+  if (requestedFolderId && storageScope !== 'bg-removed') {
+    const hiddenFolderIds = await findSystemFolderIds(user.id)
+    if (hiddenFolderIds.includes(requestedFolderId)) {
+      return NextResponse.json({ error: 'Cannot upload to system folders directly' }, { status: 400 })
+    }
     const { data: folder, error: folderError } = await supabase
       .from('media_folders')
       .select('id')
-      .eq('id', folderId)
+      .eq('id', requestedFolderId)
       .eq('user_id', user.id)
       .single()
     if (folderError || !folder) {

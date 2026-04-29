@@ -111,7 +111,11 @@
 .mediaSection {
   padding: 0.75rem 1rem;
   border-bottom: 1px solid #222;
-  flex-shrink: 0;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .mediaSectionLabel {
@@ -197,7 +201,8 @@
   border: 1px solid #222;
   border-radius: 6px;
   background: #0d0d0d;
-  max-height: 340px;
+  flex: 1;
+  min-height: 0;
   overflow: auto;
   margin-bottom: 0.6rem;
 }

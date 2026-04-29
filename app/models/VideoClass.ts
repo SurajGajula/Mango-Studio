@@ -6,6 +6,7 @@ import {
   type AnimationZoomEasing,
   type FlashTransitionMode,
   type SlideTransitionEasing,
+  type WipeTransitionEasing,
   type TransitionMode,
 } from './ImageClass'
 import type { MediaKeyframe } from './mediaKeyframe'
@@ -36,10 +37,11 @@ export class VideoClass {
   animationZoomEasing: AnimationZoomEasing
   transitionColor?: string
   transitionFlashMode?: FlashTransitionMode
-  transitionDirection?: 'left' | 'right' | 'top' | 'bottom'
+  transitionDirection?: 'left' | 'right' | 'top' | 'bottom' | 'up' | 'down'
   transitionAxis?: 'horizontal' | 'vertical'
   transitionSlideEasing?: SlideTransitionEasing
   transitionCircleEasing?: SlideTransitionEasing
+  transitionWipeEasing?: WipeTransitionEasing
   row: number
   muted: boolean
   cropAspect?: string
@@ -68,7 +70,6 @@ export class VideoClass {
     trimStart?: number,
     trimEnd?: number,
     prompt?: string,
-    _legacyOverlayFlag?: boolean,
     x?: number,
     y?: number,
     width?: number,
@@ -81,7 +82,7 @@ export class VideoClass {
     animationDuration?: number,
     animationZoomEasing?: AnimationZoomEasing,
     transitionColor?: string,
-    transitionDirection?: 'left' | 'right' | 'top' | 'bottom',
+    transitionDirection?: 'left' | 'right' | 'top' | 'bottom' | 'up' | 'down',
     transitionAxis?: 'horizontal' | 'vertical',
     transitionSlideEasing?: SlideTransitionEasing,
     transitionCircleEasing?: SlideTransitionEasing,
@@ -102,7 +103,8 @@ export class VideoClass {
     keyframes?: MediaKeyframe[],
     zoom?: any,
     transitionFlashMode?: FlashTransitionMode,
-    zoomDistanceIntensity?: number
+    zoomDistanceIntensity?: number,
+    transitionWipeEasing?: WipeTransitionEasing
   ) {
     this.id = id
     this.title = title
@@ -176,6 +178,7 @@ export class VideoClass {
     this.transitionAxis = transitionAxis ?? this.transitionAxis ?? 'horizontal'
     this.transitionSlideEasing = transitionSlideEasing ?? this.transitionSlideEasing ?? 'smooth'
     this.transitionCircleEasing = transitionCircleEasing ?? this.transitionCircleEasing ?? 'smooth'
+    this.transitionWipeEasing = transitionWipeEasing ?? this.transitionWipeEasing ?? 'linear'
     this.zoomIntensity = zoomIntensity !== undefined ? zoomIntensity : 0.5
     this.zoomDistanceIntensity = zoomDistanceIntensity !== undefined ? zoomDistanceIntensity : 1
     this.transitionDuration = transitionDuration
@@ -209,7 +212,6 @@ export class VideoClass {
       updates.trimStart ?? this.trimStart,
       updates.trimEnd ?? this.trimEnd,
       updates.prompt ?? this.prompt,
-      undefined,
       typeof updates.x === 'number' && Number.isFinite(updates.x) ? updates.x : this.x,
       typeof updates.y === 'number' && Number.isFinite(updates.y) ? updates.y : this.y,
       typeof updates.width === 'number' && Number.isFinite(updates.width) ? updates.width : this.width,
@@ -243,7 +245,8 @@ export class VideoClass {
       updates.keyframes ?? this.keyframes,
       undefined,
       updates.transitionFlashMode ?? this.transitionFlashMode,
-      updates.zoomDistanceIntensity ?? this.zoomDistanceIntensity
+      updates.zoomDistanceIntensity ?? this.zoomDistanceIntensity,
+      updates.transitionWipeEasing ?? this.transitionWipeEasing
     )
   }
 }

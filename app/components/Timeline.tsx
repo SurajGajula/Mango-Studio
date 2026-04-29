@@ -8,10 +8,10 @@ import { formatTime } from '@/app/lib/timeUtils'
 import { findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
 import VideoReplaceModal from './modals/VideoReplaceModal'
 import ReplaceFromLibraryModal from './modals/ReplaceFromLibraryModal'
+import BgRemoveModal from './modals/BgRemoveModal'
 import ExportModal from './modals/ExportModal'
 import PlaybackControls from './PlaybackControls'
 import UnifiedRow from './tracks/UnifiedRow'
-import MainTrack from './tracks/MainTrack'
 import ContextMenu from './ui/ContextMenu'
 import { useTimelineShortcuts } from '@/app/hooks/useTimelineShortcuts'
 import { useTimelineScroll } from '@/app/hooks/timeline/useTimelineScroll'
@@ -24,11 +24,11 @@ import { accountMediaDragActive, parseAccountMediaDragData } from '@/app/lib/acc
 import { addImageAtTimelineTime } from '@/app/lib/addImageAtPlayhead'
 import { clientXToTimelineTime } from '@/app/lib/timelineDropTime'
 import { addAudioToTimelineAtTime, addVideoToTimelineAtTime } from '@/app/lib/timelineMediaInsert'
+import type { TimelineSelectionItem } from '@/app/hooks/timeline/useTimelineDrag'
 import styles from './tracks/Timeline.module.css'
 
 interface TimelineProps {
   onOpenTransitions?: (id: string) => void
-  onCloseTransitions?: () => void
   onOpenAnimations?: (id?: string) => void
   onOpenFont?: () => void
   onOpenEffects?: () => void
@@ -36,7 +36,7 @@ interface TimelineProps {
   onOpenPitch?: (id: string) => void
 }
 
-export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpenAnimations, onOpenFont, onOpenEffects, onOpenSpeed, onOpenPitch }: TimelineProps) {
+export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFont, onOpenEffects, onOpenSpeed, onOpenPitch }: TimelineProps) {
   const videos = useManifestStore((state) => state.videos)
   const images = useManifestStore((state) => state.images)
   const texts = useManifestStore((state) => state.texts)
@@ -51,7 +51,6 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
   const setSelectedAudioId = useSelectionStore((state) => state.setSelectedAudioId)
   const setSelectedEffectId = useSelectionStore((state) => state.setSelectedEffectId)
   const selectedAudioId = useSelectionStore((state) => state.selectedAudioId)
-  const selectedEffectId = useSelectionStore((state) => state.selectedEffectId)
 
   const updateImage = useManifestStore((state) => state.updateImage)
   const addText = useManifestStore((state) => state.addText)
@@ -61,6 +60,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
   const setIsPlaying = useManifestStore((state) => state.setIsPlaying)
   const getTotalDuration = useManifestStore((state) => state.getTotalDuration)
   const trimVideo = useManifestStore((state) => state.trimVideo)
+  const replaceImageSource = useManifestStore((state) => state.replaceImageSource)
   const replaceImageWithVideo = useManifestStore((state) => state.replaceImageWithVideo)
   const replaceVideoWithImage = useManifestStore((state) => state.replaceVideoWithImage)
   const pushHistory = useManifestStore((state) => state.pushHistory)
@@ -82,6 +82,15 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
 
   const [timelineScrollPortWidth, setTimelineScrollPortWidth] = useState(0)
   const [replaceLibraryTargetId, setReplaceLibraryTargetId] = useState<string | null>(null)
+  const [bgRemoveTargetId, setBgRemoveTargetId] = useState<string | null>(null)
+  const [multiSelectedItems, setMultiSelectedItems] = useState<TimelineSelectionItem[]>([])
+  const [selectionBox, setSelectionBox] = useState<{ left: number; top: number; width: number; height: number } | null>(null)
+  const suppressNextTimelineClickRef = useRef(false)
+  const selectionDragRef = useRef<{
+    originX: number
+    originY: number
+    containerRect: DOMRect
+  } | null>(null)
   useLayoutEffect(() => {
     const el = scrollContainerRef.current
     if (!el) return
@@ -112,7 +121,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     handleAudioTrimStart,
     handleAudioBodyDragStart,
     handleImageDragStart,
-    handleOverlayVideoDragStart,
+    handleVideoDragStart,
     handleTextDragStart,
     handleEffectDragStart
   } = useTimelineDrag({
@@ -133,16 +142,17 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     moveItemToRow: useManifestStore.getState().moveItemToRow,
     insertRow: useManifestStore.getState().insertRow,
     pushHistory,
+    multiSelectedItems,
   })
 
-  const overlayRows = useMemo(() => {
+  const trackRows = useMemo(() => {
     const rows = new Set<number>()
-    videos.forEach(v => { if (v.row > 0) rows.add(v.row) })
-    images.forEach(img => { if (img.row > 0) rows.add(img.row) })
-    texts.forEach(t => { if (t.row > 0) rows.add(t.row) })
-    audios.forEach(a => { if (a.row > 0) rows.add(a.row) })
+    videos.forEach((v) => rows.add(v.row))
+    images.forEach((img) => rows.add(img.row))
+    texts.forEach((t) => rows.add(t.row))
+    audios.forEach((a) => rows.add(a.row))
     effects.forEach((e) => rows.add(e.row))
-    if (activeDrag && dragPreview && dragPreview.targetRow > 0 && !rows.has(dragPreview.targetRow)) {
+    if (activeDrag && dragPreview && dragPreview.targetRow >= 0 && !rows.has(dragPreview.targetRow)) {
       rows.add(dragPreview.targetRow)
     }
     return Array.from(rows).sort((a, b) => b - a)
@@ -255,7 +265,207 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     setSelectedTextId(null)
     setSelectedAudioId(null)
     setSelectedEffectId(null)
+    setMultiSelectedItems([])
   }, [setSelectedVideoId, setSelectedImageId, setSelectedTextId, setSelectedAudioId, setSelectedEffectId])
+
+  const updateSelectionByItems = useCallback(
+    (items: TimelineSelectionItem[]) => {
+      setMultiSelectedItems(items)
+      const first = items[0]
+      if (!first) {
+        handleTimelineDeselect()
+        return
+      }
+      if (first.type === 'video') setSelectedVideoId(first.id)
+      else if (first.type === 'image') setSelectedImageId(first.id)
+      else if (first.type === 'text') setSelectedTextId(first.id)
+      else if (first.type === 'audio') setSelectedAudioId(first.id)
+      else setSelectedEffectId(first.id)
+    },
+    [
+      handleTimelineDeselect,
+      setSelectedVideoId,
+      setSelectedImageId,
+      setSelectedTextId,
+      setSelectedAudioId,
+      setSelectedEffectId,
+    ]
+  )
+
+  const handleSelectionToggle = useCallback(
+    (item: TimelineSelectionItem, additive: boolean) => {
+      if (!additive) {
+        updateSelectionByItems([item])
+        return
+      }
+      setMultiSelectedItems((prev) => {
+        const exists = prev.some((entry) => entry.id === item.id && entry.type === item.type)
+        const next = exists
+          ? prev.filter((entry) => !(entry.id === item.id && entry.type === item.type))
+          : [...prev, item]
+        if (next.length === 0) {
+          handleTimelineDeselect()
+        } else {
+          const first = next[0]
+          if (first.type === 'video') setSelectedVideoId(first.id)
+          else if (first.type === 'image') setSelectedImageId(first.id)
+          else if (first.type === 'text') setSelectedTextId(first.id)
+          else if (first.type === 'audio') setSelectedAudioId(first.id)
+          else setSelectedEffectId(first.id)
+        }
+        return next
+      })
+    },
+    [
+      updateSelectionByItems,
+      handleTimelineDeselect,
+      setSelectedVideoId,
+      setSelectedImageId,
+      setSelectedTextId,
+      setSelectedAudioId,
+      setSelectedEffectId,
+    ]
+  )
+
+  const handleSelectionAreaMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return
+    const target = e.target as HTMLElement
+    if (target.closest('[data-timeline-selectable="true"]')) return
+    const rect = scrollContainerRef.current?.getBoundingClientRect()
+    if (!rect) return
+    selectionDragRef.current = {
+      originX: e.clientX,
+      originY: e.clientY,
+      containerRect: rect,
+    }
+    const scrollLeft = scrollContainerRef.current?.scrollLeft ?? 0
+    const scrollTop = scrollContainerRef.current?.scrollTop ?? 0
+    setSelectionBox({
+      left: e.clientX - rect.left + scrollLeft,
+      top: e.clientY - rect.top + scrollTop,
+      width: 0,
+      height: 0,
+    })
+    const additive = e.metaKey || e.ctrlKey
+    if (!additive) handleTimelineDeselect()
+  }, [handleTimelineDeselect])
+
+  const handleTimelineContentClick = useCallback(() => {
+    if (suppressNextTimelineClickRef.current) {
+      suppressNextTimelineClickRef.current = false
+      return
+    }
+    handleTimelineDeselect()
+  }, [handleTimelineDeselect])
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      const drag = selectionDragRef.current
+      if (!drag || !timelineRowRef.current) return
+      const scrollLeft = scrollContainerRef.current?.scrollLeft ?? 0
+      const scrollTop = scrollContainerRef.current?.scrollTop ?? 0
+      const x1 = drag.originX - drag.containerRect.left + scrollLeft
+      const y1 = drag.originY - drag.containerRect.top + scrollTop
+      const x2 = e.clientX - drag.containerRect.left + scrollLeft
+      const y2 = e.clientY - drag.containerRect.top + scrollTop
+      const left = Math.min(x1, x2)
+      const top = Math.min(y1, y2)
+      const width = Math.abs(x2 - x1)
+      const height = Math.abs(y2 - y1)
+      setSelectionBox({ left, top, width, height })
+    }
+
+    const onMouseUp = (e: MouseEvent) => {
+      const drag = selectionDragRef.current
+      if (!drag || !timelineRowRef.current) return
+      const left = Math.min(drag.originX, e.clientX)
+      const top = Math.min(drag.originY, e.clientY)
+      const right = Math.max(drag.originX, e.clientX)
+      const bottom = Math.max(drag.originY, e.clientY)
+      const additive = e.metaKey || e.ctrlKey
+      const hitItems: TimelineSelectionItem[] = []
+      const selectableEls = timelineRowRef.current.querySelectorAll<HTMLElement>('[data-timeline-selectable="true"]')
+      selectableEls.forEach((el) => {
+        const r = el.getBoundingClientRect()
+        const overlapX = Math.min(right, r.right) - Math.max(left, r.left)
+        const overlapY = Math.min(bottom, r.bottom) - Math.max(top, r.top)
+        const selectionTolerancePx = 3
+        const intersects = overlapX >= -selectionTolerancePx && overlapY >= -selectionTolerancePx
+        if (!intersects) return
+        const id = el.dataset.timelineItemId
+        const type = el.dataset.timelineItemType as TimelineSelectionItem['type'] | undefined
+        if (!id || !type) return
+        hitItems.push({ id, type })
+      })
+      if (hitItems.length > 0) {
+        if (additive) {
+          setMultiSelectedItems((prev) => {
+            const key = (item: TimelineSelectionItem) => `${item.type}:${item.id}`
+            const map = new Map(prev.map((entry) => [key(entry), entry]))
+            hitItems.forEach((entry) => map.set(key(entry), entry))
+            const merged = Array.from(map.values())
+            const first = merged[0]
+            if (first) {
+              if (first.type === 'video') setSelectedVideoId(first.id)
+              else if (first.type === 'image') setSelectedImageId(first.id)
+              else if (first.type === 'text') setSelectedTextId(first.id)
+              else if (first.type === 'audio') setSelectedAudioId(first.id)
+              else setSelectedEffectId(first.id)
+            }
+            return merged
+          })
+        } else {
+          updateSelectionByItems(hitItems)
+        }
+      }
+      suppressNextTimelineClickRef.current = true
+      selectionDragRef.current = null
+      setSelectionBox(null)
+    }
+
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [
+    setSelectedVideoId,
+    setSelectedImageId,
+    setSelectedTextId,
+    setSelectedAudioId,
+    setSelectedEffectId,
+    updateSelectionByItems,
+  ])
+
+  const handleApplyBgRemovedImage = useCallback(
+    async (imageId: string, outputBlob: Blob) => {
+      const image = images.find((item) => item.id === imageId)
+      if (!image) {
+        throw new Error('Image not found')
+      }
+      const outputFile = new File([outputBlob], `${image.name}-bg-removed.png`, { type: 'image/png' })
+      const formData = new FormData()
+      formData.append('file', outputFile)
+      formData.append('storageScope', 'bg-removed')
+      const sourceAssetMatch = image.url.match(/\/api\/media\/asset\/([^/?#]+)/)
+      if (sourceAssetMatch?.[1]) {
+        formData.append('sourceAssetId', sourceAssetMatch[1])
+      }
+      const uploadResponse = await fetch('/api/media/upload', {
+        method: 'POST',
+        body: formData,
+      })
+      if (!uploadResponse.ok) {
+        const body = await uploadResponse.json().catch(() => null)
+        throw new Error(body?.error ?? 'Failed to save background-removed image')
+      }
+      const uploadJson = await uploadResponse.json()
+      const asset = uploadJson.asset as { id: string }
+      replaceImageSource(imageId, `/api/media/asset/${asset.id}`, image.name)
+    },
+    [images, replaceImageSource]
+  )
 
   const handleAddText = () => {
     const id = `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
@@ -318,6 +528,8 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
     selectedAudioId,
     setSelectedAudioId,
     uploadInputRef,
+    multiSelectedItems,
+    setMultiSelectedItems,
   })
 
   useEffect(() => {
@@ -356,17 +568,19 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
             const horizontalFromAxis = verticalDominant ? 0 : deltaX
             const horizontalDelta = horizontalFromAxis + remainderY
             if (horizontalDelta !== 0) {
-              const atLeftEdge = container.scrollLeft === 0
+              const atLeftEdgeBefore = container.scrollLeft <= 1
               container.scrollLeft += horizontalDelta
-              if (atLeftEdge && horizontalDelta < 0) {
+              const atLeftEdgeAfter = container.scrollLeft <= 1
+              if ((atLeftEdgeBefore || atLeftEdgeAfter) && horizontalDelta < 0) {
                 useManifestStore.getState().setPlaybackTime(0)
               }
             }
           } else {
             const delta = deltaX + deltaY
-            const atLeftEdge = container.scrollLeft === 0
+            const atLeftEdgeBefore = container.scrollLeft <= 1
             container.scrollLeft += delta
-            if (atLeftEdge && delta < 0) {
+            const atLeftEdgeAfter = container.scrollLeft <= 1
+            if ((atLeftEdgeBefore || atLeftEdgeAfter) && delta < 0) {
               useManifestStore.getState().setPlaybackTime(0)
             }
           }
@@ -399,6 +613,23 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
           )
         }}
       />
+      {(() => {
+        if (!bgRemoveTargetId) return null
+        const target = images.find((item) => item.id === bgRemoveTargetId)
+        if (!target) return null
+        return (
+          <BgRemoveModal
+            open
+            imageUrl={target.url}
+            imageName={target.name}
+            onClose={() => setBgRemoveTargetId(null)}
+            onApply={async (blob) => {
+              await handleApplyBgRemovedImage(target.id, blob)
+              setBgRemoveTargetId(null)
+            }}
+          />
+        )
+      })()}
       {replaceVideoData && (
         <VideoReplaceModal
           key={`${replaceVideoData.targetId}-${replaceVideoData.url}-${replaceVideoData.windowDuration}-${replaceVideoData.playbackSpeed}-${replaceVideoData.speedStart ?? ''}-${replaceVideoData.speedEnd ?? ''}-${replaceVideoData.speedEasing ?? ''}`}
@@ -475,14 +706,15 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
                 onScroll={handleScroll}
                 onDragOverCapture={handleAccountMediaDragOverCapture}
                 onDropCapture={handleAccountMediaDropCapture}
+                onMouseDown={handleSelectionAreaMouseDown}
               >
                 <div
                   ref={timelineRowRef}
                   className={`${styles.timelineContent} ${activeDrag || holdDragPreview ? styles.draggingActive : ''}`}
                   style={{ width: `${totalTimelineWidth}%` }}
-                  onClick={handleTimelineDeselect}
+                  onClick={handleTimelineContentClick}
                 >
-                  {overlayRows.map((rowIndex) => (
+                  {trackRows.map((rowIndex) => (
                     <UnifiedRow
                       key={`unified-row-${rowIndex}`}
                       rowIndex={rowIndex}
@@ -491,72 +723,80 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
                       totalDuration={totalDuration}
                       effectivePadding={effectivePadding}
                       handleImageDragStart={handleImageDragStart}
-                      handleOverlayVideoDragStart={handleOverlayVideoDragStart}
+                      handleVideoDragStart={handleVideoDragStart}
                       handleTrimStart={handleTrimStart}
                       handleTextDragStart={handleTextDragStart}
                       handleEffectDragStart={handleEffectDragStart}
                       handleAudioBodyDragStart={handleAudioBodyDragStart}
                       handleAudioTrimStart={handleAudioTrimStart}
                       handleVideoDoubleClick={handleVideoDoubleClick}
+                      videoThumbnails={videoThumbnails}
+                      scrollContainerRef={scrollContainerRef}
+                      timelineInnerWidthPx={timelineInnerWidthPx}
+                      onOpenTransitions={onOpenTransitions}
                       onOpenEffects={onOpenEffects}
-                      onCloseTransitions={onCloseTransitions}
+                      multiSelectedItems={multiSelectedItems}
+                      onSelectionToggle={handleSelectionToggle}
                     />
                   ))}
-                  <MainTrack
-                    getContentPosition={getContentPosition}
-                    totalDuration={totalDuration}
-                    effectivePadding={effectivePadding}
-                    setSelectedVideoId={setSelectedVideoId}
-                    setSelectedImageId={setSelectedImageId}
-                    handleTrimStart={handleTrimStart}
-                    handleVideoDoubleClick={handleVideoDoubleClick}
-                    replaceTargetId={replaceTargetId}
-                    setReplaceTargetId={setReplaceTargetId}
-                    replaceInputRef={replaceInputRef}
-                    videoThumbnails={videoThumbnails}
-                    scrollContainerRef={scrollContainerRef}
-                    timelineInnerWidthPx={timelineInnerWidthPx}
-                    handleImageDragStart={handleImageDragStart}
-                    onOpenTransitions={onOpenTransitions}
-                    onCloseTransitions={onCloseTransitions}
-                  />
-
                   {(() => {
-                    const ui =
-                      holdDragPreview ??
-                      (activeDrag && dragPreview
-                        ? {
-                            targetRow: dragPreview.targetRow,
-                            targetTime: dragPreview.targetTime,
-                            isInsertion: dragPreview.isInsertion,
-                            isValid: dragPreview.isValid,
-                            duration: activeDrag.duration,
-                            itemType: activeDrag.itemType,
-                          }
-                        : null)
-                    if (!ui) return null
+                    const ui = holdDragPreview
+                    const dragPreviewItems =
+                      activeDrag && dragPreview
+                        ? (dragPreview.previewItems && dragPreview.previewItems.length > 0
+                            ? dragPreview.previewItems
+                            : [{
+                                itemId: activeDrag.itemId,
+                                itemType: activeDrag.itemType,
+                                targetRow: dragPreview.targetRow,
+                                targetTime: dragPreview.targetTime,
+                                duration: activeDrag.duration,
+                              }])
+                        : []
+                    if (!ui && dragPreviewItems.length === 0) return null
                     return (
                       <>
-                        <div
-                          className={styles.dragPreview}
-                          style={{
-                            left: `${getContentPosition(ui.targetTime)}%`,
-                            width: `${(ui.duration / (totalDuration + effectivePadding * 2)) * 100}%`,
-                            top: getDragPreviewTop(ui.targetRow, ui.itemType),
-                            height: '40px',
-                            opacity: ui.isValid ? 0.5 : 0.2,
-                            backgroundColor: ui.isValid ? '#ffffff' : '#ff4a4a',
-                          }}
-                        >
-                          {ui.itemType}
-                        </div>
-                        {ui.isInsertion && (
+                        {ui && (
+                          <div
+                            className={styles.dragPreview}
+                            style={{
+                              left: `${getContentPosition(ui.targetTime)}%`,
+                              width: `${(ui.duration / (totalDuration + effectivePadding * 2)) * 100}%`,
+                              top: getDragPreviewTop(ui.targetRow, ui.itemType),
+                              height: '40px',
+                              opacity: ui.isValid ? 0.5 : 0.2,
+                              backgroundColor: ui.isValid ? '#ffffff' : '#ff4a4a',
+                            }}
+                          >
+                            {ui.itemType}
+                          </div>
+                        )}
+                        {!ui && dragPreviewItems.map((previewItem) => (
+                          <div
+                            key={`drag-preview-${previewItem.itemType}-${previewItem.itemId}`}
+                            className={styles.dragPreview}
+                            style={{
+                              left: `${getContentPosition(previewItem.targetTime)}%`,
+                              width: `${(previewItem.duration / (totalDuration + effectivePadding * 2)) * 100}%`,
+                              top: getDragPreviewTop(previewItem.targetRow, previewItem.itemType),
+                              height: '40px',
+                              opacity: dragPreview?.isValid ? 0.5 : 0.2,
+                              backgroundColor: dragPreview?.isValid ? '#ffffff' : '#ff4a4a',
+                            }}
+                          >
+                            {previewItem.itemType}
+                          </div>
+                        ))}
+                        {(ui?.isInsertion || (dragPreview?.isInsertion && dragPreviewItems.length > 0)) && (
                           <div
                             className={styles.insertionIndicator}
                             style={{
                               left: `${getContentPosition(0)}%`,
                               width: `${(totalDuration / (totalDuration + effectivePadding * 2)) * 100}%`,
-                              top: getDragPreviewTop(ui.targetRow, ui.itemType) - 4,
+                              top: getDragPreviewTop(
+                                ui ? ui.targetRow : (dragPreviewItems[0]?.targetRow ?? 0),
+                                ui ? ui.itemType : (dragPreviewItems[0]?.itemType ?? 'video')
+                              ) - 4,
                             }}
                           />
                         )}
@@ -564,6 +804,17 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
                     )
                   })()}
                 </div>
+                {selectionBox && (
+                  <div
+                    className={styles.selectionBox}
+                    style={{
+                      left: selectionBox.left,
+                      top: selectionBox.top,
+                      width: Math.max(1, selectionBox.width),
+                      height: Math.max(1, selectionBox.height),
+                    }}
+                  />
+                )}
               </div>
             </div>
             <ContextMenu
@@ -579,6 +830,7 @@ export default function Timeline({ onOpenTransitions, onCloseTransitions, onOpen
                 replaceInputRef.current?.click()
               }}
               onReplaceFromLibrary={(id) => setReplaceLibraryTargetId(id)}
+              onRemoveBackground={(id) => setBgRemoveTargetId(id)}
             />
           </div>
         )}

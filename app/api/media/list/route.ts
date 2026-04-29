@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { findSystemFolderIds } from '@/app/lib/accountMediaSystemFolders'
 import { createClient } from '@/app/utils/supabase/server'
 
 export async function GET(req: NextRequest) {
@@ -14,6 +15,10 @@ export async function GET(req: NextRequest) {
   const folderIdParam = req.nextUrl.searchParams.get('folderId')
   const folderId = folderIdParam && folderIdParam.length > 0 ? folderIdParam : null
   const search = req.nextUrl.searchParams.get('search')?.trim() ?? ''
+  const hiddenFolderIds = await findSystemFolderIds(user.id)
+  if (folderId && hiddenFolderIds.includes(folderId)) {
+    return NextResponse.json({ folders: [], assets: [] })
+  }
 
   let foldersQuery = supabase
     .from('media_folders')
@@ -25,6 +30,9 @@ export async function GET(req: NextRequest) {
     foldersQuery = foldersQuery.eq('parent_id', folderId)
   } else {
     foldersQuery = foldersQuery.is('parent_id', null)
+  }
+  for (const hiddenFolderId of hiddenFolderIds) {
+    foldersQuery = foldersQuery.neq('id', hiddenFolderId)
   }
 
   const { data: folders, error: foldersError } = await foldersQuery
@@ -51,8 +59,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: assetsError.message }, { status: 500 })
   }
 
+  const visibleAssets = (assets ?? []).filter((asset) => {
+    if (!asset.folder_id) return true
+    return !hiddenFolderIds.includes(asset.folder_id)
+  })
+
   return NextResponse.json({
     folders: folders ?? [],
-    assets: assets ?? [],
+    assets: visibleAssets,
   })
 }
