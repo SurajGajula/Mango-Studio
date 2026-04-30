@@ -145,7 +145,9 @@ function syncManifestVideoPool(
 
 export function useVideoPlayback(
   canvasRef: React.RefObject<HTMLCanvasElement>,
-  containerRef: React.RefObject<HTMLDivElement>
+  containerRef: React.RefObject<HTMLDivElement>,
+  hiddenTextId?: string | null,
+  renderTextsInCanvas: boolean = true
 ) {
   const engineRef = useRef<VideoRenderingEngine | null>(null)
   if (!engineRef.current) engineRef.current = new VideoRenderingEngine()
@@ -604,7 +606,9 @@ export function useVideoPlayback(
             playbackRate: rate,
             videos: state.videos,
             images: state.images,
-            texts: state.texts,
+            texts: renderTextsInCanvas
+              ? (hiddenTextId ? state.texts.filter((text) => text.id !== hiddenTextId) : state.texts)
+              : [],
             effects: state.effects
           }
 
@@ -651,7 +655,7 @@ export function useVideoPlayback(
     }
     rafRef.current = requestAnimationFrame(loop)
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
-  }, [getState, canvasRef, containerRef, getAudioCtx])
+  }, [getState, canvasRef, containerRef, getAudioCtx, hiddenTextId, renderTextsInCanvas])
 
   useEffect(() => { return () => { 
     videoElementsRef.current.forEach((video) => { 

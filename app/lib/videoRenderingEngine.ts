@@ -470,7 +470,7 @@ export class VideoRenderingEngine {
             ctx.globalCompositeOperation = 'source-over'
             ctx.fillStyle = '#000000'
             ctx.fillRect(cr.x + text.x * xScale, textY, text.width * xScale, lines.length * lineHeight)
-            ctx.fillStyle = '#ffff00'
+            ctx.fillStyle = '#ffffff'
           } else {
             ctx.shadowColor = '#000000'
             ctx.shadowBlur = fontPx * 0.12
@@ -538,9 +538,6 @@ export class VideoRenderingEngine {
             ctx.restore()
           }
           drawWithOptionalShake()
-          if (text.style !== 'negative' && text.style !== 'highlight') {
-            drawWithOptionalShake()
-          }
           ctx.restore()
         }
       }

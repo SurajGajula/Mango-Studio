@@ -15,6 +15,9 @@ const SNAPSHOT_KEY_GUEST = 'guest-snapshot'
 const SNAPSHOT_KEY_USER = 'user-draft'
 
 const BLOB_TOKEN_PREFIX = '__GUESTPERSIST_BLOB:'
+let inflightCloudLoadSnapshot: Promise<ProjectSnapshotPayload | null> | null = null
+let lastCloudSnapshotHash: string | null = null
+let inflightCloudSaveSnapshot: Promise<void> | null = null
 
 export type ProjectSnapshotPayload = {
   version: 1
@@ -23,13 +26,13 @@ export type ProjectSnapshotPayload = {
   texts: unknown[]
   audios: unknown[]
   effects: unknown[]
-  history: unknown[]
-  historyIndex: number
-  playbackTime: number
-  isPlaying: boolean
-  isLooping: boolean
-  playbackRate: number
-  pendingPrompt: string | null
+  history?: unknown[]
+  historyIndex?: number
+  playbackTime?: number
+  isPlaying?: boolean
+  isLooping?: boolean
+  playbackRate?: number
+  pendingPrompt?: string | null
 }
 
 function userDraftDbName(userId: string): string {
@@ -345,7 +348,10 @@ export function isManifestVisuallyEmpty(): boolean {
   )
 }
 
-async function saveProjectSnapshot(dbName: string, metaKey: string): Promise<void> {
+async function buildProjectSnapshotPayload(): Promise<{
+  payload: ProjectSnapshotPayload
+  blobWrites: Map<string, Blob>
+}> {
   const s = useManifestStore.getState()
   const blobWrites = new Map<string, Blob>()
   const blobUrlToToken = new Map<string, string>()
@@ -381,10 +387,66 @@ async function saveProjectSnapshot(dbName: string, metaKey: string): Promise<voi
     pendingPrompt: s.pendingPrompt,
   }
 
+  return { payload, blobWrites }
+}
+
+async function saveProjectSnapshot(dbName: string, metaKey: string): Promise<void> {
+  const { payload, blobWrites } = await buildProjectSnapshotPayload()
+
   for (const [token, blob] of blobWrites) {
     await idbPut(dbName, STORE_BLOBS, token, blob)
   }
   await idbPut(dbName, STORE_META, metaKey, JSON.stringify(payload))
+}
+
+async function saveCloudProjectSnapshot(payload: ProjectSnapshotPayload): Promise<void> {
+  const cloudPayload = {
+    version: 1 as const,
+    videos: payload.videos,
+    images: payload.images,
+    texts: payload.texts,
+    audios: payload.audios,
+    effects: payload.effects,
+  }
+  const cloudPayloadHash = JSON.stringify(cloudPayload)
+  if (cloudPayloadHash === lastCloudSnapshotHash) {
+    return
+  }
+  if (inflightCloudSaveSnapshot) {
+    await inflightCloudSaveSnapshot
+    if (cloudPayloadHash === lastCloudSnapshotHash) {
+      return
+    }
+  }
+  inflightCloudSaveSnapshot = fetch('/api/project/snapshot', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ snapshot: cloudPayload }),
+    credentials: 'include',
+  }).then(() => {
+    lastCloudSnapshotHash = cloudPayloadHash
+  }).finally(() => {
+    inflightCloudSaveSnapshot = null
+  })
+  await inflightCloudSaveSnapshot
+}
+
+async function loadCloudProjectSnapshot(): Promise<ProjectSnapshotPayload | null> {
+  if (inflightCloudLoadSnapshot) {
+    return inflightCloudLoadSnapshot
+  }
+  inflightCloudLoadSnapshot = fetch('/api/project/snapshot', { method: 'GET', credentials: 'include' })
+    .then(async (res) => {
+      if (!res.ok) return null
+      const body = (await res.json().catch(() => null)) as { snapshot?: unknown } | null
+      if (!body?.snapshot || typeof body.snapshot !== 'object') return null
+      const snapshot = body.snapshot as ProjectSnapshotPayload
+      return snapshot.version === 1 ? snapshot : null
+    })
+    .finally(() => {
+      inflightCloudLoadSnapshot = null
+    })
+  return inflightCloudLoadSnapshot
 }
 
 async function loadProjectSnapshot(dbName: string, metaKey: string): Promise<ProjectSnapshotPayload | null> {
@@ -422,7 +484,9 @@ async function hydrateSnapshotIntoStore(snap: ProjectSnapshotPayload, dbName: st
   const texts = (await replaceBlobUrlsInValue(snap.texts, mapTokenToBlob, tokenToObjectUrl)) as unknown[]
   const audios = (await replaceBlobUrlsInValue(snap.audios, mapTokenToBlob, tokenToObjectUrl)) as unknown[]
   const effects = (await replaceBlobUrlsInValue(snap.effects, mapTokenToBlob, tokenToObjectUrl)) as unknown[]
-  const historyRaw = (await replaceBlobUrlsInValue(snap.history, mapTokenToBlob, tokenToObjectUrl)) as unknown[]
+  const historyRaw = Array.isArray(snap.history)
+    ? ((await replaceBlobUrlsInValue(snap.history, mapTokenToBlob, tokenToObjectUrl)) as unknown[])
+    : []
 
   const revivedVideos = videos.map((v) => reviveVideo(v as Record<string, unknown>))
   const revivedImages = images.map((i) => reviveImage(i as Record<string, unknown>))
@@ -431,7 +495,7 @@ async function hydrateSnapshotIntoStore(snap: ProjectSnapshotPayload, dbName: st
   const revivedEffects = effects.map((e) => reviveEffect(e as Record<string, unknown>))
   const revivedHistory = historyRaw.map((h) => reviveHistoryEntry(h as Record<string, unknown>))
 
-  let historyIndex = snap.historyIndex
+  let historyIndex = typeof snap.historyIndex === 'number' ? snap.historyIndex : 0
   if (revivedHistory.length === 0) {
     revivedHistory.push({
       videos: revivedVideos,
@@ -453,11 +517,11 @@ async function hydrateSnapshotIntoStore(snap: ProjectSnapshotPayload, dbName: st
     effects: revivedEffects,
     history: revivedHistory,
     historyIndex,
-    playbackTime: snap.playbackTime,
+    playbackTime: typeof snap.playbackTime === 'number' ? snap.playbackTime : 0,
     isPlaying: false,
     isLooping: snap.isLooping ?? false,
-    playbackRate: snap.playbackRate,
-    pendingPrompt: snap.pendingPrompt,
+    playbackRate: typeof snap.playbackRate === 'number' ? snap.playbackRate : 1,
+    pendingPrompt: snap.pendingPrompt ?? null,
   })
 }
 
@@ -466,7 +530,14 @@ export async function saveGuestProjectSnapshot(): Promise<void> {
 }
 
 export async function saveUserDraftSnapshot(userId: string): Promise<void> {
-  await saveProjectSnapshot(userDraftDbName(userId), SNAPSHOT_KEY_USER)
+  const { payload, blobWrites } = await buildProjectSnapshotPayload()
+  for (const [token, blob] of blobWrites) {
+    await idbPut(userDraftDbName(userId), STORE_BLOBS, token, blob)
+  }
+  await Promise.all([
+    idbPut(userDraftDbName(userId), STORE_META, SNAPSHOT_KEY_USER, JSON.stringify(payload)),
+    saveCloudProjectSnapshot(payload),
+  ])
 }
 
 export async function clearGuestProjectPersistence(): Promise<void> {
@@ -482,6 +553,11 @@ export async function hydrateLocalProjectIfNeeded(user: { id: string } | null): 
   if (!isManifestVisuallyEmpty()) return
 
   if (user) {
+    const cloudSnap = await loadCloudProjectSnapshot()
+    if (cloudSnap && cloudSnap.version === 1) {
+      await hydrateSnapshotIntoStore(cloudSnap, userDraftDbName(user.id))
+      return
+    }
     const userSnap = await loadProjectSnapshot(userDraftDbName(user.id), SNAPSHOT_KEY_USER)
     if (userSnap && userSnap.version === 1) {
       await hydrateSnapshotIntoStore(userSnap, userDraftDbName(user.id))
@@ -539,6 +615,16 @@ export function useUserProjectPersistence(user: { id: string } | null) {
   useEffect(() => {
     if (!userId) return
 
+    const shouldSaveForCloud = (
+      state: ReturnType<typeof useManifestStore.getState>,
+      prevState: ReturnType<typeof useManifestStore.getState>
+    ) =>
+      state.videos !== prevState.videos ||
+      state.images !== prevState.images ||
+      state.texts !== prevState.texts ||
+      state.audios !== prevState.audios ||
+      state.effects !== prevState.effects
+
     const schedule = () => {
       if (timerRef.current) clearTimeout(timerRef.current)
       timerRef.current = setTimeout(() => {
@@ -547,7 +633,10 @@ export function useUserProjectPersistence(user: { id: string } | null) {
       }, 500)
     }
 
-    const unsub = useManifestStore.subscribe(schedule)
+    const unsub = useManifestStore.subscribe((state, prevState) => {
+      if (!shouldSaveForCloud(state, prevState)) return
+      schedule()
+    })
     const onHide = () => {
       void saveUserDraftSnapshot(userId).catch(() => {})
     }

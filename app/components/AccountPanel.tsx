@@ -6,9 +6,8 @@ import MediaNameModal from './modals/MediaNameModal'
 import MoveMediaModal from './modals/MoveMediaModal'
 import PaymentModal from './modals/PaymentModal'
 import SolidColorPresetStrip from './ui/SolidColorPresetStrip'
-import { addImageAtCurrentPlayhead, addSolidShapePresetAtPlayhead } from '@/app/lib/addImageAtPlayhead'
+import { addSolidShapePresetAtPlayhead } from '@/app/lib/addImageAtPlayhead'
 import { parseAccountMediaDragData, setAccountMediaDragData } from '@/app/lib/accountMediaDrag'
-import { addAudioToTimelineAtPlayhead, addVideoToTimelineAtPlayhead } from '@/app/lib/timelineMediaInsert'
 import { useAccountMediaLibrary } from '@/app/hooks/useAccountMediaLibrary'
 import styles from './AccountPanel.module.css'
 
@@ -101,19 +100,6 @@ export default function AccountPanel() {
     }
   }
 
-  const handleInsertAsset = async (assetId: string, assetName: string, kind: 'image' | 'video' | 'audio') => {
-    const assetUrl = `/api/media/asset/${assetId}`
-    if (kind === 'video') {
-      await addVideoToTimelineAtPlayhead(assetUrl, assetName)
-      return
-    }
-    if (kind === 'audio') {
-      await addAudioToTimelineAtPlayhead(assetUrl, assetName)
-      return
-    }
-    await addImageAtCurrentPlayhead(assetUrl, assetName)
-  }
-
   const handleAccountUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files) return
@@ -172,10 +158,8 @@ export default function AccountPanel() {
         continue
       }
 
-      const uploadJson = await uploadResponse.json()
-      const asset = uploadJson.asset as { id: string; kind: 'image' | 'video' | 'audio'; name: string }
+      await uploadResponse.json()
       window.dispatchEvent(new Event('account-media-updated'))
-      await handleInsertAsset(asset.id, asset.name, asset.kind)
     }
 
     e.target.value = ''

@@ -193,7 +193,7 @@ export default function FontPanel({ onClose }: Props) {
                           opt.value === 'negative'
                             ? (isActive ? '#000' : '#444')
                             : opt.value === 'highlight'
-                              ? '#ffff00'
+                              ? '#ffffff'
                               : (isActive ? '#fff' : '#aaa'),
                         padding: opt.value === 'highlight' ? '2px 4px' : undefined,
                         borderRadius: opt.value === 'highlight' ? '2px' : undefined,

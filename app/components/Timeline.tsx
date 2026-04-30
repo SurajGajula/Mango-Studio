@@ -668,172 +668,155 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
           onChange={handleReplaceSelect}
           style={{ display: 'none' }}
         />
-        {videos.length === 0 && images.length === 0 ? (
-          <div
-            className={styles.emptyState}
-            onDragOverCapture={handleAccountMediaDragOverCapture}
-            onDropCapture={handleAccountMediaDropCapture}
-          >
-            <p>No content yet. Generate a video in the chat or</p>
-            <button
-              className={styles.uploadVideoButton}
-              onClick={() => uploadInputRef.current?.click()}
+        <div className={styles.timelineWrapper}>
+          <PlaybackControls
+            playbackTime={playbackTime}
+            totalDuration={totalDuration}
+            formatTime={formatTime}
+            uploadInputRef={uploadInputRef}
+            onOpenTransitions={onOpenAnimations}
+            onOpenFont={onOpenFont}
+            onOpenEffects={onOpenEffects}
+            onOpenSpeed={onOpenSpeed}
+            isExporting={isExporting}
+            handleExport={handleExport}
+            handleAddText={handleAddText}
+          />
+          <div className={styles.timelineRowContainer}>
+            <div className={styles.playheadLine} />
+            <div
+              ref={scrollContainerRef}
+              className={styles.scrollContainer}
+              onScroll={handleScroll}
+              onDragOverCapture={handleAccountMediaDragOverCapture}
+              onDropCapture={handleAccountMediaDropCapture}
+              onMouseDown={handleSelectionAreaMouseDown}
             >
-              upload a file
-            </button>
-            <p className={styles.emptyStateDragHint}>Drag media from the library here to start.</p>
-          </div>
-        ) : (
-          <div className={styles.timelineWrapper}>
-            <PlaybackControls
-              playbackTime={playbackTime}
-              totalDuration={totalDuration}
-              formatTime={formatTime}
-              uploadInputRef={uploadInputRef}
-              onOpenTransitions={onOpenAnimations}
-              onOpenFont={onOpenFont}
-              onOpenEffects={onOpenEffects}
-              onOpenSpeed={onOpenSpeed}
-              isExporting={isExporting}
-              handleExport={handleExport}
-              handleAddText={handleAddText}
-            />
-            <div className={styles.timelineRowContainer}>
-              <div className={styles.playheadLine} />
               <div
-                ref={scrollContainerRef}
-                className={styles.scrollContainer}
-                onScroll={handleScroll}
-                onDragOverCapture={handleAccountMediaDragOverCapture}
-                onDropCapture={handleAccountMediaDropCapture}
-                onMouseDown={handleSelectionAreaMouseDown}
+                ref={timelineRowRef}
+                className={`${styles.timelineContent} ${activeDrag || holdDragPreview ? styles.draggingActive : ''}`}
+                style={{ width: `${totalTimelineWidth}%` }}
+                onClick={handleTimelineContentClick}
               >
-                <div
-                  ref={timelineRowRef}
-                  className={`${styles.timelineContent} ${activeDrag || holdDragPreview ? styles.draggingActive : ''}`}
-                  style={{ width: `${totalTimelineWidth}%` }}
-                  onClick={handleTimelineContentClick}
-                >
-                  {trackRows.map((rowIndex) => (
-                    <UnifiedRow
-                      key={`unified-row-${rowIndex}`}
-                      rowIndex={rowIndex}
-                      showEmptyForDrag={Boolean(activeDrag && dragPreview && dragPreview.targetRow === rowIndex)}
-                      getContentPosition={getContentPosition}
-                      totalDuration={totalDuration}
-                      effectivePadding={effectivePadding}
-                      handleImageDragStart={handleImageDragStart}
-                      handleVideoDragStart={handleVideoDragStart}
-                      handleTrimStart={handleTrimStart}
-                      handleTextDragStart={handleTextDragStart}
-                      handleEffectDragStart={handleEffectDragStart}
-                      handleAudioBodyDragStart={handleAudioBodyDragStart}
-                      handleAudioTrimStart={handleAudioTrimStart}
-                      handleVideoDoubleClick={handleVideoDoubleClick}
-                      videoThumbnails={videoThumbnails}
-                      scrollContainerRef={scrollContainerRef}
-                      timelineInnerWidthPx={timelineInnerWidthPx}
-                      onOpenTransitions={onOpenTransitions}
-                      onOpenEffects={onOpenEffects}
-                      multiSelectedItems={multiSelectedItems}
-                      onSelectionToggle={handleSelectionToggle}
-                    />
-                  ))}
-                  {(() => {
-                    const ui = holdDragPreview
-                    const dragPreviewItems =
-                      activeDrag && dragPreview
-                        ? (dragPreview.previewItems && dragPreview.previewItems.length > 0
-                            ? dragPreview.previewItems
-                            : [{
-                                itemId: activeDrag.itemId,
-                                itemType: activeDrag.itemType,
-                                targetRow: dragPreview.targetRow,
-                                targetTime: dragPreview.targetTime,
-                                duration: activeDrag.duration,
-                              }])
-                        : []
-                    if (!ui && dragPreviewItems.length === 0) return null
-                    return (
-                      <>
-                        {ui && (
-                          <div
-                            className={styles.dragPreview}
-                            style={{
-                              left: `${getContentPosition(ui.targetTime)}%`,
-                              width: `${(ui.duration / (totalDuration + effectivePadding * 2)) * 100}%`,
-                              top: getDragPreviewTop(ui.targetRow, ui.itemType),
-                              height: '40px',
-                              opacity: ui.isValid ? 0.5 : 0.2,
-                              backgroundColor: ui.isValid ? '#ffffff' : '#ff4a4a',
-                            }}
-                          >
-                            {ui.itemType}
-                          </div>
-                        )}
-                        {!ui && dragPreviewItems.map((previewItem) => (
-                          <div
-                            key={`drag-preview-${previewItem.itemType}-${previewItem.itemId}`}
-                            className={styles.dragPreview}
-                            style={{
-                              left: `${getContentPosition(previewItem.targetTime)}%`,
-                              width: `${(previewItem.duration / (totalDuration + effectivePadding * 2)) * 100}%`,
-                              top: getDragPreviewTop(previewItem.targetRow, previewItem.itemType),
-                              height: '40px',
-                              opacity: dragPreview?.isValid ? 0.5 : 0.2,
-                              backgroundColor: dragPreview?.isValid ? '#ffffff' : '#ff4a4a',
-                            }}
-                          >
-                            {previewItem.itemType}
-                          </div>
-                        ))}
-                        {(ui?.isInsertion || (dragPreview?.isInsertion && dragPreviewItems.length > 0)) && (
-                          <div
-                            className={styles.insertionIndicator}
-                            style={{
-                              left: `${getContentPosition(0)}%`,
-                              width: `${(totalDuration / (totalDuration + effectivePadding * 2)) * 100}%`,
-                              top: getDragPreviewTop(
-                                ui ? ui.targetRow : (dragPreviewItems[0]?.targetRow ?? 0),
-                                ui ? ui.itemType : (dragPreviewItems[0]?.itemType ?? 'video')
-                              ) - 4,
-                            }}
-                          />
-                        )}
-                      </>
-                    )
-                  })()}
-                </div>
-                {selectionBox && (
-                  <div
-                    className={styles.selectionBox}
-                    style={{
-                      left: selectionBox.left,
-                      top: selectionBox.top,
-                      width: Math.max(1, selectionBox.width),
-                      height: Math.max(1, selectionBox.height),
-                    }}
+                {trackRows.map((rowIndex) => (
+                  <UnifiedRow
+                    key={`unified-row-${rowIndex}`}
+                    rowIndex={rowIndex}
+                    showEmptyForDrag={Boolean(activeDrag && dragPreview && dragPreview.targetRow === rowIndex)}
+                    getContentPosition={getContentPosition}
+                    totalDuration={totalDuration}
+                    effectivePadding={effectivePadding}
+                    handleImageDragStart={handleImageDragStart}
+                    handleVideoDragStart={handleVideoDragStart}
+                    handleTrimStart={handleTrimStart}
+                    handleTextDragStart={handleTextDragStart}
+                    handleEffectDragStart={handleEffectDragStart}
+                    handleAudioBodyDragStart={handleAudioBodyDragStart}
+                    handleAudioTrimStart={handleAudioTrimStart}
+                    handleVideoDoubleClick={handleVideoDoubleClick}
+                    videoThumbnails={videoThumbnails}
+                    scrollContainerRef={scrollContainerRef}
+                    timelineInnerWidthPx={timelineInnerWidthPx}
+                    onOpenTransitions={onOpenTransitions}
+                    onOpenEffects={onOpenEffects}
+                    multiSelectedItems={multiSelectedItems}
+                    onSelectionToggle={handleSelectionToggle}
                   />
-                )}
+                ))}
+                {(() => {
+                  const ui = holdDragPreview
+                  const dragPreviewItems =
+                    activeDrag && dragPreview
+                      ? (dragPreview.previewItems && dragPreview.previewItems.length > 0
+                          ? dragPreview.previewItems
+                          : [{
+                              itemId: activeDrag.itemId,
+                              itemType: activeDrag.itemType,
+                              targetRow: dragPreview.targetRow,
+                              targetTime: dragPreview.targetTime,
+                              duration: activeDrag.duration,
+                            }])
+                      : []
+                  if (!ui && dragPreviewItems.length === 0) return null
+                  return (
+                    <>
+                      {ui && (
+                        <div
+                          className={styles.dragPreview}
+                          style={{
+                            left: `${getContentPosition(ui.targetTime)}%`,
+                            width: `${(ui.duration / (totalDuration + effectivePadding * 2)) * 100}%`,
+                            top: getDragPreviewTop(ui.targetRow, ui.itemType),
+                            height: '40px',
+                            opacity: ui.isValid ? 0.5 : 0.2,
+                            backgroundColor: ui.isValid ? '#ffffff' : '#ff4a4a',
+                          }}
+                        >
+                          {ui.itemType}
+                        </div>
+                      )}
+                      {!ui && dragPreviewItems.map((previewItem) => (
+                        <div
+                          key={`drag-preview-${previewItem.itemType}-${previewItem.itemId}`}
+                          className={styles.dragPreview}
+                          style={{
+                            left: `${getContentPosition(previewItem.targetTime)}%`,
+                            width: `${(previewItem.duration / (totalDuration + effectivePadding * 2)) * 100}%`,
+                            top: getDragPreviewTop(previewItem.targetRow, previewItem.itemType),
+                            height: '40px',
+                            opacity: dragPreview?.isValid ? 0.5 : 0.2,
+                            backgroundColor: dragPreview?.isValid ? '#ffffff' : '#ff4a4a',
+                          }}
+                        >
+                          {previewItem.itemType}
+                        </div>
+                      ))}
+                      {(ui?.isInsertion || (dragPreview?.isInsertion && dragPreviewItems.length > 0)) && (
+                        <div
+                          className={styles.insertionIndicator}
+                          style={{
+                            left: `${getContentPosition(0)}%`,
+                            width: `${(totalDuration / (totalDuration + effectivePadding * 2)) * 100}%`,
+                            top: getDragPreviewTop(
+                              ui ? ui.targetRow : (dragPreviewItems[0]?.targetRow ?? 0),
+                              ui ? ui.itemType : (dragPreviewItems[0]?.itemType ?? 'video')
+                            ) - 4,
+                          }}
+                        />
+                      )}
+                    </>
+                  )
+                })()}
               </div>
+              {selectionBox && (
+                <div
+                  className={styles.selectionBox}
+                  style={{
+                    left: selectionBox.left,
+                    top: selectionBox.top,
+                    width: Math.max(1, selectionBox.width),
+                    height: Math.max(1, selectionBox.height),
+                  }}
+                />
+              )}
             </div>
-            <ContextMenu
-              playbackTime={playbackTime}
-              onOpenTransitions={onOpenTransitions}
-              onOpenAnimations={onOpenAnimations}
-              onOpenFont={onOpenFont}
-              onOpenEffects={onOpenEffects}
-              onOpenSpeed={onOpenSpeed}
-              onOpenPitch={onOpenPitch}
-              onReplace={(id) => {
-                setReplaceTargetId(id)
-                replaceInputRef.current?.click()
-              }}
-              onReplaceFromLibrary={(id) => setReplaceLibraryTargetId(id)}
-              onRemoveBackground={(id) => setBgRemoveTargetId(id)}
-            />
           </div>
-        )}
+          <ContextMenu
+            playbackTime={playbackTime}
+            onOpenTransitions={onOpenTransitions}
+            onOpenAnimations={onOpenAnimations}
+            onOpenFont={onOpenFont}
+            onOpenEffects={onOpenEffects}
+            onOpenSpeed={onOpenSpeed}
+            onOpenPitch={onOpenPitch}
+            onReplace={(id) => {
+              setReplaceTargetId(id)
+              replaceInputRef.current?.click()
+            }}
+            onReplaceFromLibrary={(id) => setReplaceLibraryTargetId(id)}
+            onRemoveBackground={(id) => setBgRemoveTargetId(id)}
+          />
+        </div>
       </div>
     </div>
   )

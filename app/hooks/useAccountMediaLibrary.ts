@@ -6,6 +6,8 @@ type ListResponse = {
   assets: AccountMediaAsset[]
 }
 
+const listRequestCache = new Map<string, Promise<ListResponse>>()
+
 export function useAccountMediaLibrary(enabled: boolean) {
   const [folders, setFolders] = useState<AccountMediaFolder[]>([])
   const [assets, setAssets] = useState<AccountMediaAsset[]>([])
@@ -21,16 +23,34 @@ export function useAccountMediaLibrary(enabled: boolean) {
     const params = new URLSearchParams()
     if (currentFolderId) params.set('folderId', currentFolderId)
     if (search.trim().length > 0) params.set('search', search.trim())
-    const response = await fetch(`/api/media/list?${params.toString()}`, { method: 'GET' })
-    if (!response.ok) {
-      const body = await response.json().catch(() => null)
-      setError(body?.error ?? 'Failed to load media')
+    const requestKey = params.toString()
+    const existing = listRequestCache.get(requestKey)
+    const request =
+      existing ??
+      fetch(`/api/media/list?${requestKey}`, { method: 'GET' })
+        .then(async (response) => {
+          if (!response.ok) {
+            const body = await response.json().catch(() => null)
+            throw new Error(body?.error ?? 'Failed to load media')
+          }
+          return (await response.json()) as ListResponse
+        })
+        .finally(() => {
+          listRequestCache.delete(requestKey)
+        })
+    if (!existing) {
+      listRequestCache.set(requestKey, request)
+    }
+    try {
+      const json = await request
+      setFolders(json.folders ?? [])
+      setAssets(json.assets ?? [])
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load media'
+      setError(message)
       setLoading(false)
       return
     }
-    const json = (await response.json()) as ListResponse
-    setFolders(json.folders ?? [])
-    setAssets(json.assets ?? [])
     setLoading(false)
   }, [enabled, currentFolderId, search])
 

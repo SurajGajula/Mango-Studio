@@ -391,7 +391,7 @@ export async function exportVideo(
             ctx.globalCompositeOperation = 'source-over'
             ctx.fillStyle = '#000000'
             ctx.fillRect(text.x * xScale, text.y * yScale, text.width * xScale, lines.length * lineHeight)
-            ctx.fillStyle = '#ffff00'
+            ctx.fillStyle = '#ffffff'
           } else {
             ctx.shadowColor = '#000000'; ctx.shadowBlur = fontPx * 0.12; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0
             ctx.fillStyle = text.color

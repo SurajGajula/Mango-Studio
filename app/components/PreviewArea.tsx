@@ -102,7 +102,7 @@ export default function PreviewArea() {
     return measureCanvas.current.getContext('2d')!
   }, [])
 
-  const { contentRect } = useVideoPlayback(canvasRef, containerRef)
+  const { contentRect } = useVideoPlayback(canvasRef, containerRef, editingTextId, false)
 
   const videos = useManifestStore((state) => state.videos)
   const images = useManifestStore((state) => state.images)
@@ -436,7 +436,6 @@ export default function PreviewArea() {
                       )
                     }
                     const text = layer.text
-                    if (editingTextId !== text.id && selectedTextId !== text.id) return null
                     return (
                       <TextOverlay
                         key={text.id}
@@ -452,7 +451,6 @@ export default function PreviewArea() {
                         editingContentRef={editingContentRef}
                         handleTextMouseDown={handleTextMouseDown}
                         handleTextResizeStart={handleTextResizeStart}
-                        getMeasureCtx={getMeasureCtx}
                         playbackTime={playbackTime}
                         textRefs={textRefs}
                       />

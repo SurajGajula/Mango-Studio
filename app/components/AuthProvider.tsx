@@ -22,6 +22,8 @@ interface AuthContextType {
   refreshProfile: () => Promise<void>
 }
 
+const profileRequestCache = new Map<string, Promise<Profile | null>>()
+
 const AuthContext = createContext<AuthContextType>({
   user: null,
   profile: null,
@@ -39,15 +41,30 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const fetchProfile = async (userId: string) => {
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single()
+      const existing = profileRequestCache.get(userId)
+      const request =
+        existing ??
+        (async () => {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', userId)
+            .single()
+          if (error) {
+            console.error('Error fetching profile:', error)
+            return null
+          }
+          return data as Profile
+        })()
+          .finally(() => {
+            profileRequestCache.delete(userId)
+          })
+      if (!existing) {
+        profileRequestCache.set(userId, request)
+      }
+      const data = await request
       
-      if (error) {
-        console.error('Error fetching profile:', error)
-      } else {
+      if (data) {
         setProfile(data)
       }
     } catch (err) {

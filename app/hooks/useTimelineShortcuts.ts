@@ -145,6 +145,38 @@ export function useTimelineShortcuts({
             updateImage(st.selectedImageId, { keyframes: img.keyframes.filter((k) => k.id !== st.selectedKeyframeId) })
             useSelectionStore.getState().setSelectedKeyframeId(null)
           }
+        } else if (multiSelectedItems.length > 0) {
+          e.preventDefault()
+          const selectedByType = {
+            video: new Set(multiSelectedItems.filter((item) => item.type === 'video').map((item) => item.id)),
+            image: new Set(multiSelectedItems.filter((item) => item.type === 'image').map((item) => item.id)),
+            text: new Set(multiSelectedItems.filter((item) => item.type === 'text').map((item) => item.id)),
+            audio: new Set(multiSelectedItems.filter((item) => item.type === 'audio').map((item) => item.id)),
+            effect: new Set(multiSelectedItems.filter((item) => item.type === 'effect').map((item) => item.id)),
+          }
+          if (
+            selectedByType.video.size === 0 &&
+            selectedByType.image.size === 0 &&
+            selectedByType.text.size === 0 &&
+            selectedByType.audio.size === 0 &&
+            selectedByType.effect.size === 0
+          ) {
+            return
+          }
+          const manifest = useManifestStore.getState()
+          manifest.pauseHistory()
+          useManifestStore.setState((state) => ({
+            videos: state.videos.filter((item) => !selectedByType.video.has(item.id)),
+            images: state.images.filter((item) => !selectedByType.image.has(item.id)),
+            texts: state.texts.filter((item) => !selectedByType.text.has(item.id)),
+            audios: state.audios.filter((item) => !selectedByType.audio.has(item.id)),
+            effects: state.effects.filter((item) => !selectedByType.effect.has(item.id)),
+            isPlaying: false,
+          }))
+          manifest.resumeHistory()
+          manifest.pushHistory({ force: true })
+          setMultiSelectedItems([])
+          clearSelection()
         }
       }
 
