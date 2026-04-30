@@ -35,22 +35,49 @@ export async function GET(
   if (assetError || !asset) {
     return NextResponse.json({ error: assetError?.message ?? 'Asset not found' }, { status: 404 })
   }
+  if (!asset.object_key || asset.object_key === 'pending') {
+    return NextResponse.json({ error: 'Asset object key is not ready' }, { status: 409 })
+  }
 
-  const object = await r2.client.send(
-    new GetObjectCommand({
-      Bucket: r2.bucketName,
-      Key: asset.object_key,
-    })
-  )
+  let object
+  try {
+    object = await r2.client.send(
+      new GetObjectCommand({
+        Bucket: r2.bucketName,
+        Key: asset.object_key,
+      })
+    )
+  } catch (error: any) {
+    const errorName = error?.name ?? ''
+    if (errorName === 'NoSuchKey' || errorName === 'NotFound') {
+      return NextResponse.json({ error: 'Asset binary not found in storage' }, { status: 404 })
+    }
+    return NextResponse.json({ error: error?.message ?? 'Failed to fetch asset from storage' }, { status: 500 })
+  }
 
   if (!object.Body) {
     return NextResponse.json({ error: 'Asset body missing' }, { status: 500 })
   }
 
-  return new Response(object.Body.transformToWebStream(), {
-    headers: {
-      'Content-Type': asset.mime_type,
-      'Cache-Control': 'private, max-age=60',
-    },
-  })
+  if (typeof object.Body.transformToWebStream === 'function') {
+    return new Response(object.Body.transformToWebStream(), {
+      headers: {
+        'Content-Type': asset.mime_type,
+        'Cache-Control': 'private, max-age=60',
+      },
+    })
+  }
+
+  if (typeof object.Body.transformToByteArray === 'function') {
+    const bytes = await object.Body.transformToByteArray()
+    const buffer = Buffer.from(bytes)
+    return new Response(buffer, {
+      headers: {
+        'Content-Type': asset.mime_type,
+        'Cache-Control': 'private, max-age=60',
+      },
+    })
+  }
+
+  return NextResponse.json({ error: 'Unsupported storage response body type' }, { status: 500 })
 }
