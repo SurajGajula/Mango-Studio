@@ -13,6 +13,8 @@ import {
 } from '@/app/models/ImageClass'
 import { VideoClass } from '@/app/models/VideoClass'
 import type { MediaKeyframe } from '@/app/models/mediaKeyframe'
+import { SidePanelLayout } from '@/app/components/ui/SidePanelLayout'
+import layout from '@/app/components/ui/SidePanelLayout.module.css'
 import styles from './TransitionsPanel.module.css'
 
 interface Props {
@@ -402,17 +404,12 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
   }
 
   return (
-    <div className={styles.container}>
-      <div className={styles.header}>
-        <span className={styles.title}>{mode === 'animation' ? 'Animations' : 'Transitions'}</span>
-        <button className={styles.closeButton} onClick={onClose}>×</button>
-      </div>
-      <div className={styles.body}>
+    <SidePanelLayout title={mode === 'animation' ? 'Animations' : 'Transitions'} onClose={onClose}>
         {!selectedItem ? (
-          <p className={styles.emptyState}>Select an item on the timeline to apply {mode}.</p>
+          <p className={layout.emptyState}>Select an item on the timeline to apply {mode}.</p>
         ) : (
           <>
-            <p className={styles.sectionLabel}>{mode === 'animation' ? 'Animation Type' : 'Transition Type'}</p>
+            <p className={layout.sectionLabel}>{mode === 'animation' ? 'Animation Type' : 'Transition Type'}</p>
             <div className={styles.optionList}>
               {options
                 .filter((opt) => opt.value !== 'last-frame-hold' || (!!selectedItem && videos.some((v) => v.id === selectedItem.id)))
@@ -458,7 +455,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
 
             {mode === 'animation' && (currentAnimation === 'zoom-in' || currentAnimation === 'zoom-out') && (
               <div className={styles.durationControl}>
-                <label className={styles.sectionLabel}>Zoom speed</label>
+                <label className={layout.sectionLabel}>Zoom speed</label>
                 <div className={`${styles.segmentedControl} ${styles.segmentedControlWrap}`}>
                   {ZOOM_SPEED_OPTIONS.map((opt) => (
                     <button
@@ -493,7 +490,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
 
             {mode === 'transition' && currentTransition === 'split' && (
               <div className={styles.durationControl}>
-                <label className={styles.sectionLabel}>Split Axis</label>
+                <label className={layout.sectionLabel}>Split Axis</label>
                 <div className={styles.segmentedControl}>
                   <button 
                     className={`${styles.segmentButton} ${selectedItem.transitionAxis === 'horizontal' ? styles.segmentActive : ''}`}
@@ -514,7 +511,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
             {mode === 'transition' && currentTransition === 'slide-in' && (
               <>
                 <div className={styles.durationControl}>
-                  <label className={styles.sectionLabel}>Slide Direction</label>
+                  <label className={layout.sectionLabel}>Slide Direction</label>
                   <div className={styles.segmentedControl}>
                     {(['left', 'right', 'top', 'bottom'] as const).map(dir => (
                       <button 
@@ -528,7 +525,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
                   </div>
                 </div>
                 <div className={styles.durationControl}>
-                  <label className={styles.sectionLabel}>Slide Speed Curve</label>
+                  <label className={layout.sectionLabel}>Slide Speed Curve</label>
                   <div className={`${styles.segmentedControl} ${styles.segmentedControlWrap}`}>
                     {REVEAL_CURVE_OPTIONS.map((opt) => (
                       <button
@@ -548,7 +545,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
             {mode === 'transition' && currentTransition === 'wipe' && (
               <>
                 <div className={styles.durationControl}>
-                  <label className={styles.sectionLabel}>Wipe Direction</label>
+                  <label className={layout.sectionLabel}>Wipe Direction</label>
                   <div className={styles.segmentedControl}>
                     {(['left', 'right', 'up', 'down'] as const).map(dir => (
                       <button
@@ -562,7 +559,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
                   </div>
                 </div>
                 <div className={styles.durationControl}>
-                  <label className={styles.sectionLabel}>Wipe Speed</label>
+                  <label className={layout.sectionLabel}>Wipe Speed</label>
                   <div className={`${styles.segmentedControl} ${styles.segmentedControlWrap}`}>
                     {WIPE_SPEED_OPTIONS.map((opt) => (
                       <button
@@ -581,7 +578,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
 
             {mode === 'transition' && currentTransition === 'circle' && (
               <div className={styles.durationControl}>
-                <label className={styles.sectionLabel}>Circle expand speed</label>
+                <label className={layout.sectionLabel}>Circle expand speed</label>
                 <div className={`${styles.segmentedControl} ${styles.segmentedControlWrap}`}>
                   {REVEAL_CURVE_OPTIONS.map((opt) => (
                     <button
@@ -600,7 +597,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
             {mode === 'transition' && currentTransition === 'flash' && (
               <>
                 <div className={styles.durationControl}>
-                  <label className={styles.sectionLabel}>Flash Type</label>
+                  <label className={layout.sectionLabel}>Flash Type</label>
                   <div className={styles.segmentedControl}>
                     <button
                       className={`${styles.segmentButton} ${(selectedItem.transitionFlashMode ?? 'solid') === 'solid' ? styles.segmentActive : ''}`}
@@ -618,7 +615,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
                 </div>
                 {(selectedItem.transitionFlashMode ?? 'solid') === 'solid' && (
                   <div className={styles.durationControl}>
-                    <label className={styles.sectionLabel}>Flash Color</label>
+                    <label className={layout.sectionLabel}>Flash Color</label>
                     <div className={styles.colorPresets}>
                       {[
                         { name: 'White', color: '#FFFFFF' },
@@ -670,7 +667,6 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
 
           </>
         )}
-      </div>
-    </div>
+    </SidePanelLayout>
   )
 }

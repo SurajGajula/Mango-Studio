@@ -3,7 +3,9 @@
 import { useEffect, useState } from 'react'
 import { useSliderHistorySession } from '@/app/hooks/useSliderHistorySession'
 import { useManifestStore } from '@/app/stores/manifestStore'
-import styles from './SpeedPanel.module.css'
+import { SidePanelLayout } from '@/app/components/ui/SidePanelLayout'
+import layout from '@/app/components/ui/SidePanelLayout.module.css'
+import styles from './PitchPanel.module.css'
 
 interface Props {
   onClose: () => void
@@ -41,15 +43,9 @@ export default function PitchPanel({ onClose, itemId }: Props) {
 
   if (!audio) {
     return (
-      <div className={styles.container}>
-        <div className={styles.header}>
-          <span className={styles.title}>Pitch</span>
-          <button className={styles.closeButton} onClick={onClose}>x</button>
-        </div>
-        <div className={styles.body}>
-          <p className={styles.emptyState}>Select an audio item to adjust pitch.</p>
-        </div>
-      </div>
+      <SidePanelLayout title="Pitch" onClose={onClose}>
+        <p className={layout.emptyState}>Select an audio item to adjust pitch.</p>
+      </SidePanelLayout>
     )
   }
 
@@ -61,46 +57,41 @@ export default function PitchPanel({ onClose, itemId }: Props) {
   const activePreset = PRESETS.find((p) => Math.abs(p.value - pitch) < 0.001)?.id ?? ''
 
   return (
-    <div className={styles.container}>
-      <div className={styles.header}>
-        <span className={styles.title}>Pitch</span>
-        <button className={styles.closeButton} onClick={onClose}>x</button>
+    <SidePanelLayout title="Pitch" onClose={onClose}>
+      <p className={layout.sectionLabel}>Presets</p>
+      <div className={styles.speedPresets}>
+        {PRESETS.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            className={`${styles.presetCard} ${activePreset === p.id ? styles.presetCardActive : ''}`}
+            onClick={() => applyPitch(p.value)}
+          >
+            <span className={styles.presetName}>{p.name}</span>
+            <span className={styles.presetDesc}>{p.desc}</span>
+          </button>
+        ))}
       </div>
-      <div className={styles.body}>
-        <p className={styles.sectionLabel}>Presets</p>
-        <div className={styles.speedPresets}>
-          {PRESETS.map((p) => (
-            <button
-              key={p.id}
-              className={`${styles.presetCard} ${activePreset === p.id ? styles.presetCardActive : ''}`}
-              onClick={() => applyPitch(p.value)}
-            >
-              <span className={styles.presetName}>{p.name}</span>
-              <span className={styles.presetDesc}>{p.desc}</span>
-            </button>
-          ))}
-        </div>
 
-        <p className={styles.sectionLabel}>Manual Control</p>
-        <div className={styles.controls}>
-          <div className={styles.controlGroup}>
-            <div className={styles.controlHeader}>
-              <label className={styles.controlLabel}>Pitch Shift</label>
-              <span className={styles.controlValue}>{pitch.toFixed(2)}x</span>
-            </div>
-            <input
-              type="range"
-              min="0.5"
-              max="1.5"
-              step="0.01"
-              value={pitch}
-              className={styles.slider}
-              onPointerDown={pitchSliderHistory}
-              onChange={(e) => applyPitch(parseFloat(e.target.value))}
-            />
+      <p className={layout.sectionLabel}>Manual Control</p>
+      <div className={styles.controls}>
+        <div className={styles.controlGroup}>
+          <div className={styles.controlHeader}>
+            <label className={styles.controlLabel}>Pitch Shift</label>
+            <span className={styles.controlValue}>{pitch.toFixed(2)}x</span>
           </div>
+          <input
+            type="range"
+            min="0.5"
+            max="1.5"
+            step="0.01"
+            value={pitch}
+            className={styles.slider}
+            onPointerDown={pitchSliderHistory}
+            onChange={(e) => applyPitch(parseFloat(e.target.value))}
+          />
         </div>
       </div>
-    </div>
+    </SidePanelLayout>
   )
 }

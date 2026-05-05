@@ -2,6 +2,7 @@ import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import type { MediaKeyframe } from '@/app/models/mediaKeyframe'
 import { TextClass } from '@/app/models/TextClass'
+import { EffectClass } from '@/app/models/EffectClass'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { ManifestStore } from './types'
 import { overlapsAny, occupancyIntervalsOnRow } from '@/app/lib/timeline'
@@ -240,7 +241,7 @@ export const createGeneralSlice = (set: any, get: any) => ({
   duplicateItem: (id: string) => {
     const state = get()
     let item: any
-    let type: 'video' | 'image' | 'text' | 'audio' = 'video'
+    let type: 'video' | 'image' | 'text' | 'audio' | 'effect' = 'video'
 
     const vMatch = state.videos.find((v: VideoClass) => v.id === id)
     if (vMatch) {
@@ -261,6 +262,12 @@ export const createGeneralSlice = (set: any, get: any) => ({
           if (aMatch) {
             item = aMatch
             type = 'audio'
+          } else {
+            const eMatch = state.effects.find((e: EffectClass) => e.id === id)
+            if (eMatch) {
+              item = eMatch
+              type = 'effect'
+            }
           }
         }
       }
@@ -269,7 +276,12 @@ export const createGeneralSlice = (set: any, get: any) => ({
     if (!item) return
 
     const startTime = type === 'video' ? item.timestamp : item.startTime
-    const duration = type === 'audio' ? (item.originalDuration - item.trimStart - item.trimEnd) / (item.playbackSpeed ?? 1) : (item.duration ?? 0)
+    const duration =
+      type === 'audio'
+        ? (item.originalDuration - item.trimStart - item.trimEnd) / (item.playbackSpeed ?? 1)
+        : type === 'effect'
+          ? (item.endTime - item.startTime)
+          : (item.duration ?? 0)
     const endTime = startTime + duration
     const duplicateStart = endTime
     const duplicateEnd = duplicateStart + duration
@@ -293,6 +305,14 @@ export const createGeneralSlice = (set: any, get: any) => ({
         updatedAt: new Date(),
       })
     } else if (type === 'audio') {
+      newItem = item.copy({
+        id: newId,
+        row: targetRow,
+        startTime: duplicateStart,
+        endTime: duplicateEnd,
+        createdAt: new Date(),
+      })
+    } else if (type === 'effect') {
       newItem = item.copy({
         id: newId,
         row: targetRow,
@@ -326,6 +346,7 @@ export const createGeneralSlice = (set: any, get: any) => ({
         images: type === 'image' ? [...s.images, newItem] : s.images,
         texts: type === 'text' ? [...s.texts, newItem] : s.texts,
         audios: type === 'audio' ? [...s.audios, newItem] : s.audios,
+        effects: type === 'effect' ? [...s.effects, newItem] : s.effects,
       }
     })
 
@@ -333,6 +354,7 @@ export const createGeneralSlice = (set: any, get: any) => ({
     else if (type === 'image') useSelectionStore.getState().setSelectedImageId(newId)
     else if (type === 'text') useSelectionStore.getState().setSelectedTextId(newId)
     else if (type === 'audio') useSelectionStore.getState().setSelectedAudioId(newId)
+    else if (type === 'effect') useSelectionStore.getState().setSelectedEffectId(newId)
 
     set({ playbackTime: endTime })
     get().pushHistory()

@@ -92,6 +92,7 @@ export interface ManifestStore {
   effects: EffectClass[]
   addEffect: (effect: EffectClass) => void
   updateEffect: (id: string, updates: Partial<EffectClass>) => void
+  splitEffect: (id: string, playbackTime: number) => void
   removeEffect: (id: string) => void
   removeAllEffects: () => void
   moveItemToRow: (id: string, targetRow: number, newTime?: number) => void

@@ -47,6 +47,7 @@ export default function ContextMenu({
   const splitVideo = useManifestStore((s) => s.splitVideo)
   const splitImage = useManifestStore((s) => s.splitImage)
   const splitText = useManifestStore((s) => s.splitText)
+  const splitEffect = useManifestStore((s) => s.splitEffect)
   const removeVideo = useManifestStore((s) => s.removeVideo)
   const removeImage = useManifestStore((s) => s.removeImage)
   const removeText = useManifestStore((s) => s.removeText)
@@ -155,6 +156,13 @@ export default function ContextMenu({
       const duration = (a.originalDuration - a.trimStart - a.trimEnd) / (a.playbackSpeed ?? 1)
       return local <= 0.1 || local >= duration - 0.1
     }
+    if (itemType === 'effect') {
+      const e = useManifestStore.getState().effects.find((e) => e.id === itemId)
+      if (!e) return true
+      const local = playbackTime - e.startTime
+      const duration = e.endTime - e.startTime
+      return local <= 0.05 || local >= duration - 0.05
+    }
     return true
   }
 
@@ -174,7 +182,7 @@ export default function ContextMenu({
         visibility: pos.y === 0 && pos.x === 0 ? 'hidden' : 'visible'
       }}
     >
-      {(itemType === 'video' || itemType === 'image' || itemType === 'text' || itemType === 'audio') && (
+      {(itemType === 'video' || itemType === 'image' || itemType === 'text' || itemType === 'audio' || itemType === 'effect') && (
         <>
           <button
             className={styles.contextMenuItem}
@@ -183,6 +191,7 @@ export default function ContextMenu({
               else if (itemType === 'image') splitImage(itemId, playbackTime)
               else if (itemType === 'text') splitText(itemId, playbackTime)
               else if (itemType === 'audio') splitAudio(itemId, playbackTime)
+              else if (itemType === 'effect') splitEffect(itemId, playbackTime)
             })}
             disabled={isSplitDisabled()}
           >

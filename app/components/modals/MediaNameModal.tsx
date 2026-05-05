@@ -1,6 +1,7 @@
 'use client'
 
 import { FormEvent, useEffect, useState } from 'react'
+import { CenteredModal } from '@/app/components/ui/CenteredModal'
 import styles from './MediaNameModal.module.css'
 
 type MediaNameModalProps = {
@@ -49,39 +50,34 @@ export default function MediaNameModal({
   }
 
   return (
-    <div className={styles.modalOverlay} onClick={(e) => e.target === e.currentTarget && !pending && onClose()}>
-      <div className={styles.modalContent}>
-        <button type="button" className={styles.closeButton} onClick={() => !pending && onClose()} aria-label="Close">
-          ×
-        </button>
-        <div className={styles.header}>
-          <h2>{title}</h2>
-          {description ? <p>{description}</p> : null}
-        </div>
-        <form onSubmit={handleSubmit}>
-          <div className={styles.formGroup}>
-            <label htmlFor="media-name-input">Name</label>
-            <input
-              id="media-name-input"
-              type="text"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              autoFocus
-              disabled={pending}
-              autoComplete="off"
-            />
-          </div>
-          {error ? <p className={styles.errorText}>{error}</p> : null}
-          <div className={styles.actions}>
-            <button type="button" className={styles.cancelButton} onClick={() => !pending && onClose()} disabled={pending}>
-              Cancel
-            </button>
-            <button type="submit" className={styles.submitButton} disabled={pending}>
-              {pending ? '…' : confirmLabel}
-            </button>
-          </div>
-        </form>
+    <CenteredModal onClose={onClose} backdropCloseDisabled={pending} size="compact">
+      <div className={styles.header}>
+        <h2>{title}</h2>
+        {description ? <p>{description}</p> : null}
       </div>
-    </div>
+      <form onSubmit={handleSubmit}>
+        <div className={styles.formGroup}>
+          <label htmlFor="media-name-input">Name</label>
+          <input
+            id="media-name-input"
+            type="text"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            autoFocus
+            disabled={pending}
+            autoComplete="off"
+          />
+        </div>
+        {error ? <p className={styles.errorText}>{error}</p> : null}
+        <div className={styles.actions}>
+          <button type="button" className={styles.cancelButton} onClick={() => !pending && onClose()} disabled={pending}>
+            Cancel
+          </button>
+          <button type="submit" className={styles.submitButton} disabled={pending}>
+            {pending ? '…' : confirmLabel}
+          </button>
+        </div>
+      </form>
+    </CenteredModal>
   )
 }

@@ -8,6 +8,7 @@ import { syncSelectionToActivePlayingClip } from '@/app/lib/playbackSelectionSyn
 import { VideoRenderingEngine, RenderState, RenderResources } from '@/app/lib/videoRenderingEngine'
 import { setVideoCrossOriginForUrl } from '@/app/lib/mediaUtils'
 import type { VideoClass } from '@/app/models/VideoClass'
+import type { AudioClass } from '@/app/models/AudioClass'
 
 function resolvedMediaHref(src: string): string {
   try {
@@ -22,11 +23,13 @@ function videoElementSrcMatches(el: HTMLVideoElement, src: string): boolean {
   return resolvedMediaHref(current) === resolvedMediaHref(src)
 }
 
-function audioDecodeLeadSeconds(ctx: AudioContext): number {
-  let lead = typeof ctx.baseLatency === 'number' ? ctx.baseLatency : 0
-  const ol = (ctx as AudioContext & { outputLatency?: number }).outputLatency
-  if (typeof ol === 'number' && Number.isFinite(ol)) lead += ol
-  return Math.min(0.12, Math.max(0, lead))
+function audioElementSrcMatches(el: HTMLAudioElement, src: string): boolean {
+  const current = el.currentSrc || el.src || ''
+  return resolvedMediaHref(current) === resolvedMediaHref(src)
+}
+
+function audioDecodeLeadSeconds(_ctx: AudioContext): number {
+  return 0
 }
 
 function clampAudioSeekTime(el: HTMLAudioElement, requestedTime: number): number {
@@ -41,15 +44,17 @@ function clampAudioSeekTime(el: HTMLAudioElement, requestedTime: number): number
 function resetAudioElementForLoop(el: HTMLAudioElement, restartAt: number) {
   if (!el.paused) el.pause()
   el.playbackRate = 1
-  el.currentTime = clampAudioSeekTime(el, restartAt)
-  // Safari can keep media ended/paused after a wrap unless we rewind off the end.
+  const t = clampAudioSeekTime(el, restartAt)
+  el.currentTime = t
   if (el.ended) {
-    el.currentTime = 0
+    el.currentTime = clampAudioSeekTime(el, restartAt)
   }
 }
 
+const AUDIO_PREFETCH_BEFORE_SEC = 35
+
 function isAudioElementReady(el: HTMLAudioElement): boolean {
-  if (el.readyState < 3) return false
+  if (el.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return false
   if (el.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) return false
   const duration = el.duration
   return !Number.isNaN(duration)
@@ -175,6 +180,8 @@ export function useVideoPlayback(
   const videoPlayPromisesRef = useRef<Map<string, Promise<void>>>(new Map())
   const audioPlayPromisesRef = useRef<Map<string, Promise<void>>>(new Map())
   const audioWarmupUntilRef = useRef<Map<string, number>>(new Map())
+  const audioPendingStartRef = useRef<Map<string, { syncTarget: number; effectiveVol: number; timestamp: number }>>(new Map())
+  const audioCanPlayListenersRef = useRef<Map<string, () => void>>(new Map())
   const wasPlayingRef = useRef(false)
   const internalPlaybackTimeRef = useRef(0)
   const [contentRect, setContentRect] = useState({ x: 0, y: 0, width: 0, height: 0 })
@@ -187,6 +194,74 @@ export function useVideoPlayback(
   const effects = useManifestStore((state) => state.effects)
 
   const getState = useManifestStore.getState
+
+  const disposePreviewAudio = useCallback((id: string) => {
+    audioPlayPromisesRef.current.delete(id)
+    audioPendingStartRef.current.delete(id)
+    audioWarmupUntilRef.current.delete(id)
+    const el = audioElementsRef.current.get(id)
+    if (el) {
+      const listener = audioCanPlayListenersRef.current.get(id)
+      if (listener) {
+        el.removeEventListener('canplay', listener)
+        audioCanPlayListenersRef.current.delete(id)
+      }
+      el.pause()
+      el.src = ''
+      audioElementsRef.current.delete(id)
+    } else {
+      audioCanPlayListenersRef.current.delete(id)
+    }
+    const nodes = audioNodesRef.current.get(id)
+    if (nodes) {
+      try {
+        nodes.source.disconnect()
+        nodes.gain.disconnect()
+      } catch {
+      }
+      audioNodesRef.current.delete(id)
+    }
+  }, [])
+
+  const installPreviewAudio = useCallback(
+    (audioItem: AudioClass) => {
+      const ctx = getAudioCtx()
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {})
+      const el = new Audio(audioItem.url)
+      el.preload = 'auto'
+      el.crossOrigin = 'anonymous'
+      el.load()
+      const trimPrime = Math.max(0, audioItem.trimStart ?? 0)
+      const primeSeekToTrim = () => {
+        el.currentTime = clampAudioSeekTime(el, trimPrime)
+      }
+      if (el.readyState >= HTMLMediaElement.HAVE_METADATA) {
+        primeSeekToTrim()
+      } else {
+        el.addEventListener('loadedmetadata', primeSeekToTrim, { once: true })
+      }
+      ;(el as HTMLAudioElement & { preservesPitch?: boolean; webkitPreservesPitch?: boolean }).preservesPitch = false
+      ;(el as HTMLAudioElement & { preservesPitch?: boolean; webkitPreservesPitch?: boolean }).webkitPreservesPitch = false
+      audioElementsRef.current.set(audioItem.id, el)
+      const source = ctx.createMediaElementSource(el)
+      const gain = ctx.createGain()
+      gain.gain.value = audioItem.volume ?? 1.0
+      source.connect(gain)
+      gain.connect(ctx.destination)
+      audioNodesRef.current.set(audioItem.id, { source, gain })
+    },
+    [getAudioCtx]
+  )
+
+  const rebuildAllPreviewAudios = useCallback(
+    (items: AudioClass[]) => {
+      items.forEach((item) => {
+        disposePreviewAudio(item.id)
+        installPreviewAudio(item)
+      })
+    },
+    [disposePreviewAudio, installPreviewAudio]
+  )
 
   useEffect(() => {
     syncManifestVideoPool(getState().playbackTime, videos, videoElementsRef, persistenceCanvasesRef)
@@ -249,54 +324,23 @@ export function useVideoPlayback(
   }, [images, Math.floor(playbackTime * 4)])
 
   useEffect(() => {
-    const currentAudioIds = new Set(audios.map(a => a.id))
-    audioElementsRef.current.forEach((el, id) => {
+    const currentAudioIds = new Set(audios.map((a) => a.id))
+    audioElementsRef.current.forEach((_, id) => {
       if (!currentAudioIds.has(id)) {
-        el.pause()
-        el.src = ''
-        audioElementsRef.current.delete(id)
-        audioPlayPromisesRef.current.delete(id)
-        const nodes = audioNodesRef.current.get(id)
-        if (nodes) {
-          try {
-            nodes.source.disconnect()
-            nodes.gain.disconnect()
-          } catch (e) {}
-          audioNodesRef.current.delete(id)
-        }
+        disposePreviewAudio(id)
       }
     })
 
-    audios.forEach(audioItem => {
-      let el = audioElementsRef.current.get(audioItem.id)
+    audios.forEach((audioItem) => {
+      const el = audioElementsRef.current.get(audioItem.id)
       if (!el) {
-        el = new Audio(audioItem.url)
-        el.preload = 'auto'
-        el.crossOrigin = 'anonymous'
-        el.load()
-        ;(el as HTMLAudioElement & { preservesPitch?: boolean; webkitPreservesPitch?: boolean }).preservesPitch = false
-        ;(el as HTMLAudioElement & { preservesPitch?: boolean; webkitPreservesPitch?: boolean }).webkitPreservesPitch = false
-        audioElementsRef.current.set(audioItem.id, el)
-
-        // Setup Web Audio for volume > 100%
-        const ctx = getAudioCtx()
-        if (ctx.state === 'suspended') ctx.resume().catch(() => {})
-        const source = ctx.createMediaElementSource(el)
-        const gain = ctx.createGain()
-        
-        // Use immediate values for initialization to avoid issues with suspended context
-        gain.gain.value = audioItem.volume ?? 1.0
-        
-        source.connect(gain)
-        gain.connect(ctx.destination)
-        audioNodesRef.current.set(audioItem.id, { source, gain })
-      } else if (el.src !== audioItem.url) {
-        el.pause()
-        el.src = audioItem.url
-        el.load()
+        installPreviewAudio(audioItem)
+      } else if (!audioElementSrcMatches(el, audioItem.url)) {
+        disposePreviewAudio(audioItem.id)
+        installPreviewAudio(audioItem)
       }
     })
-  }, [audios])
+  }, [audios, disposePreviewAudio, installPreviewAudio])
 
   // Resume audio context on user interaction to satisfy browser policies
   useEffect(() => {
@@ -316,18 +360,16 @@ export function useVideoPlayback(
 
   useEffect(() => {
     return () => {
-      audioElementsRef.current.forEach(el => {
-        el.pause()
-        el.src = ''
-      })
-      audioElementsRef.current.clear()
+      const ids = [...audioElementsRef.current.keys()]
+      ids.forEach((id) => disposePreviewAudio(id))
       if (audioCtxRef.current) {
         audioCtxRef.current.close()
         audioCtxRef.current = null
       }
-      audioNodesRef.current.clear()
+      audioPendingStartRef.current.clear()
+      audioCanPlayListenersRef.current.clear()
     }
-  }, [])
+  }, [disposePreviewAudio])
 
   const computeContentRect = useCallback((cw: number, ch: number) => {
     const targetAspect = 9 / 16
@@ -461,39 +503,62 @@ export function useVideoPlayback(
       if (!isPlaying && wasPlayingRef.current) {
         audioPlayPromisesRef.current.clear()
         audioWarmupUntilRef.current.clear()
+        audioPendingStartRef.current.clear()
         state.audios.forEach((audioItem) => {
           const el = audioElementsRef.current.get(audioItem.id)
           if (!el) return
           if (!el.paused) el.pause()
+          const l = audioCanPlayListenersRef.current.get(audioItem.id)
+          if (l) {
+            el.removeEventListener('canplay', l)
+            audioCanPlayListenersRef.current.delete(audioItem.id)
+          }
         })
       }
 
       if (didWrapPlayback) {
         audioPlayPromisesRef.current.clear()
         audioWarmupUntilRef.current.clear()
+        audioPendingStartRef.current.clear()
+        rebuildAllPreviewAudios(state.audios)
+      }
+
+      const playbackJustStarted = isPlaying && !wasPlayingRef.current
+      const replayFromTimelineStart =
+        playbackJustStarted && !didWrapPlayback && newTime <= 0.05
+
+      if (replayFromTimelineStart) {
+        audioPlayPromisesRef.current.clear()
+        audioWarmupUntilRef.current.clear()
+        audioPendingStartRef.current.clear()
+        rebuildAllPreviewAudios(state.audios)
+      } else if (playbackJustStarted && !didWrapPlayback) {
+        audioPlayPromisesRef.current.clear()
+        audioWarmupUntilRef.current.clear()
+        audioPendingStartRef.current.clear()
         state.audios.forEach((audioItem) => {
           const el = audioElementsRef.current.get(audioItem.id)
           if (!el) return
-          const restartAt = Math.max(0, audioItem.trimStart ?? 0)
-          resetAudioElementForLoop(el, restartAt)
-        })
-      }
-
-      state.audios.forEach((audioItem) => {
-        const el = audioElementsRef.current.get(audioItem.id)
-        const nodes = audioNodesRef.current.get(audioItem.id)
-        if (!el || !nodes) return
-
-        const isInside = newTime >= audioItem.startTime && newTime < audioItem.endTime
-
-        if (isInside && isPlaying) {
-          if (!isAudioElementReady(el)) {
-            if (el.networkState === HTMLMediaElement.NETWORK_EMPTY) {
-              el.load()
+          const canPlayListener = audioCanPlayListenersRef.current.get(audioItem.id)
+          if (canPlayListener) {
+            el.removeEventListener('canplay', canPlayListener)
+            audioCanPlayListenersRef.current.delete(audioItem.id)
+          }
+          const nodes = audioNodesRef.current.get(audioItem.id)
+          if (nodes) {
+            const gv = audioItem.volume ?? 1
+            try {
+              nodes.gain.gain.cancelScheduledValues(audioCtx.currentTime)
+              nodes.gain.gain.setValueAtTime(gv, audioCtx.currentTime)
+            } catch {
             }
+          }
+          const restartAt = Math.max(0, audioItem.trimStart ?? 0)
+          const inside = newTime >= audioItem.startTime && newTime < audioItem.endTime
+          if (!inside) {
+            resetAudioElementForLoop(el, restartAt)
             return
           }
-
           const elapsed = newTime - audioItem.startTime
           const timelineDuration = audioItem.endTime - audioItem.startTime
           const sourceTimeOffset = calculateSourceTime(
@@ -505,16 +570,103 @@ export function useVideoPlayback(
             audioItem.speedEasing ?? 'linear'
           )
           const pitch = audioItem.pitch ?? 1
-
           const target = (audioItem.trimStart ?? 0) + sourceTimeOffset * pitch
           const syncTarget = target + decodeLead
+          resetAudioElementForLoop(el, clampAudioSeekTime(el, syncTarget))
+        })
+      }
 
+      state.audios.forEach((audioItem) => {
+        const elPrefetch = audioElementsRef.current.get(audioItem.id)
+        if (
+          elPrefetch &&
+          elPrefetch.paused &&
+          !audioPlayPromisesRef.current.has(audioItem.id) &&
+          newTime >= audioItem.startTime - AUDIO_PREFETCH_BEFORE_SEC &&
+          newTime < audioItem.startTime &&
+          newTime < audioItem.endTime &&
+          elPrefetch.readyState >= HTMLMediaElement.HAVE_METADATA
+        ) {
+          const trimPrefetch = Math.max(0, audioItem.trimStart ?? 0)
+          if (Math.abs(elPrefetch.currentTime - trimPrefetch) > 0.08) {
+            elPrefetch.currentTime = clampAudioSeekTime(elPrefetch, trimPrefetch)
+          }
+        }
+      })
+
+      state.audios.forEach((audioItem) => {
+        const el = audioElementsRef.current.get(audioItem.id)
+        const nodes = audioNodesRef.current.get(audioItem.id)
+        if (!el || !nodes) return
+
+        const isInside = newTime >= audioItem.startTime && newTime < audioItem.endTime
+
+        if (isInside && isPlaying) {
+          const elapsed = newTime - audioItem.startTime
+          const timelineDuration = audioItem.endTime - audioItem.startTime
+          const sourceTimeOffset = calculateSourceTime(
+            elapsed,
+            timelineDuration,
+            audioItem.speedStart ?? audioItem.playbackSpeed ?? 1,
+            audioItem.speedEnd ?? audioItem.playbackSpeed ?? 1,
+            audioItem.playbackSpeed ?? 1,
+            audioItem.speedEasing ?? 'linear'
+          )
+          const pitch = audioItem.pitch ?? 1
+          const target = (audioItem.trimStart ?? 0) + sourceTimeOffset * pitch
+          const syncTarget = target + decodeLead
           const vol = audioItem.volume ?? 1.0
           const fadeOutDuration = Math.max(0, audioItem.fadeOutDuration ?? 0)
           const timeRemaining = Math.max(0, audioItem.endTime - newTime)
           const fadeOutGain =
             fadeOutDuration > 0 ? Math.min(1, Math.max(0, timeRemaining / fadeOutDuration)) : 1
           const effectiveVol = vol * fadeOutGain
+
+          if (!isAudioElementReady(el)) {
+            const isStalledWhilePlaying =
+              !el.paused &&
+              el.readyState < HTMLMediaElement.HAVE_CURRENT_DATA &&
+              el.networkState !== HTMLMediaElement.NETWORK_LOADING
+            if (el.networkState === HTMLMediaElement.NETWORK_EMPTY) {
+              el.load()
+            } else if (isStalledWhilePlaying) {
+              el.pause()
+              el.currentTime = clampAudioSeekTime(el, syncTarget)
+            }
+            if (!el.paused) {
+              return
+            }
+            audioPendingStartRef.current.set(audioItem.id, {
+              syncTarget: clampAudioSeekTime(el, syncTarget),
+              effectiveVol,
+              timestamp,
+            })
+            if (!audioCanPlayListenersRef.current.has(audioItem.id)) {
+              const canPlayListener = () => {
+                const pending = audioPendingStartRef.current.get(audioItem.id)
+                if (!pending) return
+                if (!isAudioElementReady(el) || !el.paused || audioPlayPromisesRef.current.has(audioItem.id)) return
+                el.currentTime = clampAudioSeekTime(el, pending.syncTarget)
+                nodes.gain.gain.setValueAtTime(0, audioCtx.currentTime)
+                nodes.gain.gain.linearRampToValueAtTime(pending.effectiveVol, audioCtx.currentTime + 0.05)
+                audioWarmupUntilRef.current.set(audioItem.id, pending.timestamp + 140)
+                const p = el.play()
+                audioPlayPromisesRef.current.set(audioItem.id, p)
+                p.catch(() => {}).finally(() => {
+                  audioPlayPromisesRef.current.delete(audioItem.id)
+                })
+              }
+              el.addEventListener('canplay', canPlayListener)
+              audioCanPlayListenersRef.current.set(audioItem.id, canPlayListener)
+            }
+            return
+          }
+          audioPendingStartRef.current.delete(audioItem.id)
+          const readyListener = audioCanPlayListenersRef.current.get(audioItem.id)
+          if (readyListener) {
+            el.removeEventListener('canplay', readyListener)
+            audioCanPlayListenersRef.current.delete(audioItem.id)
+          }
           const warmupUntil = audioWarmupUntilRef.current.get(audioItem.id) ?? 0
           const isWarmingUp = timestamp < warmupUntil
           if (!isWarmingUp && Math.abs(nodes.gain.gain.value - effectiveVol) > 0.001) {
@@ -551,6 +703,7 @@ export function useVideoPlayback(
             })
           }
         } else {
+          audioPendingStartRef.current.delete(audioItem.id)
           audioWarmupUntilRef.current.delete(audioItem.id)
           if (!el.paused) {
             el.pause()
@@ -655,7 +808,7 @@ export function useVideoPlayback(
     }
     rafRef.current = requestAnimationFrame(loop)
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
-  }, [getState, canvasRef, containerRef, getAudioCtx, hiddenTextId, renderTextsInCanvas])
+  }, [getState, canvasRef, containerRef, getAudioCtx, hiddenTextId, renderTextsInCanvas, rebuildAllPreviewAudios])
 
   useEffect(() => { return () => { 
     videoElementsRef.current.forEach((video) => { 

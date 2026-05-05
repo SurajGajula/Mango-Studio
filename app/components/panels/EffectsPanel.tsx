@@ -7,6 +7,8 @@ import { useSelectionStore } from '@/app/stores/selectionStore'
 import { EffectClass, type EffectType } from '@/app/models/EffectClass'
 import { generateId } from '@/app/lib/idUtils'
 import { findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
+import { SidePanelLayout } from '@/app/components/ui/SidePanelLayout'
+import layout from '@/app/components/ui/SidePanelLayout.module.css'
 import styles from './TransitionsPanel.module.css'
 
 interface Props {
@@ -127,13 +129,8 @@ export default function EffectsPanel({ onClose }: Props) {
   }
 
   return (
-    <div className={styles.container}>
-      <div className={styles.header}>
-        <span className={styles.title}>Effects</span>
-        <button className={styles.closeButton} onClick={onClose}>×</button>
-      </div>
-      <div className={styles.body}>
-        <p className={styles.sectionLabel}>Video Effect</p>
+    <SidePanelLayout title="Effects" onClose={onClose}>
+        <p className={layout.sectionLabel}>Video Effect</p>
         <div className={styles.optionList}>
           {EFFECT_OPTIONS.map((opt) => (
             <button
@@ -213,7 +210,6 @@ export default function EffectsPanel({ onClose }: Props) {
             />
           </div>
         )}
-      </div>
-    </div>
+    </SidePanelLayout>
   )
 }

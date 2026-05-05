@@ -3,6 +3,8 @@
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { TextAnimation, TextStyle } from '@/app/models/TextClass'
+import { SidePanelLayout } from '@/app/components/ui/SidePanelLayout'
+import layout from '@/app/components/ui/SidePanelLayout.module.css'
 import styles from './TransitionsPanel.module.css'
 
 interface Props {
@@ -107,17 +109,12 @@ export default function FontPanel({ onClose }: Props) {
   }
 
   return (
-    <div className={styles.container}>
-      <div className={styles.header}>
-        <span className={styles.title}>Font</span>
-        <button className={styles.closeButton} onClick={onClose}>×</button>
-      </div>
-      <div className={styles.body}>
+    <SidePanelLayout title="Font" onClose={onClose}>
         {!selectedText ? (
-          <p className={styles.emptyState}>Select a text item on the timeline to change its font.</p>
+          <p className={layout.emptyState}>Select a text item on the timeline to change its font.</p>
         ) : (
           <>
-            <p className={styles.sectionLabel}>Typeface</p>
+            <p className={layout.sectionLabel}>Typeface</p>
             <div className={styles.optionList}>
               {FONT_OPTIONS.map((opt) => {
                 const isActive = currentFont === opt.value
@@ -154,7 +151,7 @@ export default function FontPanel({ onClose }: Props) {
               })}
             </div>
 
-            <p className={styles.sectionLabel} style={{ marginTop: '1.5rem' }}>Animation</p>
+            <p className={layout.sectionLabel} style={{ marginTop: '1.5rem' }}>Animation</p>
             <div className={styles.optionList}>
               {ANIMATION_OPTIONS.map((opt) => {
                 const isActive = currentAnimation === opt.value
@@ -173,7 +170,7 @@ export default function FontPanel({ onClose }: Props) {
               })}
             </div>
 
-            <p className={styles.sectionLabel} style={{ marginTop: '1.5rem' }}>Style</p>
+            <p className={layout.sectionLabel} style={{ marginTop: '1.5rem' }}>Style</p>
             <div className={styles.optionList}>
               {STYLE_OPTIONS.map((opt) => {
                 const isActive = currentStyle === opt.value
@@ -211,7 +208,6 @@ export default function FontPanel({ onClose }: Props) {
             </div>
           </>
         )}
-      </div>
-    </div>
+    </SidePanelLayout>
   )
 }

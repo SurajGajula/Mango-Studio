@@ -1,0 +1,84 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  animation: centeredModalFadeIn 0.2s ease-out;
+}
+
+.content {
+  background: #111;
+  border: 1px solid #222;
+  border-radius: 12px;
+  width: 90%;
+  color: white;
+  position: relative;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.contentCompact {
+  padding: 2rem 2.25rem;
+  max-width: 420px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.contentFolder {
+  padding: 2rem 2.25rem;
+  max-width: 440px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.contentWide {
+  padding: 2.5rem;
+  max-width: 800px;
+}
+
+.closeButton {
+  position: absolute;
+  top: 1rem;
+  right: 1.25rem;
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 2rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.contentWide .closeButton {
+  right: 1.5rem;
+}
+
+.closeButton:hover:not(:disabled) {
+  color: #999;
+}
+
+.closeButton:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+@keyframes centeredModalFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 600px) {
+  .contentWide {
+    padding: 1.5rem;
+    height: 90vh;
+    overflow-y: auto;
+  }
+}

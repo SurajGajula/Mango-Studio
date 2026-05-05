@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { AccountMediaFolder } from '@/app/lib/accountMediaTypes'
+import { CenteredModal } from '@/app/components/ui/CenteredModal'
 import styles from './MoveMediaModal.module.css'
 
 function buildFolderRows(folders: AccountMediaFolder[]): { id: string; name: string; depth: number }[] {
@@ -81,58 +82,53 @@ export default function MoveMediaModal({ assetName, currentFolderId, onClose, on
     (folderId === null && currentFolderId === null) || folderId === currentFolderId
 
   return (
-    <div className={styles.modalOverlay} onClick={(e) => e.target === e.currentTarget && !pending && onClose()}>
-      <div className={styles.modalContent}>
-        <button type="button" className={styles.closeButton} onClick={() => !pending && onClose()} aria-label="Close">
-          ×
+    <CenteredModal onClose={onClose} backdropCloseDisabled={pending} size="folder">
+      <div className={styles.header}>
+        <h2>Move media</h2>
+        <p>
+          Choose a folder for <strong>{assetName}</strong>
+        </p>
+      </div>
+      {loadError ? <p className={styles.errorText}>{loadError}</p> : null}
+      <div className={styles.list} role="listbox" aria-label="Folders">
+        <button
+          type="button"
+          className={`${styles.folderOption} ${selectedId === 'root' ? styles.folderOptionSelected : ''} ${isCurrent(null) ? styles.folderOptionCurrent : ''}`}
+          style={{ paddingLeft: '0.75rem' }}
+          onClick={() => setSelectedId('root')}
+          disabled={pending}
+        >
+          Root
+          {isCurrent(null) ? <span className={styles.badge}>Current</span> : null}
         </button>
-        <div className={styles.header}>
-          <h2>Move media</h2>
-          <p>
-            Choose a folder for <strong>{assetName}</strong>
-          </p>
-        </div>
-        {loadError ? <p className={styles.errorText}>{loadError}</p> : null}
-        <div className={styles.list} role="listbox" aria-label="Folders">
+        {rows.map((row) => (
           <button
+            key={row.id}
             type="button"
-            className={`${styles.folderOption} ${selectedId === 'root' ? styles.folderOptionSelected : ''} ${isCurrent(null) ? styles.folderOptionCurrent : ''}`}
-            style={{ paddingLeft: '0.75rem' }}
-            onClick={() => setSelectedId('root')}
+            className={`${styles.folderOption} ${selectedId === row.id ? styles.folderOptionSelected : ''} ${isCurrent(row.id) ? styles.folderOptionCurrent : ''}`}
+            style={{ paddingLeft: `${0.75 + row.depth * 0.75}rem` }}
+            onClick={() => setSelectedId(row.id)}
             disabled={pending}
           >
-            Root
-            {isCurrent(null) ? <span className={styles.badge}>Current</span> : null}
+            {row.name}
+            {isCurrent(row.id) ? <span className={styles.badge}>Current</span> : null}
           </button>
-          {rows.map((row) => (
-            <button
-              key={row.id}
-              type="button"
-              className={`${styles.folderOption} ${selectedId === row.id ? styles.folderOptionSelected : ''} ${isCurrent(row.id) ? styles.folderOptionCurrent : ''}`}
-              style={{ paddingLeft: `${0.75 + row.depth * 0.75}rem` }}
-              onClick={() => setSelectedId(row.id)}
-              disabled={pending}
-            >
-              {row.name}
-              {isCurrent(row.id) ? <span className={styles.badge}>Current</span> : null}
-            </button>
-          ))}
-        </div>
-        {moveError ? <p className={styles.errorText}>{moveError}</p> : null}
-        <div className={styles.actions}>
-          <button type="button" className={styles.cancelButton} onClick={() => !pending && onClose()} disabled={pending}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className={styles.submitButton}
-            onClick={() => void handleConfirm()}
-            disabled={pending || loadError !== null}
-          >
-            {pending ? '…' : 'Move here'}
-          </button>
-        </div>
+        ))}
       </div>
-    </div>
+      {moveError ? <p className={styles.errorText}>{moveError}</p> : null}
+      <div className={styles.actions}>
+        <button type="button" className={styles.cancelButton} onClick={() => !pending && onClose()} disabled={pending}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className={styles.submitButton}
+          onClick={() => void handleConfirm()}
+          disabled={pending || loadError !== null}
+        >
+          {pending ? '…' : 'Move here'}
+        </button>
+      </div>
+    </CenteredModal>
   )
 }

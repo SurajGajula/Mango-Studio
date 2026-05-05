@@ -1,0 +1,95 @@
+.speedPresets {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.presetCard {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.presetCard:hover {
+  background: #222;
+  border-color: #444;
+}
+
+.presetCardActive {
+  background: #0070f31a;
+  border-color: #0070f3;
+}
+
+.presetName {
+  font-size: 13px;
+  font-weight: 600;
+  color: #eee;
+}
+
+.presetDesc {
+  font-size: 11px;
+  color: #888;
+}
+
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #333;
+}
+
+.controlGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.controlHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.controlLabel {
+  font-size: 13px;
+  color: #ccc;
+}
+
+.controlValue {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0070f3;
+}
+
+.slider {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 4px;
+  background: #333;
+  border-radius: 2px;
+  outline: none;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  background: #0070f3;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+.slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
