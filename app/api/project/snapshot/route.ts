@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/app/utils/supabase/admin'
 import { createClient } from '@/app/utils/supabase/server'
+import { resolveProjectId } from '@/app/lib/projectServer'
 
 const TABLE_NAME = 'project_snapshots'
-const SNAPSHOT_NAME = 'default'
-
-export async function GET() {
+export async function GET(req: NextRequest) {
   const supabase = await createClient()
   const {
     data: { user },
@@ -15,12 +14,18 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const requestedProjectId = req.nextUrl.searchParams.get('projectId')
+  const projectId = await resolveProjectId(user.id, requestedProjectId)
+  if (!projectId) {
+    return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+  }
+
   const admin = createAdminClient()
   const { data, error } = await admin
     .from(TABLE_NAME)
     .select('snapshot_json, updated_at')
     .eq('user_id', user.id)
-    .eq('name', SNAPSHOT_NAME)
+    .eq('project_id', projectId)
     .maybeSingle()
 
   if (error) {
@@ -28,6 +33,7 @@ export async function GET() {
   }
 
   return NextResponse.json({
+    projectId,
     snapshot: data?.snapshot_json ?? null,
     updatedAt: data?.updated_at ?? null,
   })
@@ -44,6 +50,12 @@ export async function PUT(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => null)
+  const requestedProjectId =
+    typeof body?.projectId === 'string' && body.projectId.trim().length > 0 ? body.projectId.trim() : null
+  const projectId = await resolveProjectId(user.id, requestedProjectId)
+  if (!projectId) {
+    return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+  }
   const snapshot = body?.snapshot
   if (!snapshot || typeof snapshot !== 'object') {
     return NextResponse.json({ error: 'Missing snapshot payload' }, { status: 400 })
@@ -53,11 +65,12 @@ export async function PUT(req: NextRequest) {
   const { error } = await admin.from(TABLE_NAME).upsert(
     {
       user_id: user.id,
-      name: SNAPSHOT_NAME,
+      name: 'default',
+      project_id: projectId,
       snapshot_json: snapshot,
       updated_at: new Date().toISOString(),
     },
-    { onConflict: 'user_id,name' }
+    { onConflict: 'user_id,project_id' }
   )
 
   if (error) {

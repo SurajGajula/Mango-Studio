@@ -1,6 +1,14 @@
 import type { MediaKeyframe } from './mediaKeyframe'
 
-export type AnimationMode = 'none' | 'zoom-in' | 'zoom-out' | 'shake' | 'jitter' | 'last-frame-hold'
+export type AnimationMode =
+  | 'none'
+  | 'zoom-in'
+  | 'zoom-out'
+  | 'shake'
+  | 'jitter'
+  | 'slide-shake-left'
+  | 'slide-shake-right'
+  | 'last-frame-hold'
 
 export type AnimationZoomEasing = 'constant' | 'fast-slow' | 'slow-fast'
 
@@ -18,7 +26,7 @@ export function migrateAnimationValue(raw: string | AnimationMode | undefined | 
   if (raw === undefined || raw === null || raw === '') return 'none'
   const s = raw as string
   if (LEGACY_ANIMATION[s]) return LEGACY_ANIMATION[s]
-  const allowed: AnimationMode[] = ['none', 'zoom-in', 'zoom-out', 'shake', 'jitter', 'last-frame-hold']
+  const allowed: AnimationMode[] = ['none', 'zoom-in', 'zoom-out', 'shake', 'jitter', 'slide-shake-left', 'slide-shake-right', 'last-frame-hold']
   if (allowed.includes(s as AnimationMode)) return s as AnimationMode
   return 'none'
 }
@@ -60,6 +68,8 @@ export const ANIMATION_FROM_ZOOM_FIELD = new Set<string>([
   'zoom-out-slow-fast',
   'shake',
   'jitter',
+  'slide-shake-left',
+  'slide-shake-right',
 ])
 
 export type TransitionMode = 'none' | 'split' | 'fade' | 'morph' | 'slide-in' | 'circle' | 'rotate' | 'flash' | 'wipe'
@@ -100,6 +110,8 @@ export class ImageClass {
   cropSh: number
   row: number
   rotation: number
+  flipHorizontal: boolean
+  flipVertical: boolean
   keyframes: MediaKeyframe[]
 
   constructor(
@@ -136,7 +148,9 @@ export class ImageClass {
     zoom?: any,
     transitionFlashMode?: FlashTransitionMode,
     zoomDistanceIntensity?: number,
-    transitionWipeEasing?: WipeTransitionEasing
+    transitionWipeEasing?: WipeTransitionEasing,
+    flipHorizontal?: boolean,
+    flipVertical?: boolean
   ) {
     this.id = id
     this.name = name
@@ -151,6 +165,8 @@ export class ImageClass {
     this.createdAt = createdAt || new Date()
     this.row = row ?? 0
     this.rotation = rotation ?? 0
+    this.flipHorizontal = flipHorizontal ?? false
+    this.flipVertical = flipVertical ?? false
 
     const zoomStr = typeof zoom === 'string' ? zoom : ''
     const animStr = animation ? String(animation) : ''
@@ -254,7 +270,9 @@ export class ImageClass {
       undefined,
       updates.transitionFlashMode ?? this.transitionFlashMode,
       updates.zoomDistanceIntensity ?? this.zoomDistanceIntensity,
-      updates.transitionWipeEasing ?? this.transitionWipeEasing
+      updates.transitionWipeEasing ?? this.transitionWipeEasing,
+      updates.flipHorizontal ?? this.flipHorizontal,
+      updates.flipVertical ?? this.flipVertical
     )
   }
 

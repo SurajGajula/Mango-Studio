@@ -118,7 +118,7 @@ export interface AddEffectInstruction {
 export interface TransitionInstruction {
   type: 'image' | 'video'
   id: string
-  animation?: 'none' | 'zoom-in' | 'zoom-out' | 'shake' | 'jitter' | 'last-frame-hold' | string
+  animation?: 'none' | 'zoom-in' | 'zoom-out' | 'shake' | 'jitter' | 'slide-shake-left' | 'slide-shake-right' | 'last-frame-hold' | string
   transition?: 'none' | 'split' | 'fade' | 'morph' | 'slide-in' | 'wipe' | 'circle' | 'rotate' | 'flash'
   zoomIntensity?: number
   zoomDistanceIntensity?: number

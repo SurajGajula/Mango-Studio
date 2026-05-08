@@ -11,6 +11,13 @@ export type CropFields = {
   cropSh: number
 }
 
+export type PlacementFields = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 const KF_TIME_EPSILON = 0.05
 
 function localElapsedForKeyframes(item: ImageClass | VideoClass, playbackTime: number): number {
@@ -35,6 +42,15 @@ function baseCropFields(item: ImageClass | VideoClass): CropFields {
     cropSy: item.cropSy ?? 0,
     cropSw: item.cropSw ?? 1,
     cropSh: item.cropSh ?? 1,
+  }
+}
+
+function basePlacementFields(item: ImageClass | VideoClass): PlacementFields {
+  return {
+    x: item.x ?? 0,
+    y: item.y ?? 0,
+    width: item.width ?? 0,
+    height: item.height ?? 0,
   }
 }
 
@@ -70,10 +86,53 @@ export function getEffectiveCropForEdit(
   return baseCropFields(item)
 }
 
+export function getEffectivePlacementForEdit(
+  item: ImageClass | VideoClass,
+  selectedKeyframeId: string | null,
+  playbackTime?: number
+): PlacementFields {
+  if (selectedKeyframeId) {
+    const k = item.keyframes.find((x) => x.id === selectedKeyframeId)
+    if (k) {
+      return {
+        x: k.x ?? item.x ?? 0,
+        y: k.y ?? item.y ?? 0,
+        width: k.width ?? item.width ?? 0,
+        height: k.height ?? item.height ?? 0,
+      }
+    }
+    return basePlacementFields(item)
+  }
+  const kfs = item.keyframes ?? []
+  if (kfs.length > 0 && playbackTime !== undefined) {
+    const localT = localElapsedForKeyframes(item, playbackTime)
+    const dur = clipDurationForKeyframes(item)
+    const r = resolveMediaKeyframeTransform(item, localT, dur)
+    return {
+      x: r.x,
+      y: r.y,
+      width: r.width,
+      height: r.height,
+    }
+  }
+  return basePlacementFields(item)
+}
+
 type CropPatch = Partial<CropFields & { zoomIntensity: number }>
+type PlacementPatch = Partial<PlacementFields>
 
 function mergeKeyframeCrop(
-  prev: { cropSx: number; cropSy: number; cropSw: number; cropSh: number; zoomIntensity: number },
+  prev: {
+    cropSx: number
+    cropSy: number
+    cropSw: number
+    cropSh: number
+    zoomIntensity: number
+    x: number
+    y: number
+    width: number
+    height: number
+  },
   patch: CropPatch
 ) {
   return {
@@ -82,6 +141,10 @@ function mergeKeyframeCrop(
     cropSw: patch.cropSw ?? prev.cropSw,
     cropSh: patch.cropSh ?? prev.cropSh,
     zoomIntensity: patch.zoomIntensity ?? prev.zoomIntensity,
+    x: prev.x,
+    y: prev.y,
+    width: prev.width,
+    height: prev.height,
   }
 }
 
@@ -113,6 +176,10 @@ export function patchCropForItemOrKeyframe(
             cropSw: kfs[idx].cropSw,
             cropSh: kfs[idx].cropSh,
             zoomIntensity: kfs[idx].zoomIntensity,
+            x: kfs[idx].x ?? item.x ?? 0,
+            y: kfs[idx].y ?? item.y ?? 0,
+            width: kfs[idx].width ?? item.width ?? 0,
+            height: kfs[idx].height ?? item.height ?? 0,
           }
         : resolveMediaKeyframeTransform(item, localT, dur)
     const merged = mergeKeyframeCrop(prevCrop, patch)
@@ -120,6 +187,58 @@ export function patchCropForItemOrKeyframe(
       idx >= 0
         ? { ...kfs[idx], ...merged }
         : { id: generateId('kf'), t: localT, ...merged }
+    if (idx >= 0) {
+      return {
+        keyframes: kfs.map((kf, i) => (i === idx ? next : kf)),
+      }
+    }
+    return {
+      keyframes: [...kfs, next].sort((a, b) => a.t - b.t),
+    }
+  }
+  return patch
+}
+
+export function patchPlacementForItemOrKeyframe(
+  item: ImageClass | VideoClass,
+  selectedKeyframeId: string | null,
+  patch: PlacementPatch,
+  playbackTime?: number
+): Partial<ImageClass> | Partial<VideoClass> {
+  if (selectedKeyframeId) {
+    const k = item.keyframes.find((x) => x.id === selectedKeyframeId)
+    if (!k) return patch
+    return {
+      keyframes: item.keyframes.map((kf) =>
+        kf.id === selectedKeyframeId ? { ...kf, ...patch } : kf
+      ),
+    }
+  }
+  const kfs = item.keyframes ?? []
+  if (kfs.length > 0 && playbackTime !== undefined) {
+    const localT = localElapsedForKeyframes(item, playbackTime)
+    const dur = clipDurationForKeyframes(item)
+    const idx = kfs.findIndex((kf) => Math.abs(kf.t - localT) < KF_TIME_EPSILON)
+    const prev =
+      idx >= 0
+        ? kfs[idx]
+        : resolveMediaKeyframeTransform(item, localT, dur)
+    const next: MediaKeyframe =
+      idx >= 0
+        ? { ...kfs[idx], ...patch }
+        : {
+            id: generateId('kf'),
+            t: localT,
+            cropSx: prev.cropSx,
+            cropSy: prev.cropSy,
+            cropSw: prev.cropSw,
+            cropSh: prev.cropSh,
+            zoomIntensity: prev.zoomIntensity,
+            x: patch.x ?? prev.x,
+            y: patch.y ?? prev.y,
+            width: patch.width ?? prev.width,
+            height: patch.height ?? prev.height,
+          }
     if (idx >= 0) {
       return {
         keyframes: kfs.map((kf, i) => (i === idx ? next : kf)),

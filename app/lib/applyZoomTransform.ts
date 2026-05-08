@@ -62,7 +62,11 @@ export function applyZoomTransform(
   animationZoomEasing?: AnimationZoomEasing,
   prevAnimationZoomEasing?: AnimationZoomEasing,
   zoomDistanceIntensity = 1,
-  prevZoomDistanceIntensity = 1
+  prevZoomDistanceIntensity = 1,
+  flipHorizontal = false,
+  flipVertical = false,
+  prevFlipHorizontal = false,
+  prevFlipVertical = false
 ): void {
   let nw = 0
   let nh = 0
@@ -86,7 +90,11 @@ export function applyZoomTransform(
     zoomIntensity: zoomIntensity !== undefined ? zoomIntensity : 0.5,
     zoomDistanceIntensity: zoomDistanceIntensity !== undefined ? zoomDistanceIntensity : 1,
     itemDuration, animationDuration, animationZoomEasing: animationZoomEasing ?? 'fast-slow', elapsedTime, prevEl, prevAnimation, prevAnimationProgress, prevElapsedTime, prevZoomIntensity, prevZoomDistanceIntensity, prevItemDuration, prevAnimationDuration, prevParams,
-    transitionColor, transitionFlashMode, transitionDirection, transitionAxis, transitionSlideEasing, transitionCircleEasing, transitionWipeEasing
+    transitionColor, transitionFlashMode, transitionDirection, transitionAxis, transitionSlideEasing, transitionCircleEasing, transitionWipeEasing,
+    flipHorizontal,
+    flipVertical,
+    prevFlipHorizontal,
+    prevFlipVertical,
   }
 
   ctx.save()
@@ -115,7 +123,7 @@ export function applyZoomTransform(
     } else {
       const { x: px, y: py, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh } = prevParams
       drawWithAnimation(
-        { ...params, x: px, y: py, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh, animationZoomEasing: prevAnimationZoomEasing ?? 'fast-slow' },
+        { ...params, x: px, y: py, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh, animationZoomEasing: prevAnimationZoomEasing ?? 'fast-slow', flipHorizontal: params.prevFlipHorizontal, flipVertical: params.prevFlipVertical },
         prevEl,
         prevAnimation ?? 'none',
         prevAnimationProgress ?? 0,

@@ -79,9 +79,11 @@ export const createImageSlice = (set: any, get: any) => ({
     const image = state.images.find((img: ImageClass) => img.id === id)
     if (!image) return
 
+    const epsilon = 1e-6
     const validTimes = times
-      .filter((t) => t > image.startTime + 0.05 && t < image.endTime - 0.05)
+      .filter((t) => t > image.startTime + epsilon && t < image.endTime - epsilon)
       .sort((a, b) => a - b)
+      .filter((t, i, arr) => i === 0 || t - arr[i - 1] > epsilon)
 
     if (validTimes.length === 0) return
 

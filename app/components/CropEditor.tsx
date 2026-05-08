@@ -106,6 +106,10 @@ export default function CropEditor({
 
       const imgOnCanvasX = fullImgLeft - offsetX
       const imgOnCanvasY = fullImgTop - offsetY
+      const cropBoxLeft = destX - offsetX
+      const cropBoxTop = destY - offsetY
+      const fh = item.flipHorizontal ? -1 : 1
+      const fv = item.flipVertical ? -1 : 1
 
       const drawSubImage = (opacity: number, clipBox?: {x:number, y:number, w:number, h:number}) => {
         ctx.save()
@@ -132,13 +136,24 @@ export default function CropEditor({
         ctx.restore()
       }
 
+      if (fh !== 1 || fv !== 1) {
+        ctx.save()
+        const cx = cropBoxLeft + destW / 2
+        const cy = cropBoxTop + destH / 2
+        ctx.translate(cx, cy)
+        ctx.scale(fh, fv)
+        ctx.translate(-cx, -cy)
+      }
+
       // 1. Draw dimmed full image
       drawSubImage(0.45)
       
       // 2. Draw highlighted crop box
-      const cropBoxLeft = destX - offsetX
-      const cropBoxTop = destY - offsetY
       drawSubImage(1.0, { x: cropBoxLeft, y: cropBoxTop, w: destW, h: destH })
+
+      if (fh !== 1 || fv !== 1) {
+        ctx.restore()
+      }
 
       // 3. Draw border
       ctx.strokeStyle = 'rgba(255,255,255,0.85)'

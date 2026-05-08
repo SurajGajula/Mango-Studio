@@ -363,6 +363,48 @@ export default function ContextMenu({
             </div>
             Animations
           </button>
+          <button
+            className={styles.contextMenuItem}
+            onClick={() => handleAction(() => {
+              pushHistory()
+              if (itemType === 'image') {
+                const img = images.find((i) => i.id === itemId)
+                if (img) updateImage(itemId, { flipHorizontal: !img.flipHorizontal })
+              } else {
+                const v = videos.find((vi) => vi.id === itemId)
+                if (v) updateVideo(itemId, { flipHorizontal: !v.flipHorizontal })
+              }
+            })}
+          >
+            <div className={styles.contextMenuIcon}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 7h11M8 12h11M8 17h11" />
+                <path d="M5 7H3M5 12H3M5 17H3" />
+              </svg>
+            </div>
+            Flip horizontal
+          </button>
+          <button
+            className={styles.contextMenuItem}
+            onClick={() => handleAction(() => {
+              pushHistory()
+              if (itemType === 'image') {
+                const img = images.find((i) => i.id === itemId)
+                if (img) updateImage(itemId, { flipVertical: !img.flipVertical })
+              } else {
+                const v = videos.find((vi) => vi.id === itemId)
+                if (v) updateVideo(itemId, { flipVertical: !v.flipVertical })
+              }
+            })}
+          >
+            <div className={styles.contextMenuIcon}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M7 8v11M12 8v11M17 8v11" />
+                <path d="M7 5V3M12 5V3M17 5V3" />
+              </svg>
+            </div>
+            Flip vertical
+          </button>
           <div 
             style={{ position: 'relative' }}
             onMouseEnter={() => setShowCropSubMenu(true)}

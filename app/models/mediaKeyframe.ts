@@ -8,6 +8,10 @@ export type MediaKeyframe = {
   cropSw: number
   cropSh: number
   zoomIntensity: number
+  x?: number
+  y?: number
+  width?: number
+  height?: number
 }
 
 export type AudioMark = {

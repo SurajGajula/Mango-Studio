@@ -4,7 +4,7 @@ import { AudioClass } from '@/app/models/AudioClass'
 import { ManifestStore, HistoryEntry } from './types'
 import { forgetFileObjectUrlIfRevoked } from '@/app/lib/fileObjectUrlCache'
 
-let historyPaused = false
+let historyPauseDepth = 0
 
 function collectUrls(entries: HistoryEntry[]): Set<string> {
   const urls = new Set<string>()
@@ -52,11 +52,11 @@ export const createHistorySlice = (set: any, get: any) => ({
   history: [{ videos: [], images: [], texts: [], audios: [], effects: [] }],
   historyIndex: 0,
 
-  pauseHistory: () => { historyPaused = true },
-  resumeHistory: () => { historyPaused = false },
+  pauseHistory: () => { historyPauseDepth++ },
+  resumeHistory: () => { historyPauseDepth = Math.max(0, historyPauseDepth - 1) },
 
   pushHistory: (opts?: { force?: boolean }) => {
-    if (historyPaused) return
+    if (historyPauseDepth > 0) return
     const state = get()
     const entry: HistoryEntry = {
       videos: [...state.videos],

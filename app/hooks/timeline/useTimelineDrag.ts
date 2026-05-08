@@ -30,6 +30,12 @@ const TIMELINE_SNAP_BASE_SEC = 0.15
 const TIMELINE_SNAP_MIN_SEC = 0.02
 const TIMELINE_SNAP_MAX_SEC = 0.25
 
+const TIMELINE_NEAR_ZERO_SEC = 1e-5
+
+function snapToZeroIfNear(time: number): number {
+  return time >= 0 && time < TIMELINE_NEAR_ZERO_SEC ? 0 : time
+}
+
 function timelineSnapThresholdSeconds(visibleDuration: number): number {
   const scaled = TIMELINE_SNAP_BASE_SEC * (visibleDuration / TIMELINE_SNAP_REF_VISIBLE_SEC)
   return Math.max(TIMELINE_SNAP_MIN_SEC, Math.min(TIMELINE_SNAP_MAX_SEC, scaled))
@@ -346,6 +352,7 @@ export function useTimelineDrag({
       }
     }
     targetTime = Math.max(0, targetTime)
+      targetTime = snapToZeroIfNear(targetTime)
 
       const container = timelineRowRef.current
       const rowElements = Array.from(container.children).filter(
@@ -733,7 +740,7 @@ export function useTimelineDrag({
       }
       newTrimStart = Math.max(0, Math.min(newTrimStart, originalDuration - initialTrimEnd - (0.5 * playbackSpeed)))
       const actualSourceDelta = newTrimStart - initialTrimStart
-      const newTimestamp = Math.max(0, initialTimestamp + actualSourceDelta / playbackSpeed)
+      const newTimestamp = snapToZeroIfNear(Math.max(0, initialTimestamp + actualSourceDelta / playbackSpeed))
       const newDuration = (originalDuration - newTrimStart - initialTrimEnd) / playbackSpeed
       const stTrimStart = useManifestStore.getState()
       if (

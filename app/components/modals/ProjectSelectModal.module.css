@@ -1,0 +1,69 @@
+.header {
+  margin-bottom: 0.75rem;
+}
+
+.header h2 {
+  margin: 0;
+  font-size: 1rem;
+  color: #fff;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  max-height: 20rem;
+  overflow: auto;
+  margin-bottom: 0.75rem;
+}
+
+.projectOption {
+  border: 1px solid #2d2d2d;
+  background: #121212;
+  border-radius: 6px;
+  text-align: left;
+  padding: 0.55rem 0.65rem;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.projectOption:hover {
+  border-color: #444;
+}
+
+.projectOptionActive {
+  border-color: #5a5a5a;
+  background: #181818;
+}
+
+.projectName {
+  font-size: 0.8rem;
+  color: #f1f1f1;
+}
+
+.projectMeta {
+  font-size: 0.68rem;
+  color: #8e8e8e;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.cancelButton {
+  border: 1px solid #2b2b2b;
+  background: #131313;
+  color: #b7b7b7;
+  border-radius: 5px;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.cancelButton:hover {
+  color: #fff;
+  border-color: #444;
+}

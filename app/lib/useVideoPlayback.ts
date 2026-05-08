@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback, type MutableRefObject } from 
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { calculateSourceTime } from '@/app/lib/renderUtils'
+import { alignTimeToFrame, manifestVideoTimelineSpanSeconds } from '@/app/lib/timeUtils'
 import { syncSelectionToActivePlayingClip } from '@/app/lib/playbackSelectionSync'
 import { VideoRenderingEngine, RenderState, RenderResources } from '@/app/lib/videoRenderingEngine'
 import { setVideoCrossOriginForUrl } from '@/app/lib/mediaUtils'
@@ -83,7 +84,7 @@ function syncManifestVideoPool(
   sortedVideos.forEach((clip) => {
     let video = videoElementsRef.current.get(clip.id)
     const clipSrc = clip.url || clip.sourceUrl
-    const span = clip.duration ?? 0
+    const span = manifestVideoTimelineSpanSeconds(clip)
     const clipEnd = clip.timestamp + span
     const inTimelineRange = playbackTime >= clip.timestamp && playbackTime < clipEnd
     const prefetchBeforeStart =
@@ -184,6 +185,7 @@ export function useVideoPlayback(
   const audioCanPlayListenersRef = useRef<Map<string, () => void>>(new Map())
   const wasPlayingRef = useRef(false)
   const internalPlaybackTimeRef = useRef(0)
+  const playbackClockResetRef = useRef(false)
   const [contentRect, setContentRect] = useState({ x: 0, y: 0, width: 0, height: 0 })
   const contentRectRef = useRef({ x: 0, y: 0, width: 0, height: 0 })
 
@@ -359,6 +361,33 @@ export function useVideoPlayback(
   }, [getAudioCtx])
 
   useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible') return
+      const ctx = getAudioCtx()
+      void ctx.resume().catch(() => {})
+      playbackClockResetRef.current = true
+      const state = getState()
+      internalPlaybackTimeRef.current = state.playbackTime
+      if (!state.isPlaying) return
+      audioPlayPromisesRef.current.clear()
+      audioWarmupUntilRef.current.clear()
+      audioPendingStartRef.current.clear()
+      state.audios.forEach((audioItem) => {
+        const el = audioElementsRef.current.get(audioItem.id)
+        if (!el) return
+        const l = audioCanPlayListenersRef.current.get(audioItem.id)
+        if (l) {
+          el.removeEventListener('canplay', l)
+          audioCanPlayListenersRef.current.delete(audioItem.id)
+        }
+      })
+      rebuildAllPreviewAudios(state.audios)
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [getAudioCtx, getState, rebuildAllPreviewAudios])
+
+  useEffect(() => {
     return () => {
       const ids = [...audioElementsRef.current.keys()]
       ids.forEach((id) => disposePreviewAudio(id))
@@ -453,6 +482,11 @@ export function useVideoPlayback(
       const { isPlaying } = state
 
       const rate = state.playbackRate ?? 1
+      if (playbackClockResetRef.current) {
+        playbackClockResetRef.current = false
+        lastTimestamp = null
+        internalPlaybackTimeRef.current = state.playbackTime
+      }
       const delta = lastTimestamp !== null ? (timestamp - lastTimestamp) / 1000 : 0
       lastTimestamp = timestamp
 
@@ -754,7 +788,7 @@ export function useVideoPlayback(
           }
 
           const renderState: RenderState = {
-            playbackTime: newTime,
+            playbackTime: alignTimeToFrame(newTime, 60),
             isPlaying,
             playbackRate: rate,
             videos: state.videos,
@@ -787,7 +821,7 @@ export function useVideoPlayback(
                   el.playbackRate = pRate
                 }
                 
-                if (el.paused && el.readyState >= 2 && !videoPlayPromisesRef.current.has(id)) {
+                if (el.paused && !videoPlayPromisesRef.current.has(id)) {
                   const p = el.play()
                   videoPlayPromisesRef.current.set(id, p)
                   p.catch(() => {}).finally(() => { videoPlayPromisesRef.current.delete(id) })

@@ -5,10 +5,12 @@ import { useAuth } from './AuthProvider'
 import MediaNameModal from './modals/MediaNameModal'
 import MoveMediaModal from './modals/MoveMediaModal'
 import PaymentModal from './modals/PaymentModal'
+import ProjectSelectModal from './modals/ProjectSelectModal'
 import SolidColorPresetStrip from './ui/SolidColorPresetStrip'
 import { addSolidShapePresetAtPlayhead } from '@/app/lib/addImageAtPlayhead'
 import { parseAccountMediaDragData, setAccountMediaDragData } from '@/app/lib/accountMediaDrag'
 import { useAccountMediaLibrary } from '@/app/hooks/useAccountMediaLibrary'
+import { UserProject } from '@/app/lib/projectTypes'
 import styles from './AccountPanel.module.css'
 
 type NameModalState =
@@ -22,7 +24,13 @@ type MoveModalState = {
   folderId: string | null
 }
 
-export default function AccountPanel() {
+type AccountPanelProps = {
+  projects: UserProject[]
+  activeProjectId: string | null
+  onSelectProject: (projectId: string | null) => void
+}
+
+export default function AccountPanel({ projects, activeProjectId, onSelectProject }: AccountPanelProps) {
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [folderTrail, setFolderTrail] = useState<Array<{ id: string | null; name: string }>>([{ id: null, name: 'Root' }])
   const uploadInputRef = useRef<HTMLInputElement>(null)
@@ -31,6 +39,7 @@ export default function AccountPanel() {
   const [draggingAssetId, setDraggingAssetId] = useState<string | null>(null)
   const [dragOverTarget, setDragOverTarget] = useState<'root' | string | null>(null)
   const [shapesOpen, setShapesOpen] = useState(false)
+  const [projectModalOpen, setProjectModalOpen] = useState(false)
 
   const { user, supabase, profile } = useAuth()
   const {
@@ -75,6 +84,69 @@ export default function AccountPanel() {
   const handleSignOut = async () => {
     if (supabase) {
       await supabase.auth.signOut()
+    }
+  }
+
+  const handleCreateProject = async () => {
+    const name = window.prompt('Project name')
+    if (!name || name.trim().length === 0) return
+    try {
+      const response = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim() }),
+      })
+      const body = await response.json().catch(() => null)
+      if (!response.ok || !body?.project?.id) {
+        throw new Error(body?.error ?? 'Failed to create project')
+      }
+      window.dispatchEvent(new Event('projects-updated'))
+      onSelectProject(body.project.id)
+    } catch (err: any) {
+      alert(err?.message ?? 'Failed to create project')
+    }
+  }
+
+  const handleRenameProject = async () => {
+    if (!activeProjectId) return
+    const current = projects.find((project) => project.id === activeProjectId)
+    const name = window.prompt('Rename project', current?.name ?? '')
+    if (!name || name.trim().length === 0) return
+    try {
+      const response = await fetch('/api/projects', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: activeProjectId, name: name.trim() }),
+      })
+      const body = await response.json().catch(() => null)
+      if (!response.ok || !body?.project?.id) {
+        throw new Error(body?.error ?? 'Failed to rename project')
+      }
+      window.dispatchEvent(new Event('projects-updated'))
+    } catch (err: any) {
+      alert(err?.message ?? 'Failed to rename project')
+    }
+  }
+
+  const handleDeleteProject = async () => {
+    if (!activeProjectId) return
+    const current = projects.find((project) => project.id === activeProjectId)
+    if (!window.confirm(`Delete project "${current?.name ?? 'Untitled'}"?`)) return
+    try {
+      const response = await fetch('/api/projects', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: activeProjectId }),
+      })
+      const body = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error(body?.error ?? 'Failed to delete project')
+      }
+      const nextId = body?.projects?.[0]?.id ?? null
+      onSelectProject(nextId)
+      window.dispatchEvent(new Event('projects-updated'))
+    } catch (err: any) {
+      alert(err?.message ?? 'Failed to delete project')
     }
   }
 
@@ -196,6 +268,10 @@ export default function AccountPanel() {
   }
 
   const hasEntries = useMemo(() => folders.length > 0 || assets.length > 0, [folders, assets])
+  const activeProjectName = useMemo(
+    () => projects.find((project) => project.id === activeProjectId)?.name ?? 'Select project',
+    [activeProjectId, projects]
+  )
 
   return (
     <div className={styles.container}>
@@ -232,6 +308,30 @@ export default function AccountPanel() {
       ) : null}
 
       <div className={styles.mediaSection}>
+        {user ? (
+          <div className={styles.projectsSection}>
+            <div className={styles.mediaSectionHeader}>
+              <p className={styles.mediaSectionLabel}>Projects</p>
+              <div className={styles.mediaActions}>
+                <button type="button" className={styles.mediaActionButton} onClick={() => setProjectModalOpen(true)} disabled={projects.length === 0}>
+                  Open
+                </button>
+                <button type="button" className={styles.mediaActionButton} onClick={handleCreateProject}>
+                  New
+                </button>
+                <button type="button" className={styles.mediaActionButton} onClick={handleRenameProject} disabled={!activeProjectId}>
+                  Rename
+                </button>
+                <button type="button" className={styles.mediaActionButton} onClick={handleDeleteProject} disabled={!activeProjectId || projects.length <= 1}>
+                  Delete
+                </button>
+              </div>
+            </div>
+            <button type="button" className={styles.projectSelectButton} onClick={() => setProjectModalOpen(true)} disabled={projects.length === 0}>
+              {activeProjectName}
+            </button>
+          </div>
+        ) : null}
         <div className={styles.mediaSectionHeader}>
           <p className={styles.mediaSectionLabel}>Media</p>
           {user ? (
@@ -392,6 +492,14 @@ export default function AccountPanel() {
       </div>
 
       {showPaymentModal && <PaymentModal onClose={() => setShowPaymentModal(false)} />}
+      {projectModalOpen ? (
+        <ProjectSelectModal
+          projects={projects}
+          activeProjectId={activeProjectId}
+          onSelect={(projectId) => onSelectProject(projectId)}
+          onClose={() => setProjectModalOpen(false)}
+        />
+      ) : null}
 
       {nameModal?.type === 'new-folder' ? (
         <MediaNameModal

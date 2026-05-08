@@ -12,12 +12,11 @@ const DB_VERSION = 1
 const STORE_META = 'meta'
 const STORE_BLOBS = 'blobs'
 const SNAPSHOT_KEY_GUEST = 'guest-snapshot'
-const SNAPSHOT_KEY_USER = 'user-draft'
 
 const BLOB_TOKEN_PREFIX = '__GUESTPERSIST_BLOB:'
-let inflightCloudLoadSnapshot: Promise<ProjectSnapshotPayload | null> | null = null
-let lastCloudSnapshotHash: string | null = null
-let inflightCloudSaveSnapshot: Promise<void> | null = null
+const inflightCloudLoadSnapshot = new Map<string, Promise<ProjectSnapshotPayload | null>>()
+const lastCloudSnapshotHash = new Map<string, string>()
+const inflightCloudSaveSnapshot = new Map<string, Promise<void>>()
 
 export type ProjectSnapshotPayload = {
   version: 1
@@ -37,6 +36,10 @@ export type ProjectSnapshotPayload = {
 
 function userDraftDbName(userId: string): string {
   return `mango-user-local-draft-${userId}`
+}
+
+function userSnapshotKey(projectId: string): string {
+  return `user-draft:${projectId}`
 }
 
 function openDb(dbName: string): Promise<IDBDatabase> {
@@ -219,7 +222,9 @@ function reviveVideo(o: Record<string, unknown>): VideoClass {
     undefined,
     o.transitionFlashMode as VideoClass['transitionFlashMode'],
     o.zoomDistanceIntensity as number | undefined,
-    o.transitionWipeEasing as VideoClass['transitionWipeEasing']
+    o.transitionWipeEasing as VideoClass['transitionWipeEasing'],
+    o.flipHorizontal as boolean | undefined,
+    o.flipVertical as boolean | undefined
   )
 }
 
@@ -259,7 +264,9 @@ function reviveImage(o: Record<string, unknown>): ImageClass {
     undefined,
     o.transitionFlashMode as ImageClass['transitionFlashMode'],
     o.zoomDistanceIntensity as number | undefined,
-    o.transitionWipeEasing as ImageClass['transitionWipeEasing']
+    o.transitionWipeEasing as ImageClass['transitionWipeEasing'],
+    o.flipHorizontal as boolean | undefined,
+    o.flipVertical as boolean | undefined
   )
 }
 
@@ -399,7 +406,7 @@ async function saveProjectSnapshot(dbName: string, metaKey: string): Promise<voi
   await idbPut(dbName, STORE_META, metaKey, JSON.stringify(payload))
 }
 
-async function saveCloudProjectSnapshot(payload: ProjectSnapshotPayload): Promise<void> {
+async function saveCloudProjectSnapshot(payload: ProjectSnapshotPayload, projectId: string): Promise<void> {
   const cloudPayload = {
     version: 1 as const,
     videos: payload.videos,
@@ -409,33 +416,43 @@ async function saveCloudProjectSnapshot(payload: ProjectSnapshotPayload): Promis
     effects: payload.effects,
   }
   const cloudPayloadHash = JSON.stringify(cloudPayload)
-  if (cloudPayloadHash === lastCloudSnapshotHash) {
+  const previousHash = lastCloudSnapshotHash.get(projectId) ?? null
+  if (cloudPayloadHash === previousHash) {
     return
   }
-  if (inflightCloudSaveSnapshot) {
-    await inflightCloudSaveSnapshot
-    if (cloudPayloadHash === lastCloudSnapshotHash) {
+  const inflight = inflightCloudSaveSnapshot.get(projectId)
+  if (inflight) {
+    await inflight
+    if (cloudPayloadHash === (lastCloudSnapshotHash.get(projectId) ?? null)) {
       return
     }
   }
-  inflightCloudSaveSnapshot = fetch('/api/project/snapshot', {
+  const nextPromise = fetch('/api/project/snapshot', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ snapshot: cloudPayload }),
+    body: JSON.stringify({ projectId, snapshot: cloudPayload }),
     credentials: 'include',
-  }).then(() => {
-    lastCloudSnapshotHash = cloudPayloadHash
-  }).finally(() => {
-    inflightCloudSaveSnapshot = null
   })
-  await inflightCloudSaveSnapshot
+    .then(async (res) => {
+      if (!res.ok) {
+        const errBody = (await res.json().catch(() => null)) as { error?: string } | null
+        throw new Error(errBody?.error ?? res.statusText)
+      }
+      lastCloudSnapshotHash.set(projectId, cloudPayloadHash)
+    })
+    .finally(() => {
+      inflightCloudSaveSnapshot.delete(projectId)
+    })
+  inflightCloudSaveSnapshot.set(projectId, nextPromise)
+  await nextPromise
 }
 
-async function loadCloudProjectSnapshot(): Promise<ProjectSnapshotPayload | null> {
-  if (inflightCloudLoadSnapshot) {
-    return inflightCloudLoadSnapshot
+async function loadCloudProjectSnapshot(projectId: string): Promise<ProjectSnapshotPayload | null> {
+  const inflight = inflightCloudLoadSnapshot.get(projectId)
+  if (inflight) {
+    return inflight
   }
-  inflightCloudLoadSnapshot = fetch('/api/project/snapshot', { method: 'GET', credentials: 'include' })
+  const nextPromise = fetch(`/api/project/snapshot?projectId=${encodeURIComponent(projectId)}`, { method: 'GET', credentials: 'include' })
     .then(async (res) => {
       if (!res.ok) return null
       const body = (await res.json().catch(() => null)) as { snapshot?: unknown } | null
@@ -444,9 +461,10 @@ async function loadCloudProjectSnapshot(): Promise<ProjectSnapshotPayload | null
       return snapshot.version === 1 ? snapshot : null
     })
     .finally(() => {
-      inflightCloudLoadSnapshot = null
+      inflightCloudLoadSnapshot.delete(projectId)
     })
-  return inflightCloudLoadSnapshot
+  inflightCloudLoadSnapshot.set(projectId, nextPromise)
+  return nextPromise
 }
 
 async function loadProjectSnapshot(dbName: string, metaKey: string): Promise<ProjectSnapshotPayload | null> {
@@ -468,6 +486,46 @@ function collectBlobTokens(snap: ProjectSnapshotPayload): Set<string> {
   }
   walk(snap)
   return tokens
+}
+
+function snapshotUsesLocalOnlyMediaRefs(payload: ProjectSnapshotPayload): boolean {
+  const walk = (v: unknown): boolean => {
+    if (typeof v === 'string') {
+      return v.startsWith(BLOB_TOKEN_PREFIX) || v.startsWith('blob:')
+    }
+    if (Array.isArray(v)) return v.some(walk)
+    if (v && typeof v === 'object') return Object.values(v as object).some(walk)
+    return false
+  }
+  return walk({
+    videos: payload.videos,
+    images: payload.images,
+    texts: payload.texts,
+    audios: payload.audios,
+    effects: payload.effects,
+  })
+}
+
+function snapshotContainsBlobUrlStrings(value: unknown): boolean {
+  if (typeof value === 'string') return value.startsWith('blob:')
+  if (Array.isArray(value)) return value.some(snapshotContainsBlobUrlStrings)
+  if (value && typeof value === 'object') {
+    return Object.values(value as object).some(snapshotContainsBlobUrlStrings)
+  }
+  return false
+}
+
+async function cloudSnapshotMediaResolvableFromIdb(
+  snap: ProjectSnapshotPayload,
+  dbName: string
+): Promise<boolean> {
+  if (snapshotContainsBlobUrlStrings(snap)) return false
+  const tokens = collectBlobTokens(snap)
+  for (const token of tokens) {
+    const blob = await idbGet<Blob>(dbName, STORE_BLOBS, token)
+    if (!blob) return false
+  }
+  return true
 }
 
 async function hydrateSnapshotIntoStore(snap: ProjectSnapshotPayload, dbName: string): Promise<void> {
@@ -529,22 +587,23 @@ export async function saveGuestProjectSnapshot(): Promise<void> {
   await saveProjectSnapshot(DB_NAME_GUEST, SNAPSHOT_KEY_GUEST)
 }
 
-export async function saveUserDraftSnapshot(userId: string): Promise<void> {
+export async function saveUserDraftSnapshot(userId: string, projectId: string): Promise<void> {
   const { payload, blobWrites } = await buildProjectSnapshotPayload()
   for (const [token, blob] of blobWrites) {
     await idbPut(userDraftDbName(userId), STORE_BLOBS, token, blob)
   }
-  await Promise.all([
-    idbPut(userDraftDbName(userId), STORE_META, SNAPSHOT_KEY_USER, JSON.stringify(payload)),
-    saveCloudProjectSnapshot(payload),
-  ])
+  const snapshotKey = userSnapshotKey(projectId)
+  await idbPut(userDraftDbName(userId), STORE_META, snapshotKey, JSON.stringify(payload))
+  if (!snapshotUsesLocalOnlyMediaRefs(payload)) {
+    await saveCloudProjectSnapshot(payload, projectId)
+  }
 }
 
 export async function clearGuestProjectPersistence(): Promise<void> {
   await idbDeleteDatabase(DB_NAME_GUEST)
 }
 
-export async function hydrateLocalProjectIfNeeded(user: { id: string } | null): Promise<void> {
+export async function hydrateLocalProjectIfNeeded(user: { id: string } | null, projectId: string | null): Promise<void> {
   if (user && !isManifestVisuallyEmpty()) {
     await clearGuestProjectPersistence()
     return
@@ -553,14 +612,18 @@ export async function hydrateLocalProjectIfNeeded(user: { id: string } | null): 
   if (!isManifestVisuallyEmpty()) return
 
   if (user) {
-    const cloudSnap = await loadCloudProjectSnapshot()
-    if (cloudSnap && cloudSnap.version === 1) {
-      await hydrateSnapshotIntoStore(cloudSnap, userDraftDbName(user.id))
-      return
-    }
-    const userSnap = await loadProjectSnapshot(userDraftDbName(user.id), SNAPSHOT_KEY_USER)
+    if (!projectId) return
+    const userSnap = await loadProjectSnapshot(userDraftDbName(user.id), userSnapshotKey(projectId))
     if (userSnap && userSnap.version === 1) {
       await hydrateSnapshotIntoStore(userSnap, userDraftDbName(user.id))
+      return
+    }
+    const cloudSnap = await loadCloudProjectSnapshot(projectId)
+    if (cloudSnap && cloudSnap.version === 1) {
+      const dbName = userDraftDbName(user.id)
+      if (await cloudSnapshotMediaResolvableFromIdb(cloudSnap, dbName)) {
+        await hydrateSnapshotIntoStore(cloudSnap, dbName)
+      }
       return
     }
   }
@@ -608,12 +671,12 @@ export function useGuestProjectPersistence(isGuest: boolean) {
   }, [isGuest])
 }
 
-export function useUserProjectPersistence(user: { id: string } | null) {
+export function useUserProjectPersistence(user: { id: string } | null, projectId: string | null) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const userId = user?.id ?? null
 
   useEffect(() => {
-    if (!userId) return
+    if (!userId || !projectId) return
 
     const shouldSaveForCloud = (
       state: ReturnType<typeof useManifestStore.getState>,
@@ -629,7 +692,7 @@ export function useUserProjectPersistence(user: { id: string } | null) {
       if (timerRef.current) clearTimeout(timerRef.current)
       timerRef.current = setTimeout(() => {
         timerRef.current = null
-        void saveUserDraftSnapshot(userId).catch(() => {})
+        void saveUserDraftSnapshot(userId, projectId).catch(() => {})
       }, 500)
     }
 
@@ -638,7 +701,7 @@ export function useUserProjectPersistence(user: { id: string } | null) {
       schedule()
     })
     const onHide = () => {
-      void saveUserDraftSnapshot(userId).catch(() => {})
+      void saveUserDraftSnapshot(userId, projectId).catch(() => {})
     }
     const onVis = () => {
       if (document.visibilityState === 'hidden') onHide()
@@ -652,5 +715,5 @@ export function useUserProjectPersistence(user: { id: string } | null) {
       document.removeEventListener('visibilitychange', onVis)
       window.removeEventListener('pagehide', onHide)
     }
-  }, [userId])
+  }, [projectId, userId])
 }

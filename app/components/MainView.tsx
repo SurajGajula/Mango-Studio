@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect } from 'react'
+import { useRef } from 'react'
 import ChatWindow from './ChatWindow'
 import ChatDisabledPlaceholder from './ChatDisabledPlaceholder'
 import AccountPanel from './AccountPanel'
@@ -20,6 +21,7 @@ import {
   useGuestProjectPersistence,
   useUserProjectPersistence,
 } from '@/app/lib/projectPersistence'
+import { useProjects } from '@/app/hooks/useProjects'
 import styles from './MainView.module.css'
 
 type RightPanel = 'chat' | 'transitions' | 'animations' | 'font' | 'effects' | 'speed' | 'pitch'
@@ -32,6 +34,7 @@ export default function MainView() {
   const [localPersistReady, setLocalPersistReady] = useState(false)
   const [authModalOpen, setAuthModalOpen] = useState(false)
   const { user, loading } = useAuth()
+  const { projects, activeProjectId, setActiveProjectId, ready: projectsReady } = useProjects(user?.id ?? null)
   const videos = useManifestStore((s) => s.videos)
   const images = useManifestStore((s) => s.images)
   const audios = useManifestStore((s) => s.audios)
@@ -43,20 +46,36 @@ export default function MainView() {
   const selectImage = useSelectionStore((s) => s.selectImage)
   const selectAudio = useSelectionStore((s) => s.selectAudio)
 
+  const hydrationTokenRef = useRef(0)
+  const hydratedProjectRef = useRef<string | null>(null)
+
   useEffect(() => {
     if (loading) return
     let cancelled = false
+    const token = ++hydrationTokenRef.current
     void (async () => {
-      await hydrateLocalProjectIfNeeded(user)
+      if (user) {
+        if (!projectsReady || !activeProjectId) return
+        if (hydratedProjectRef.current !== activeProjectId) {
+          if (!cancelled) setLocalPersistReady(false)
+          useManifestStore.getState().resetStore()
+          useSelectionStore.getState().clearSelection()
+          await hydrateLocalProjectIfNeeded(user, activeProjectId)
+          hydratedProjectRef.current = activeProjectId
+        }
+      } else {
+        await hydrateLocalProjectIfNeeded(null, null)
+      }
+      if (token !== hydrationTokenRef.current) return
       if (!cancelled) setLocalPersistReady(true)
     })()
     return () => {
       cancelled = true
     }
-  }, [loading, user])
+  }, [loading, user, projectsReady, activeProjectId])
 
   useGuestProjectPersistence(!user && localPersistReady)
-  useUserProjectPersistence(user && localPersistReady ? user : null)
+  useUserProjectPersistence(user && localPersistReady ? user : null, user ? activeProjectId : null)
 
   useEffect(() => {
     if (user) setAuthModalOpen(false)
@@ -201,7 +220,11 @@ export default function MainView() {
     <div className={styles.container}>
       <div className={styles.topRow}>
         <div className={styles.accountSection}>
-          <AccountPanel />
+          <AccountPanel
+            projects={projects}
+            activeProjectId={activeProjectId}
+            onSelectProject={setActiveProjectId}
+          />
         </div>
         <div className={styles.previewContainer}>
           <PreviewArea />

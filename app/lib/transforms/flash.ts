@@ -23,12 +23,13 @@ export function applyFlash(params: TransformParams): void {
   } = params
   
   ctx.save()
-  const flashAlpha = progress < 0.5 ? Math.min(1, progress * 2) : Math.max(0, (1 - progress) * 2)
-  
+  const envelope = Math.sin(progress * Math.PI)
+  const flashAlpha = envelope * 0.68
+
   if (prevEl && prevParams && progress < 0.5) {
     const { x: px, y: py, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh } = prevParams
     drawWithAnimation(
-      { ...params, x: px, y: py, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh },
+      { ...params, x: px, y: py, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh, flipHorizontal: params.prevFlipHorizontal, flipVertical: params.prevFlipVertical },
       prevEl,
       prevAnimation ?? 'none',
       prevAnimationProgress ?? 0,

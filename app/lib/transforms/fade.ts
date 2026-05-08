@@ -13,11 +13,11 @@ export function applyFade(params: TransformParams): void {
     ctx.globalAlpha = Math.max(0, 1 - ease)
     
     drawWithAnimation(
-      { ...params, x: px, y: py, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh }, 
-      prevEl, 
-      prevAnimation ?? 'none', 
-      prevAnimationProgress ?? 0, 
-      prevElapsedTime ?? 0, 
+      { ...params, x: px, y: py, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh, flipHorizontal: params.prevFlipHorizontal, flipVertical: params.prevFlipVertical },
+      prevEl,
+      prevAnimation ?? 'none',
+      prevAnimationProgress ?? 0,
+      prevElapsedTime ?? 0,
       prevZoomIntensity ?? 0.5,
       params.prevAnimationDuration
     )

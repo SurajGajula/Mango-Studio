@@ -196,6 +196,9 @@ export default function ChatWindow() {
         const raw = String(t.animation)
         updates.animation = migrateAnimationValue(raw)
         updates.animationZoomEasing = inferAnimationZoomEasing(raw, '', t.animationZoomEasing)
+        if (updates.animation === 'slide-shake-left' || updates.animation === 'slide-shake-right') {
+          updates.zoomIntensity = 0.1
+        }
       }
       if (t.animationZoomEasing === 'slow-fast' || t.animationZoomEasing === 'fast-slow' || t.animationZoomEasing === 'constant') {
         updates.animationZoomEasing = t.animationZoomEasing

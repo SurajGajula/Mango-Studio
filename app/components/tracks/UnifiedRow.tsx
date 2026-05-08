@@ -11,6 +11,7 @@ import { audioMarkTimelineEntries } from '@/app/lib/audioMarkTimeline'
 import { keyframeTimelineEntries } from '@/app/lib/mediaKeyframeTimeline'
 import { buildVideoStripThumbnails } from '@/app/lib/timelineVideoStrip'
 import { buildManifestNumberById, canEditTransitionBetween, toVisualTrackItem } from '@/app/lib/timelineVisualTrack'
+import { manifestVideoTimelineSpanSeconds } from '@/app/lib/timeUtils'
 import TransitionEditButton from './TransitionEditButton'
 import type { TimelineSelectionItem } from '@/app/hooks/timeline/useTimelineDrag'
 
@@ -87,7 +88,7 @@ const UnifiedRow = ({
 
   const items = useMemo(() => {
     const rowImages = images.filter((img) => img.row === rowIndex).map(img => ({ type: 'image' as const, item: img, id: img.id, startTime: img.startTime, duration: img.endTime - img.startTime }))
-    const rowVideos = videos.filter((v) => v.row === rowIndex).map(v => ({ type: 'video' as const, item: v, id: v.id, startTime: v.timestamp, duration: v.duration ?? 0 }))
+    const rowVideos = videos.filter((v) => v.row === rowIndex).map(v => ({ type: 'video' as const, item: v, id: v.id, startTime: v.timestamp, duration: manifestVideoTimelineSpanSeconds(v) }))
     const rowTexts = texts.filter((t) => t.row === rowIndex).map(t => ({ type: 'text' as const, item: t, id: t.id, startTime: t.startTime, duration: t.endTime - t.startTime }))
     const rowEffects = effects.filter((e) => e.row === rowIndex).map(e => ({ type: 'effect' as const, item: e, id: e.id, startTime: e.startTime, duration: e.endTime - e.startTime }))
     const rowAudios = audios.filter((a) => a.row === rowIndex).map(a => ({ type: 'audio' as const, item: a, id: a.id, startTime: a.startTime, duration: (a.originalDuration - a.trimStart - a.trimEnd) / (a.playbackSpeed ?? 1) }))

@@ -1,6 +1,6 @@
 import type { TransformParams } from '@/app/lib/transforms/types'
 
-const SHADER_VERSION = 9
+const SHADER_VERSION = 10
 
 const SIM_SIZE = 28
 
@@ -66,15 +66,23 @@ uniform float u_distortAmp;
 uniform float u_envelope;
 uniform float u_noiseMix;
 uniform float u_lumaBoost;
+uniform vec2 u_flipA;
+uniform vec2 u_flipB;
 varying vec2 v_uv;
 
+vec2 applyFlip(vec2 q, vec2 flip) {
+  return vec2(flip.x > 0.5 ? 1.0 - q.x : q.x, flip.y > 0.5 ? 1.0 - q.y : q.y);
+}
+
 vec4 sampleA(vec2 q) {
-  vec2 uv = (u_atlasA.xy + q * u_atlasA.zw) / u_sizeA;
+  vec2 qq = applyFlip(q, u_flipA);
+  vec2 uv = (u_atlasA.xy + qq * u_atlasA.zw) / u_sizeA;
   return texture2D(u_texA, clamp(uv, 0.001, 0.999));
 }
 
 vec4 sampleB(vec2 q) {
-  vec2 uv = (u_atlasB.xy + q * u_atlasB.zw) / u_sizeB;
+  vec2 qq = applyFlip(q, u_flipB);
+  vec2 uv = (u_atlasB.xy + qq * u_atlasB.zw) / u_sizeB;
   return texture2D(u_texB, clamp(uv, 0.001, 0.999));
 }
 
@@ -186,6 +194,8 @@ type GLCache = {
     u_envelope: WebGLUniformLocation | null
     u_noiseMix: WebGLUniformLocation | null
     u_lumaBoost: WebGLUniformLocation | null
+    u_flipA: WebGLUniformLocation | null
+    u_flipB: WebGLUniformLocation | null
   }
   buf: WebGLBuffer
   texA: WebGLTexture
@@ -279,6 +289,8 @@ function getCache(): GLCache | null {
       u_envelope: gl.getUniformLocation(program, 'u_envelope'),
       u_noiseMix: gl.getUniformLocation(program, 'u_noiseMix'),
       u_lumaBoost: gl.getUniformLocation(program, 'u_lumaBoost'),
+      u_flipA: gl.getUniformLocation(program, 'u_flipA'),
+      u_flipB: gl.getUniformLocation(program, 'u_flipB'),
     },
     buf,
     texA,
@@ -385,6 +397,12 @@ export function tryApplyMorphWebgl(params: TransformParams): boolean {
   gl.uniform1f(loc.u_envelope, Math.max(envelope, 0.0001))
   gl.uniform1f(loc.u_noiseMix, noiseMix)
   gl.uniform1f(loc.u_lumaBoost, lumaBoost)
+  gl.uniform2f(
+    loc.u_flipA,
+    params.prevFlipHorizontal ? 1 : 0,
+    params.prevFlipVertical ? 1 : 0
+  )
+  gl.uniform2f(loc.u_flipB, params.flipHorizontal ? 1 : 0, params.flipVertical ? 1 : 0)
 
   gl.disable(gl.BLEND)
   gl.clearColor(0, 0, 0, 0)

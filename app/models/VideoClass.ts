@@ -57,6 +57,8 @@ export class VideoClass {
   speedEnd?: number
   speedEasing: 'linear' | 'ease'
   keyframes: MediaKeyframe[]
+  flipHorizontal: boolean
+  flipVertical: boolean
 
   constructor(
     id: string,
@@ -104,7 +106,9 @@ export class VideoClass {
     zoom?: any,
     transitionFlashMode?: FlashTransitionMode,
     zoomDistanceIntensity?: number,
-    transitionWipeEasing?: WipeTransitionEasing
+    transitionWipeEasing?: WipeTransitionEasing,
+    flipHorizontal?: boolean,
+    flipVertical?: boolean
   ) {
     this.id = id
     this.title = title
@@ -197,6 +201,8 @@ export class VideoClass {
     this.speedEnd = speedEnd ?? this.playbackSpeed
     this.speedEasing = speedEasing ?? 'linear'
     this.keyframes = keyframes ?? []
+    this.flipHorizontal = flipHorizontal ?? false
+    this.flipVertical = flipVertical ?? false
   }
 
   copy(updates: Partial<VideoClass>): VideoClass {
@@ -246,7 +252,9 @@ export class VideoClass {
       undefined,
       updates.transitionFlashMode ?? this.transitionFlashMode,
       updates.zoomDistanceIntensity ?? this.zoomDistanceIntensity,
-      updates.transitionWipeEasing ?? this.transitionWipeEasing
+      updates.transitionWipeEasing ?? this.transitionWipeEasing,
+      updates.flipHorizontal ?? this.flipHorizontal,
+      updates.flipVertical ?? this.flipVertical
     )
   }
 }

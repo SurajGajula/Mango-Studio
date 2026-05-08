@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { useManifestStore } from '@/app/stores/manifestStore'
 
 interface ContextMenuState {
   isOpen: boolean
@@ -71,8 +72,29 @@ export const useSelectionStore = create<SelectionStore>((set) => ({
       selectedAudioMarkId: null,
       selectedKeyframeId: null,
     }),
-  selectVideo: (id, keyframeId = null) =>
-    set({
+  selectVideo: (id, keyframeId = null) => {
+    if (id) {
+      const manifest = useManifestStore.getState()
+      const v = manifest.videos.find((vv) => vv.id === id)
+      const payload = {
+        id,
+        keyframeId,
+        playbackTime: manifest.playbackTime,
+        timestamp: v?.timestamp,
+        duration: v?.duration,
+        originalDuration: v?.originalDuration,
+        trimStart: v?.trimStart,
+        trimEnd: v?.trimEnd,
+        playbackSpeed: v?.playbackSpeed,
+        speedStart: v?.speedStart,
+        speedEnd: v?.speedEnd,
+        speedEasing: v?.speedEasing,
+        url: v?.url ?? v?.sourceUrl,
+      }
+      // eslint-disable-next-line no-console
+      console.log('[selectVideo]', payload)
+    }
+    return set({
       selectedVideoId: id,
       selectedImageId: null,
       selectedTextId: null,
@@ -80,7 +102,8 @@ export const useSelectionStore = create<SelectionStore>((set) => ({
       selectedEffectId: null,
       selectedAudioMarkId: null,
       selectedKeyframeId: keyframeId,
-    }),
+    })
+  },
   selectImage: (id, keyframeId = null) =>
     set({
       selectedVideoId: null,

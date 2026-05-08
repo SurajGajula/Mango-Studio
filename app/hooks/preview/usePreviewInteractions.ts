@@ -1,7 +1,12 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
-import { getEffectiveCropForEdit, patchCropForItemOrKeyframe } from '@/app/lib/cropKeyframeHelpers'
+import {
+  getEffectiveCropForEdit,
+  getEffectivePlacementForEdit,
+  patchCropForItemOrKeyframe,
+  patchPlacementForItemOrKeyframe,
+} from '@/app/lib/cropKeyframeHelpers'
 import { ImageClass } from '@/app/models/ImageClass'
 import { VideoClass } from '@/app/models/VideoClass'
 import { TextClass } from '@/app/models/TextClass'
@@ -395,15 +400,17 @@ export function usePreviewInteractions(
     if (itemType === 'image') {
       const img = images.find((i) => i.id === itemId)
       if (!img) return
-      initialX = img.x; initialY = img.y; initialWidth = img.width; initialHeight = img.height
+      const eff = getEffectivePlacementForEdit(img, selectedKeyframeId, playbackTime)
+      initialX = eff.x; initialY = eff.y; initialWidth = eff.width; initialHeight = eff.height
     } else {
       const vid = videos.find((v) => v.id === itemId)
       if (!vid) return
-      initialX = vid.x; initialY = vid.y; initialWidth = vid.width; initialHeight = vid.height
+      const eff = getEffectivePlacementForEdit(vid, selectedKeyframeId, playbackTime)
+      initialX = eff.x; initialY = eff.y; initialWidth = eff.width; initialHeight = eff.height
     }
 
     setDragState({ itemId, itemType, mode, startX: e.clientX, startY: e.clientY, initialX, initialY, initialWidth, initialHeight })
-  }, [images, videos, selectedImageId, selectedVideoId, setSelectedImageId, setSelectedVideoId, cropEditId])
+  }, [images, videos, selectedImageId, selectedVideoId, setSelectedImageId, setSelectedVideoId, cropEditId, selectedKeyframeId, playbackTime])
 
   useEffect(() => {
     if (!dragState) {
@@ -448,8 +455,22 @@ export function usePreviewInteractions(
         newY = Math.min(Math.max(0, newY), maxY)
 
         setSnapLines({ horizontal: activeSnapLinesH, vertical: activeSnapLinesV })
-        if (dragState.itemType === 'image') updateImage(dragState.itemId, { x: newX, y: newY })
-        else updateVideo(dragState.itemId, { x: newX, y: newY })
+        const state = useManifestStore.getState()
+        if (dragState.itemType === 'image') {
+          const item = state.images.find((i) => i.id === dragState.itemId)
+          if (!item) return
+          const kfId = useSelectionStore.getState().selectedKeyframeId
+          const pt = state.playbackTime
+          const patch = patchPlacementForItemOrKeyframe(item, kfId, { x: newX, y: newY }, pt)
+          state.updateImage(dragState.itemId, patch as Partial<ImageClass>)
+        } else {
+          const item = state.videos.find((v) => v.id === dragState.itemId)
+          if (!item) return
+          const kfId = useSelectionStore.getState().selectedKeyframeId
+          const pt = state.playbackTime
+          const patch = patchPlacementForItemOrKeyframe(item, kfId, { x: newX, y: newY }, pt)
+          state.updateVideo(dragState.itemId, patch as Partial<VideoClass>)
+        }
       }
     }
 
@@ -465,7 +486,7 @@ export function usePreviewInteractions(
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [dragState, xScale, yScale, updateImage, updateVideo, pushHistory, aspectRatio])
+  }, [dragState, xScale, yScale, pushHistory, aspectRatio])
 
   const handleTextMouseDown = useCallback((textId: string, e: React.MouseEvent) => {
     e.preventDefault()

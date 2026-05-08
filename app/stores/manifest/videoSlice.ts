@@ -146,10 +146,12 @@ export const createVideoSlice = (set: any, get: any) => ({
     const duration = video.duration ?? 0
     const origDuration = video.originalDuration ?? duration
 
+    const epsilon = 1e-6
     const relTimes = times
       .map((t) => t - video.timestamp)
-      .filter((t) => t > 0.05 && t < duration - 0.05)
+      .filter((t) => t > epsilon && t < duration - epsilon)
       .sort((a, b) => a - b)
+      .filter((t, i, arr) => i === 0 || t - arr[i - 1] > epsilon)
 
     if (relTimes.length === 0) return
 

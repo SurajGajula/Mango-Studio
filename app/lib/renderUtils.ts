@@ -2,6 +2,7 @@ import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
 import { resolveMediaKeyframeTransform } from '@/app/lib/resolveMediaKeyframeTransform'
+import { manifestVideoTimelineSpanSeconds } from '@/app/lib/timeUtils'
 
 export interface MainItem {
   id: string
@@ -27,6 +28,8 @@ export function resolvedClipPlacement(item: VideoClass | ImageClass) {
     cropSw: item.cropSw,
     cropSh: item.cropSh,
     rotation: item instanceof ImageClass ? item.rotation : 0,
+    flipHorizontal: item.flipHorizontal,
+    flipVertical: item.flipVertical,
   }
 }
 
@@ -41,7 +44,9 @@ export function clipsTransitionLayoutCompatible(a: VideoClass | ImageClass, b: V
     near(pa.y, pb.y) &&
     near(pa.w, pb.w) &&
     near(pa.h, pb.h) &&
-    near(aAspect, bAspect)
+    near(aAspect, bAspect) &&
+    pa.flipHorizontal === pb.flipHorizontal &&
+    pa.flipVertical === pb.flipVertical
   )
 }
 
@@ -52,7 +57,7 @@ export function getSortedRowItems(row: number, videos: VideoClass[], images: Ima
       type: 'video' as const,
       item: v,
       startTime: v.timestamp,
-      duration: v.duration || 0,
+      duration: manifestVideoTimelineSpanSeconds(v),
     })),
     ...images.filter((img) => img.row === row).map((img) => ({
       id: img.id,
@@ -113,10 +118,10 @@ export function renderClipTransitionPair(
     if (el && videoHasDrawableFrame(el)) {
       const kn = resolveMediaKeyframeTransform(nv, elapsedB, nv.duration ?? 0)
       nextParams = {
-        x: cr.x + (nv.x ?? 0) * xScale,
-        y: cr.y + (nv.y ?? 0) * yScale,
-        w: (nv.width ?? logicalW) * xScale,
-        h: (nv.height ?? logicalH) * yScale,
+        x: cr.x + kn.x * xScale,
+        y: cr.y + kn.y * yScale,
+        w: kn.width * xScale,
+        h: kn.height * yScale,
         sx: el.videoWidth * kn.cropSx,
         sy: el.videoHeight * kn.cropSy,
         sw: el.videoWidth * kn.cropSw,
@@ -131,10 +136,10 @@ export function renderClipTransitionPair(
       const kn = resolveMediaKeyframeTransform(ni, elapsedB, ni.duration)
       const { w: nw, h: nh } = bitmapOrImageSize(el)
       nextParams = {
-        x: cr.x + ni.x * xScale,
-        y: cr.y + ni.y * yScale,
-        w: ni.width * xScale,
-        h: ni.height * yScale,
+        x: cr.x + kn.x * xScale,
+        y: cr.y + kn.y * yScale,
+        w: kn.width * xScale,
+        h: kn.height * yScale,
         sx: nw * kn.cropSx,
         sy: nh * kn.cropSy,
         sw: nw * kn.cropSw,
@@ -155,10 +160,10 @@ export function renderClipTransitionPair(
     if (el && videoHasDrawableFrame(el)) {
       const ka = resolveMediaKeyframeTransform(av, elapsedA, av.duration ?? 0)
       curParams = {
-        x: cr.x + (av.x ?? 0) * xScale,
-        y: cr.y + (av.y ?? 0) * yScale,
-        w: (av.width ?? logicalW) * xScale,
-        h: (av.height ?? logicalH) * yScale,
+        x: cr.x + ka.x * xScale,
+        y: cr.y + ka.y * yScale,
+        w: ka.width * xScale,
+        h: ka.height * yScale,
         sx: el.videoWidth * ka.cropSx,
         sy: el.videoHeight * ka.cropSy,
         sw: el.videoWidth * ka.cropSw,
@@ -173,10 +178,10 @@ export function renderClipTransitionPair(
       const ka = resolveMediaKeyframeTransform(ai, elapsedA, ai.duration)
       const { w: cw, h: ch } = bitmapOrImageSize(el)
       curParams = {
-        x: cr.x + ai.x * xScale,
-        y: cr.y + ai.y * yScale,
-        w: ai.width * xScale,
-        h: ai.height * yScale,
+        x: cr.x + ka.x * xScale,
+        y: cr.y + ka.y * yScale,
+        w: ka.width * xScale,
+        h: ka.height * yScale,
         sx: cw * ka.cropSx,
         sy: ch * ka.cropSy,
         sw: cw * ka.cropSw,
@@ -256,7 +261,11 @@ export function renderClipTransitionPair(
       activeItem.animationZoomEasing,
       undefined,
       activeItem.zoomDistanceIntensity,
-      undefined
+      undefined,
+      activeItem.flipHorizontal,
+      activeItem.flipVertical,
+      false,
+      false
     )
 
     ctx.save()
@@ -299,7 +308,11 @@ export function renderClipTransitionPair(
       nextItem.animationZoomEasing,
       undefined,
       nextItem.zoomDistanceIntensity,
-      undefined
+      undefined,
+      nextItem.flipHorizontal,
+      nextItem.flipVertical,
+      false,
+      false
     )
     ctx.restore()
     return true
@@ -341,7 +354,11 @@ export function renderClipTransitionPair(
     nextItem.animationZoomEasing,
     activeItem.animationZoomEasing,
     nextItem.zoomDistanceIntensity,
-    activeItem.zoomDistanceIntensity
+    activeItem.zoomDistanceIntensity,
+    nextItem.flipHorizontal,
+    nextItem.flipVertical,
+    activeItem.flipHorizontal,
+    activeItem.flipVertical
   )
   return true
 }

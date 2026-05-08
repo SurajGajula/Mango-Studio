@@ -97,6 +97,10 @@ export function useTimelineShortcuts({
             cropSw: snap.cropSw,
             cropSh: snap.cropSh,
             zoomIntensity: snap.zoomIntensity,
+            x: snap.x,
+            y: snap.y,
+            width: snap.width,
+            height: snap.height,
           }
           updateVideo(selectedVideoId, { keyframes: [...v.keyframes, newKf].sort((a, b) => a.t - b.t) })
           return
@@ -117,6 +121,10 @@ export function useTimelineShortcuts({
             cropSw: snap.cropSw,
             cropSh: snap.cropSh,
             zoomIntensity: snap.zoomIntensity,
+            x: snap.x,
+            y: snap.y,
+            width: snap.width,
+            height: snap.height,
           }
           updateImage(selectedImageId, { keyframes: [...img.keyframes, newKf].sort((a, b) => a.t - b.t) })
         }

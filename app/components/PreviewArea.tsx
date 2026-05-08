@@ -9,7 +9,9 @@ import { ImageClass } from '@/app/models/ImageClass'
 import { VideoClass } from '@/app/models/VideoClass'
 import { TextClass } from '@/app/models/TextClass'
 import { getEffectiveCropForEdit } from '@/app/lib/cropKeyframeHelpers'
+import { resolveMediaKeyframeTransform } from '@/app/lib/resolveMediaKeyframeTransform'
 import { FIXED_ASPECT_RATIO } from '@/app/lib/aspectRatio'
+import { manifestVideoTimelineSpanSeconds } from '@/app/lib/timeUtils'
 import styles from './PreviewArea.module.css'
 import TextOverlay from './TextOverlay'
 import CropEditor from './CropEditor'
@@ -22,6 +24,8 @@ interface OverlayItemProps {
   w: number
   h: number
   rotation: number
+  flipHorizontal: boolean
+  flipVertical: boolean
   isSelected: boolean
   offsetX: number
   offsetY: number
@@ -39,7 +43,7 @@ interface OverlayItemProps {
 }
 
 const OverlayItem = memo(({
-  itemId, itemType, x, y, w, h, rotation, isSelected,
+  itemId, itemType, x, y, w, h, rotation, flipHorizontal, flipVertical, isSelected,
   offsetX, offsetY, xScale, yScale,
   handleOverlayMouseDown, handleOverlayContextMenu, handleImageRotationMouseDown, showRotateHandle, hasCrop, cropEditId,
   enterCropEdit, exitCropEdit, children
@@ -56,13 +60,18 @@ const OverlayItem = memo(({
   }, [hasCrop, cropEditId, itemId, itemType, enterCropEdit, exitCropEdit])
 
   const rot = rotation ?? 0
+  const sx = flipHorizontal ? -1 : 1
+  const sy = flipVertical ? -1 : 1
+  const parts: string[] = []
+  if (rot !== 0) parts.push(`rotate(${rot}deg)`)
+  if (sx !== 1 || sy !== 1) parts.push(`scale(${sx}, ${sy})`)
   const overlayStyle: CSSProperties = {
     left: px,
     top: py,
     width: pw,
     height: ph,
-    ...(rot !== 0
-      ? { transform: `rotate(${rot}deg)`, transformOrigin: `${pw / 2}px ${ph / 2}px` }
+    ...(parts.length > 0
+      ? { transform: parts.join(' '), transformOrigin: `${pw / 2}px ${ph / 2}px` }
       : {}),
   }
 
@@ -167,7 +176,7 @@ export default function PreviewArea() {
       layers.push({ kind: 'image', row: image.row, t0: image.startTime, image })
     }
     for (const video of videos) {
-      const vdur = video.duration ?? 0
+      const vdur = manifestVideoTimelineSpanSeconds(video)
       if (vdur <= 0) continue
       if (playbackTime < video.timestamp || playbackTime >= video.timestamp + vdur) continue
       layers.push({ kind: 'video', row: video.row, t0: video.timestamp, video })
@@ -219,20 +228,22 @@ export default function PreviewArea() {
       const layer = topFirst[i]
       if (layer.kind === 'video') {
         const vid = layer.video
-        const vx = vid.x * xScale + offsetX
-        const vy = vid.y * yScale + offsetY
-        const vw = vid.width * xScale
-        const vh = vid.height * yScale
+        const kf = resolveMediaKeyframeTransform(vid, playbackTime - vid.timestamp, manifestVideoTimelineSpanSeconds(vid))
+        const vx = kf.x * xScale + offsetX
+        const vy = kf.y * yScale + offsetY
+        const vw = kf.width * xScale
+        const vh = kf.height * yScale
         if (px >= vx && px <= vx + vw && py >= vy && py <= vy + vh) {
           enterCropEdit(vid.id, 'video')
           return
         }
       } else if (layer.kind === 'image') {
         const img = layer.image
-        const ix = img.x * xScale + offsetX
-        const iy = img.y * yScale + offsetY
-        const iw = img.width * xScale
-        const ih = img.height * yScale
+        const kf = resolveMediaKeyframeTransform(img, playbackTime - img.startTime, img.duration)
+        const ix = kf.x * xScale + offsetX
+        const iy = kf.y * yScale + offsetY
+        const iw = kf.width * xScale
+        const ih = kf.height * yScale
         if (px >= ix && px <= ix + iw && py >= iy && py <= iy + ih) {
           enterCropEdit(img.id, 'image')
           return
@@ -241,7 +252,12 @@ export default function PreviewArea() {
     }
 
     // Check main video
-    const mainVideo = videos.find((v) => v.row === 0 && playbackTime >= v.timestamp && playbackTime < v.timestamp + (v.duration ?? 0))
+    const mainVideo = videos.find(
+      (v) =>
+        v.row === 0 &&
+        playbackTime >= v.timestamp &&
+        playbackTime < v.timestamp + manifestVideoTimelineSpanSeconds(v)
+    )
     if (mainVideo) {
       if (px >= offsetX && px <= offsetX + contentRect.width && py >= offsetY && py <= offsetY + contentRect.height) {
         enterCropEdit(mainVideo.id, 'video')
@@ -280,10 +296,11 @@ export default function PreviewArea() {
         const layer = topFirst[i]
         if (layer.kind === 'video') {
           const vid = layer.video
-          const vx = vid.x * xScale + offsetX
-          const vy = vid.y * yScale + offsetY
-          const vw = vid.width * xScale
-          const vh = vid.height * yScale
+          const kf = resolveMediaKeyframeTransform(vid, playbackTime - vid.timestamp, manifestVideoTimelineSpanSeconds(vid))
+          const vx = kf.x * xScale + offsetX
+          const vy = kf.y * yScale + offsetY
+          const vw = kf.width * xScale
+          const vh = kf.height * yScale
           if (px >= vx && px <= vx + vw && py >= vy && py <= vy + vh) {
             e.preventDefault()
             e.stopPropagation()
@@ -299,10 +316,11 @@ export default function PreviewArea() {
           }
         } else if (layer.kind === 'image') {
           const img = layer.image
-          const ix = img.x * xScale + offsetX
-          const iy = img.y * yScale + offsetY
-          const iw = img.width * xScale
-          const ih = img.height * yScale
+          const kf = resolveMediaKeyframeTransform(img, playbackTime - img.startTime, img.duration)
+          const ix = kf.x * xScale + offsetX
+          const iy = kf.y * yScale + offsetY
+          const iw = kf.width * xScale
+          const ih = kf.height * yScale
           if (px >= ix && px <= ix + iw && py >= iy && py <= iy + ih) {
             e.preventDefault()
             e.stopPropagation()
@@ -320,7 +338,10 @@ export default function PreviewArea() {
       }
 
       const mainVideo = videos.find(
-        (v) => v.row === 0 && playbackTime >= v.timestamp && playbackTime < v.timestamp + (v.duration ?? 0)
+        (v) =>
+          v.row === 0 &&
+          playbackTime >= v.timestamp &&
+          playbackTime < v.timestamp + manifestVideoTimelineSpanSeconds(v)
       )
       if (mainVideo) {
         if (px >= offsetX && px <= offsetX + contentRect.width && py >= offsetY && py <= offsetY + contentRect.height) {
@@ -382,16 +403,19 @@ export default function PreviewArea() {
                   {sortedPreviewLayers.map((layer) => {
                     if (layer.kind === 'image') {
                       const image = layer.image
+                      const kf = resolveMediaKeyframeTransform(image, playbackTime - image.startTime, image.duration)
                       return (
                         <OverlayItem
                           key={image.id}
                           itemId={image.id}
                           itemType="image"
-                          x={image.x}
-                          y={image.y}
-                          w={image.width}
-                          h={image.height}
+                          x={kf.x}
+                          y={kf.y}
+                          w={kf.width}
+                          h={kf.height}
                           rotation={image.rotation ?? 0}
+                          flipHorizontal={image.flipHorizontal}
+                          flipVertical={image.flipVertical}
                           isSelected={selectedImageId === image.id}
                           offsetX={offsetX}
                           offsetY={offsetY}
@@ -410,16 +434,19 @@ export default function PreviewArea() {
                     }
                     if (layer.kind === 'video') {
                       const video = layer.video
+                      const kf = resolveMediaKeyframeTransform(video, playbackTime - video.timestamp, manifestVideoTimelineSpanSeconds(video))
                       return (
                         <OverlayItem
                           key={video.id}
                           itemId={video.id}
                           itemType="video"
-                          x={video.x}
-                          y={video.y}
-                          w={video.width}
-                          h={video.height}
+                          x={kf.x}
+                          y={kf.y}
+                          w={kf.width}
+                          h={kf.height}
                           rotation={0}
+                          flipHorizontal={video.flipHorizontal}
+                          flipVertical={video.flipVertical}
                           isSelected={selectedVideoId === video.id}
                           offsetX={offsetX}
                           offsetY={offsetY}

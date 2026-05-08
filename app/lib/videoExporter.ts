@@ -20,7 +20,7 @@ import {
   renderClipTransitionPair,
 } from '@/app/lib/renderUtils'
 import { resolveMediaKeyframeTransform } from '@/app/lib/resolveMediaKeyframeTransform'
-import { calculateTotalDuration } from '@/app/lib/timeUtils'
+import { alignTimeToFrame, calculateTotalDuration, manifestVideoTimelineSpanSeconds } from '@/app/lib/timeUtils'
 import { audioBufferToWav } from '@/app/lib/audioUtils'
 
 let ffmpegInstance: FFmpeg | null = null
@@ -30,6 +30,11 @@ let ffmpegLock = false
 function videoElementHasDrawableFrame(el: HTMLVideoElement): boolean {
   if (el.videoWidth <= 0 || el.videoHeight <= 0) return false
   return el.readyState >= 1
+}
+
+function videoElementHasDecodedFrame(el: HTMLVideoElement): boolean {
+  if (el.videoWidth <= 0 || el.videoHeight <= 0) return false
+  return el.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
 }
 
 async function getFFmpeg(): Promise<FFmpeg> {
@@ -219,40 +224,69 @@ export async function exportVideo(
     const yScale = height / logicalH
 
     const renderFullFrame = async (t: number) => {
+      const isFirstFrame = t <= (1 / 60) * 0.5
       const ensureVideoReady = async (vEl: HTMLVideoElement, targetTime: number) => {
-        const needsSeek = Math.abs(vEl.currentTime - targetTime) > 0.02
-        if (needsSeek) {
+        const hasDecoded = videoElementHasDecodedFrame(vEl)
+
+        const clampTime = (time: number) => {
+          const dur = vEl.duration
+          const minT = Math.max(0, time)
+          if (!Number.isFinite(dur) || dur <= 0) return minT
+          return Math.min(minT, Math.max(0, dur - 0.04))
+        }
+
+        const seekTo = async (time: number) => {
           await new Promise<void>((resolve) => {
             let resolved = false
-            const onSeeked = () => {
+            const onFinish = () => {
               if (resolved) return
               resolved = true
-              vEl.removeEventListener('seeked', onSeeked)
-              vEl.removeEventListener('error', onSeeked)
+              vEl.removeEventListener('seeked', onFinish)
+              vEl.removeEventListener('error', onFinish)
               resolve()
             }
-            vEl.addEventListener('seeked', onSeeked)
-            vEl.addEventListener('error', onSeeked)
-            vEl.currentTime = targetTime
-            setTimeout(onSeeked, 1500)
+            vEl.addEventListener('seeked', onFinish)
+            vEl.addEventListener('error', onFinish)
+            vEl.currentTime = clampTime(time)
+            setTimeout(onFinish, isFirstFrame ? 2500 : 1500)
           })
         }
-        if (vEl.readyState < 2) {
+
+        // For the very first frame, force a tiny prime seek when we don't
+        // yet have decoded frame data, so we don't paint black.
+        if (isFirstFrame && !hasDecoded) {
+          await seekTo(targetTime + 1 / 120)
+          await seekTo(targetTime)
+          return
+        }
+
+        const needsSeek = Math.abs(vEl.currentTime - targetTime) > 0.02
+        if (needsSeek) {
+          await seekTo(targetTime)
+        }
+
+        if (vEl.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
           await new Promise<void>((resolve) => {
-            if (vEl.readyState >= 2) { resolve(); return }
-            const onCanPlay = () => { vEl.removeEventListener('canplay', onCanPlay); resolve() }
+            if (vEl.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+              resolve()
+              return
+            }
+            const onCanPlay = () => {
+              vEl.removeEventListener('canplay', onCanPlay)
+              resolve()
+            }
             vEl.addEventListener('canplay', onCanPlay)
-            setTimeout(resolve, 500)
+            setTimeout(resolve, isFirstFrame ? 1500 : 500)
           })
         }
       }
 
       const videosToReady: { el: HTMLVideoElement; time: number }[] = []
-      const ovs = allVideos.filter(v => t >= v.timestamp && t < v.timestamp + (v.duration || 0))
+      const ovs = allVideos.filter((v) => t >= v.timestamp && t < v.timestamp + manifestVideoTimelineSpanSeconds(v))
       for (const v of ovs) {
         const vEl = videoElements.get(v.id); if (vEl) {
           const elapsed = Math.max(0, t - v.timestamp)
-          const ovDur = clipTimelineSpanForSourceMap(v.duration)
+          const ovDur = clipTimelineSpanForSourceMap(manifestVideoTimelineSpanSeconds(v))
           const tmOvEx = videoTimelineSourceMapping(v, elapsed, ovDur)
           const localTime = (v.trimStart ?? 0) + tmOvEx.sourceElapsed
           videosToReady.push({ el: vEl, time: localTime })
@@ -281,7 +315,7 @@ export async function exportVideo(
           const currentEl = videoElements.get(av.id)
           if (currentEl) {
             const elapsed = Math.max(0, t - pr.activeItem.startTime)
-            const avDur = clipTimelineSpanForSourceMap(av.duration)
+            const avDur = clipTimelineSpanForSourceMap(manifestVideoTimelineSpanSeconds(av))
             const tmA = videoTimelineSourceMapping(av, elapsed, avDur)
             videosToReady.push({ el: currentEl, time: (av.trimStart ?? 0) + tmA.sourceElapsed })
           }
@@ -335,7 +369,7 @@ export async function exportVideo(
         if (pr.activeItem && pr.nextItem && tr.transitionActive && tr.progress < 1) {
           const renderedPair = renderClipTransitionPair(ctx, exportCr, t, pr.activeItem, pr.nextItem, tr.progress, (id) => {
             const el = videoElements.get(id)
-            return el && videoElementHasDrawableFrame(el) ? el : undefined
+            return el && videoElementHasDecodedFrame(el) ? el : undefined
           }, (id) => imageElements.get(id) ?? undefined)
           if (renderedPair) {
             skipOverlayExportIdsByRow.set(row, new Set([pr.activeItem.id, pr.nextItem.id]))
@@ -353,22 +387,34 @@ export async function exportVideo(
           ctx.save(); ctx.globalAlpha = img.opacity
           const prog = calculateAnimationProgress(img, t, img.startTime)
           const kox = resolveMediaKeyframeTransform(img, t - img.startTime, img.duration)
-          const ix = img.x * xScale
-          const iy = img.y * yScale
-          const iw = img.width * xScale
-          const ih = img.height * yScale
+          const ix = kox.x * xScale
+          const iy = kox.y * yScale
+          const iw = kox.width * xScale
+          const ih = kox.height * yScale
           runWithPlacementRotation(ctx, ix, iy, iw, ih, img.rotation, (ox, oy) => {
             applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, ox, oy, iw, ih, kox.cropSx, kox.cropSy, kox.cropSw, kox.cropSh, kox.zoomIntensity, img.duration, img.animationDuration, t - img.startTime, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, img.transitionColor, img.transitionFlashMode, img.transitionDirection, img.transitionAxis, img.transitionSlideEasing, img.transitionCircleEasing, img.transitionWipeEasing, img.animationZoomEasing, undefined, img.zoomDistanceIntensity, undefined)
-          })
+          }, img.flipHorizontal, img.flipVertical)
           ctx.restore()
         } else if (entry.kind === 'video') {
           const v = entry.video
-          const vEl = videoElements.get(v.id); if (!vEl || !videoElementHasDrawableFrame(vEl)) continue
+          const vEl = videoElements.get(v.id); if (!vEl || !videoElementHasDecodedFrame(vEl)) continue
           const prog = calculateAnimationProgress(v, t, v.timestamp)
           const elV = Math.max(0, t - v.timestamp)
-          const kvx = resolveMediaKeyframeTransform(v, elV, v.duration ?? 0)
+          const kvx = resolveMediaKeyframeTransform(v, elV, manifestVideoTimelineSpanSeconds(v))
           ctx.save(); ctx.globalAlpha = v.opacity
-          applyZoomTransform(ctx, v.animation, v.transition, prog, vEl, v.x * xScale, v.y * yScale, v.width * xScale, v.height * yScale, kvx.cropSx, kvx.cropSy, kvx.cropSw, kvx.cropSh, kvx.zoomIntensity, v.duration, v.animationDuration, elV, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, v.transitionColor, v.transitionFlashMode, v.transitionDirection, v.transitionAxis, v.transitionSlideEasing, v.transitionCircleEasing, v.transitionWipeEasing, v.animationZoomEasing, undefined, v.zoomDistanceIntensity, undefined)
+          runWithPlacementRotation(
+            ctx,
+            kvx.x * xScale,
+            kvx.y * yScale,
+            kvx.width * xScale,
+            kvx.height * yScale,
+            0,
+            (px, py) => {
+              applyZoomTransform(ctx, v.animation, v.transition, prog, vEl, px, py, kvx.width * xScale, kvx.height * yScale, kvx.cropSx, kvx.cropSy, kvx.cropSw, kvx.cropSh, kvx.zoomIntensity, manifestVideoTimelineSpanSeconds(v), v.animationDuration, elV, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, v.transitionColor, v.transitionFlashMode, v.transitionDirection, v.transitionAxis, v.transitionSlideEasing, v.transitionCircleEasing, v.transitionWipeEasing, v.animationZoomEasing, undefined, v.zoomDistanceIntensity, undefined)
+            },
+            v.flipHorizontal,
+            v.flipVertical
+          )
           ctx.restore()
         } else {
           const text = entry.text
@@ -527,13 +573,14 @@ export async function exportVideo(
         } catch (err) { ffmpegLock = false; reject(err) }
       }
 
-      let isCancelled = false; let isFirstFrame = true; let currentTime = 0
+      let isCancelled = false; let isFirstFrame = true
       const frameRate = 60
-      const frameStep = 1 / frameRate
+      const totalFrames = Math.max(1, Math.ceil(totalDuration * frameRate))
 
       ;(async () => {
         try {
-          while (currentTime < totalDuration - 0.001 && !signal?.aborted) {
+          for (let frame = 0; frame < totalFrames && !signal?.aborted; frame++) {
+            const currentTime = alignTimeToFrame(frame / frameRate, frameRate)
             if (isFirstFrame) { 
               isFirstFrame = false; 
               mediaRecorder.start(100) 
@@ -543,12 +590,10 @@ export async function exportVideo(
             
             onProgress?.({ 
               phase: 'rendering', 
-              progress: Math.min(95, 15 + (currentTime / totalDuration) * 80), 
-              message: `Rendering... ${Math.round((currentTime / totalDuration) * 100)}%` 
+              progress: Math.min(95, 15 + ((frame + 1) / totalFrames) * 80), 
+              message: `Rendering... ${Math.round(((frame + 1) / totalFrames) * 100)}%` 
             })
-            
-            currentTime += frameStep
-            
+
             // Wait for browser to actually paint the canvas and MediaRecorder to capture it.
             // Using a slightly larger delay than 0 to ensure the compositor picks up the frame.
             // This also ensures we don't overwhelm the MediaRecorder's encoding queue.

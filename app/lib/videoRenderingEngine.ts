@@ -12,6 +12,7 @@ import {
   checkTransition,
   renderClipTransitionPair,
 } from '@/app/lib/renderUtils'
+import { manifestVideoTimelineSpanSeconds } from '@/app/lib/timeUtils'
 import { resolveMediaKeyframeTransform } from '@/app/lib/resolveMediaKeyframeTransform'
 import { runWithPlacementRotation } from '@/app/lib/placementRotation'
 import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
@@ -36,7 +37,10 @@ export interface RenderResources {
 }
 
 const PAUSED_SCRUB_SEEK_THRESHOLD = 0.16
+const PREWARM_LEAD_SEC = 10
 const PREVIEW_CHROME_FILL = '#0f0f0f'
+
+const previewVideoPrimeAwaitSeeked = new WeakSet<HTMLVideoElement>()
 
 function fillCanvasGuttersOutsideContentRect(
   ctx: CanvasRenderingContext2D,
@@ -53,9 +57,85 @@ function fillCanvasGuttersOutsideContentRect(
   ctx.restore()
 }
 
-function videoElementHasDrawableFrame(el: HTMLVideoElement): boolean {
+function clampVideoSeekTime(el: HTMLVideoElement, requestedTime: number): number {
+  if (!Number.isFinite(requestedTime)) return 0
+  const clampedMin = Math.max(0, requestedTime)
+  const duration = el.duration
+  if (!Number.isFinite(duration) || duration <= 0) return clampedMin
+  return Math.min(clampedMin, Math.max(0, duration - 0.04))
+}
+
+function videoElementCanDrawToCanvas(el: HTMLVideoElement): boolean {
   if (el.videoWidth <= 0 || el.videoHeight <= 0) return false
-  return el.readyState >= 1
+  return el.readyState >= HTMLMediaElement.HAVE_METADATA
+}
+
+function videoElementHasDecodedFrame(el: HTMLVideoElement): boolean {
+  if (el.videoWidth <= 0 || el.videoHeight <= 0) return false
+  return el.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+}
+
+function previewVideoPrimeSeekTime(el: HTMLVideoElement, clampedTarget: number): number | null {
+  if (!Number.isFinite(clampedTarget)) return null
+  const dur = el.duration
+  if (Number.isFinite(dur) && dur > 0) {
+    const maxT = Math.max(0, dur - 0.04)
+    const headroom = maxT - clampedTarget
+    if (headroom > 1e-4) {
+      const step = Math.min(1 / 120, headroom * 0.5)
+      return clampVideoSeekTime(el, clampedTarget + Math.max(1e-4, step))
+    }
+    return null
+  }
+  // If duration isn't known yet, we can't safely clamp; still try a tiny forward seek
+  // so the decoder produces frame 0 for canvas draw.
+  const candidate = clampedTarget + 1 / 120
+  return candidate > clampedTarget ? Math.max(0, candidate) : null
+}
+
+function applyPausedPreviewVideoSync(
+  vEl: HTMLVideoElement,
+  clampedTarget: number,
+  onUpdate: (t: number) => void
+) {
+  if (vEl.seeking) return
+  const drift = Math.abs(vEl.currentTime - clampedTarget)
+  const hasFrame = videoElementHasDecodedFrame(vEl)
+  if (hasFrame) {
+    previewVideoPrimeAwaitSeeked.delete(vEl)
+  }
+  if (!hasFrame) {
+    if (previewVideoPrimeAwaitSeeked.has(vEl)) {
+      return
+    }
+    const prime = previewVideoPrimeSeekTime(vEl, clampedTarget)
+    if (prime !== null && Math.abs(prime - clampedTarget) > 1e-6) {
+      previewVideoPrimeAwaitSeeked.add(vEl)
+      const exact = clampedTarget
+      const onSeeked = () => {
+        vEl.removeEventListener('seeked', onSeeked)
+        previewVideoPrimeAwaitSeeked.delete(vEl)
+        vEl.currentTime = exact
+        onUpdate(exact)
+      }
+      vEl.addEventListener('seeked', onSeeked, { once: true })
+      vEl.currentTime = prime
+      onUpdate(prime)
+      return
+    }
+    vEl.currentTime = clampedTarget
+    onUpdate(clampedTarget)
+    return
+  }
+  if (drift > PAUSED_SCRUB_SEEK_THRESHOLD) {
+    vEl.currentTime = clampedTarget
+    onUpdate(clampedTarget)
+    return
+  }
+  if (drift > 1 / 960) {
+    vEl.currentTime = clampedTarget
+    onUpdate(clampedTarget)
+  }
 }
 
 export class VideoRenderingEngine {
@@ -139,6 +219,8 @@ export class VideoRenderingEngine {
           video.transitionWipeEasing,
           video.zoomIntensity,
           video.zoomDistanceIntensity,
+          video.flipHorizontal,
+          video.flipVertical,
         ].join('|')
       )
       .join('~')
@@ -175,6 +257,8 @@ export class VideoRenderingEngine {
           image.zoomIntensity,
           image.zoomDistanceIntensity,
           image.rotation,
+          image.flipHorizontal,
+          image.flipVertical,
         ].join('|')
       )
       .join('~')
@@ -224,28 +308,44 @@ export class VideoRenderingEngine {
         const video = state.videos[i]
         const vEl = videoElements.get(video.id)
         if (!vEl) continue
-        const span = video.duration ?? 0
+        const span = manifestVideoTimelineSpanSeconds(video)
         const inRange = span > 0 && newTime >= video.timestamp && newTime < video.timestamp + span
         const elapsed = Math.max(0, newTime - video.timestamp)
-        const vDur = clipTimelineSpanForSourceMap(video.duration)
+        const vDur = clipTimelineSpanForSourceMap(
+          video.duration != null && video.duration > 0 ? video.duration : span
+        )
         const tmV = videoTimelineSourceMapping(video, elapsed, vDur)
         const target = (video.trimStart ?? 0) + tmV.sourceElapsed
 
         let prewarm = false
-        let freezeAtFirst = false
         const rowTrans = rowTransitionByRow.get(video.row)
         if (rowTrans && rowTrans.next.type === 'video' && rowTrans.next.id === video.id) {
           const timeUntilNext = rowTrans.next.startTime - newTime
           prewarm = rowTrans.transitionActive || (timeUntilNext > 0 && timeUntilNext < 1.0)
-          freezeAtFirst = rowTrans.transitionActive && rowTrans.transProgress < 1
+        }
+        if (
+          !prewarm &&
+          span > 0 &&
+          video.row >= 0 &&
+          newTime < video.timestamp &&
+          video.timestamp - newTime <= PREWARM_LEAD_SEC
+        ) {
+          prewarm = true
         }
 
+        const decodeOnlyPrewarm = prewarm && !inRange
+
         if (inRange || prewarm) {
-          if (isPlaying && !freezeAtFirst) {
-            const drift = Math.abs(vEl.currentTime - target)
-            if (drift > 0.22) {
-              vEl.currentTime = target
-              onVideoTimeUpdate(video.id, target)
+          if (decodeOnlyPrewarm) {
+            if (!vEl.paused) onVideoPlayState(video.id, false, 1)
+            const clampedTarget = clampVideoSeekTime(vEl, target)
+            applyPausedPreviewVideoSync(vEl, clampedTarget, (t) => onVideoTimeUpdate(video.id, t))
+          } else if (isPlaying) {
+            const clampedTarget = clampVideoSeekTime(vEl, target)
+            const drift = Math.abs(vEl.currentTime - clampedTarget)
+            if (drift > 0.22 && !vEl.seeking) {
+              vEl.currentTime = clampedTarget
+              onVideoTimeUpdate(video.id, clampedTarget)
             }
             if (tmV.inHold) {
               if (!vEl.paused) onVideoPlayState(video.id, false, 1)
@@ -259,10 +359,8 @@ export class VideoRenderingEngine {
             }
           } else {
             if (!vEl.paused) onVideoPlayState(video.id, false, 1)
-            if (Math.abs(vEl.currentTime - target) > PAUSED_SCRUB_SEEK_THRESHOLD) {
-              vEl.currentTime = target
-              onVideoTimeUpdate(video.id, target)
-            }
+            const clampedTarget = clampVideoSeekTime(vEl, target)
+            applyPausedPreviewVideoSync(vEl, clampedTarget, (t) => onVideoTimeUpdate(video.id, t))
           }
         } else {
           if (!vEl.paused) onVideoPlayState(video.id, false, 1)
@@ -356,7 +454,7 @@ export class VideoRenderingEngine {
     for (let i = 0; i < videos.length; i++) {
       const video = videos[i]
       if (video.row < 0) continue
-      const dur = video.duration ?? 0
+      const dur = manifestVideoTimelineSpanSeconds(video)
       if (dur <= 0 || currentTime < video.timestamp || currentTime >= video.timestamp + dur) continue
       entries.push({ kind: 'video', row: video.row, t0: video.timestamp, video })
     }
@@ -418,26 +516,39 @@ export class VideoRenderingEngine {
           if (!bitmap) continue
           const progress = calculateAnimationProgress(image, currentTime, image.startTime)
           const kOvImg = resolveMediaKeyframeTransform(image, currentTime - image.startTime, image.duration)
-          const ox = cr.x + (image.x ?? 0) * xScale
-          const oy = cr.y + (image.y ?? 0) * yScale
-          const ow = (image.width ?? logicalW) * xScale
-          const oh = (image.height ?? logicalH) * yScale
+          const ox = cr.x + kOvImg.x * xScale
+          const oy = cr.y + kOvImg.y * yScale
+          const ow = kOvImg.width * xScale
+          const oh = kOvImg.height * yScale
           ctx.save()
           ctx.globalAlpha = image.opacity
           runWithPlacementRotation(ctx, ox, oy, ow, oh, image.rotation, (px, py) => {
             applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, px, py, ow, oh, kOvImg.cropSx, kOvImg.cropSy, kOvImg.cropSw, kOvImg.cropSh, kOvImg.zoomIntensity, image.duration, image.animationDuration, currentTime - image.startTime, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, image.transitionColor, image.transitionFlashMode, image.transitionDirection, image.transitionAxis, image.transitionSlideEasing, image.transitionCircleEasing, image.transitionWipeEasing, image.animationZoomEasing, undefined, image.zoomDistanceIntensity, undefined)
-          })
+          }, image.flipHorizontal, image.flipVertical)
           ctx.restore()
         } else if (e.kind === 'video') {
           const video = e.video
           const elapsed = currentTime - video.timestamp
           const vEl = videoElements.get(video.id)
-          if (!vEl || !videoElementHasDrawableFrame(vEl)) continue
-          const progress = calculateAnimationProgress(video, currentTime, video.timestamp)
-          const kOvVid = resolveMediaKeyframeTransform(video, elapsed, video.duration ?? 0)
+          if (!vEl || !videoElementCanDrawToCanvas(vEl)) continue
+          const span = manifestVideoTimelineSpanSeconds(video)
+          const progress = span > 0 ? Math.max(0, Math.min(1, elapsed / span)) : 0
+          const kOvVid = resolveMediaKeyframeTransform(video, elapsed, span)
           ctx.save()
           ctx.globalAlpha = video.opacity
-          applyZoomTransform(ctx, video.animation, video.transition, progress, vEl, cr.x + video.x * xScale, cr.y + video.y * yScale, video.width * xScale, video.height * yScale, kOvVid.cropSx, kOvVid.cropSy, kOvVid.cropSw, kOvVid.cropSh, kOvVid.zoomIntensity, video.duration, video.animationDuration, currentTime - video.timestamp, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, video.transitionColor, video.transitionFlashMode, video.transitionDirection, video.transitionAxis, video.transitionSlideEasing, video.transitionCircleEasing, video.transitionWipeEasing, video.animationZoomEasing, undefined, video.zoomDistanceIntensity, undefined)
+          runWithPlacementRotation(
+            ctx,
+            cr.x + kOvVid.x * xScale,
+            cr.y + kOvVid.y * yScale,
+            kOvVid.width * xScale,
+            kOvVid.height * yScale,
+            0,
+            (px, py) => {
+              applyZoomTransform(ctx, video.animation, video.transition, progress, vEl, px, py, kOvVid.width * xScale, kOvVid.height * yScale, kOvVid.cropSx, kOvVid.cropSy, kOvVid.cropSw, kOvVid.cropSh, kOvVid.zoomIntensity, span, video.animationDuration, currentTime - video.timestamp, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, video.transitionColor, video.transitionFlashMode, video.transitionDirection, video.transitionAxis, video.transitionSlideEasing, video.transitionCircleEasing, video.transitionWipeEasing, video.animationZoomEasing, undefined, video.zoomDistanceIntensity, undefined)
+            },
+            video.flipHorizontal,
+            video.flipVertical
+          )
           ctx.restore()
         } else {
           const text = e.text

@@ -27,11 +27,11 @@ export function applySplit(params: TransformParams): void {
     // Draw prevEl with its animation onto scratch canvas
     // We pass (0, 0, pw, ph) as the destination since it's a scratch canvas
     drawWithAnimation(
-      { ...params, ctx: sCtx, x: 0, y: 0, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh }, 
-      prevEl, 
-      prevAnimation ?? 'none', 
-      prevAnimationProgress ?? 0, 
-      prevElapsedTime ?? 0, 
+      { ...params, ctx: sCtx, x: 0, y: 0, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh, flipHorizontal: params.prevFlipHorizontal, flipVertical: params.prevFlipVertical },
+      prevEl,
+      prevAnimation ?? 'none',
+      prevAnimationProgress ?? 0,
+      prevElapsedTime ?? 0,
       prevZoomIntensity ?? 0.5,
       params.prevAnimationDuration
     )

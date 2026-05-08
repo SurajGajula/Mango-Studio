@@ -17,6 +17,9 @@ import { SidePanelLayout } from '@/app/components/ui/SidePanelLayout'
 import layout from '@/app/components/ui/SidePanelLayout.module.css'
 import styles from './TransitionsPanel.module.css'
 
+const SLIDE_SHAKE_ANIMATIONS = new Set<string>(['slide-shake-left', 'slide-shake-right'])
+const isSlideShakeAnimation = (value: string | undefined) => !!value && SLIDE_SHAKE_ANIMATIONS.has(value)
+
 interface Props {
   onClose: () => void
   mode: 'animation' | 'transition'
@@ -91,6 +94,30 @@ const ANIMATION_OPTIONS: { value: AnimationMode; label: string; desc: string; ic
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M2 12l3-3 4 4 4-4 4 4 5-5" />
+      </svg>
+    ),
+  },
+  {
+    value: 'slide-shake-left',
+    label: 'Slide shake left',
+    desc: 'Slides in from the left, then shakes at 10% intensity',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 12h12" />
+        <path d="M8 8l-4 4 4 4" />
+        <path d="M17 8q2 2 0 4t0 4" />
+      </svg>
+    ),
+  },
+  {
+    value: 'slide-shake-right',
+    label: 'Slide shake right',
+    desc: 'Slides in from the right, then shakes at 10% intensity',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M8 12h12" />
+        <path d="M16 8l4 4-4 4" />
+        <path d="M7 8q-2 2 0 4t0 4" />
       </svg>
     ),
   },
@@ -280,8 +307,14 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
 
   // Use a local state for the slider to ensure it's always responsive
   const initialDuration = selectedItem ? (
-    mode === 'animation' 
-      ? clampDuration(selectedItem.animationDuration && selectedItem.animationDuration > 0 ? selectedItem.animationDuration : safeSelectedItemDuration)
+    mode === 'animation'
+      ? clampDuration(
+        selectedItem.animationDuration && selectedItem.animationDuration > 0
+          ? selectedItem.animationDuration
+          : isSlideShakeAnimation(currentAnimation)
+            ? Math.min(1, safeSelectedItemDuration)
+            : safeSelectedItemDuration
+      )
       : clampDuration(selectedItem.transitionDuration && selectedItem.transitionDuration > 0 ? selectedItem.transitionDuration : safeSelectedItemDuration)
   ) : null
   
@@ -319,7 +352,10 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
     const updates: any = {}
     if (mode === 'animation') {
       updates.animation = val
-      if (val === 'last-frame-hold' && videos.some((v) => v.id === selectedItem.id)) {
+      if (isSlideShakeAnimation(val)) {
+        updates.animationDuration = clampDuration(Math.min(1, safeSelectedItemDuration))
+        updates.zoomIntensity = 0.1
+      } else if (val === 'last-frame-hold' && videos.some((v) => v.id === selectedItem.id)) {
         const d = selectedItem.duration ?? 1
         updates.animationDuration = Math.min(Math.max(0.1, d * 0.25), d)
       } else if (val !== 'none' && (selectedItem?.animationDuration === undefined || selectedItem?.animationDuration === 0)) {
@@ -432,7 +468,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
               <div className={styles.durationControl}>
                 <div className={styles.durationHeader}>
                   <label className={styles.durationLabel}>
-                    {isLastFrameHold ? 'Hold duration' : 'Duration'}
+                    {isLastFrameHold ? 'Hold duration' : isSlideShakeAnimation(currentAnimation) ? 'Slide duration' : 'Duration'}
                   </label>
                   <span className={styles.durationValue}>{displayDuration.toFixed(1)}s</span>
                 </div>

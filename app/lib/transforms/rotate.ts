@@ -37,7 +37,7 @@ export function applyRotate(params: TransformParams): void {
     ctx.translate(-pCenterX, -pCenterY)
     
     drawWithAnimation(
-      { ...params, x: px, y: py, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh },
+      { ...params, x: px, y: py, w: pw, h: ph, sx: psx, sy: psy, sw: psw, sh: psh, flipHorizontal: params.prevFlipHorizontal, flipVertical: params.prevFlipVertical },
       prevEl,
       prevAnimation ?? 'none',
       prevAnimationProgress ?? 0,

@@ -52,4 +52,8 @@ export interface TransformParams {
   transitionSlideEasing?: SlideTransitionEasing;
   transitionCircleEasing?: SlideTransitionEasing;
   transitionWipeEasing?: WipeTransitionEasing;
+  flipHorizontal?: boolean;
+  flipVertical?: boolean;
+  prevFlipHorizontal?: boolean;
+  prevFlipVertical?: boolean;
 }
