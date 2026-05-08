@@ -175,6 +175,11 @@ function texDims(el: HTMLImageElement | HTMLVideoElement | ImageBitmap): { w: nu
   return { w: el.width, h: el.height }
 }
 
+function hasDecodedVideoFrame(el: HTMLImageElement | HTMLVideoElement | ImageBitmap): boolean {
+  if (!(el instanceof HTMLVideoElement)) return true
+  return el.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && el.videoWidth > 0 && el.videoHeight > 0
+}
+
 type GLCache = {
   version: number
   canvas: HTMLCanvasElement
@@ -341,6 +346,7 @@ export function tryApplyMorphWebgl(params: TransformParams): boolean {
 
   if (!prevEl || !prevParams || progress >= 1) return false
   if ((animation ?? 'none') !== 'none' || (prevAnimation ?? 'none') !== 'none') return false
+  if (!hasDecodedVideoFrame(prevEl) || !hasDecodedVideoFrame(imgEl)) return false
 
   const dw = Math.max(1, Math.floor(w))
   const dh = Math.max(1, Math.floor(h))
