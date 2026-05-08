@@ -146,6 +146,63 @@
   color: #ffffff;
 }
 
+.uploadButtonWrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.uploadHint {
+  position: absolute;
+  top: calc(100% + 14px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #ffffff;
+  background-color: #1e1e1e;
+  border: 1px solid #333333;
+  border-radius: 8px;
+  padding: 0.65rem 1rem;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+  animation: uploadHintBounce 1.6s ease-in-out infinite;
+}
+
+.uploadHint::before,
+.uploadHint::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border: 9px solid transparent;
+  transform: translateX(-50%);
+}
+
+.uploadHint::before {
+  bottom: 100%;
+  border-bottom-color: #333333;
+}
+
+.uploadHint::after {
+  bottom: calc(100% - 1px);
+  border-bottom-color: #1e1e1e;
+}
+
+@keyframes uploadHintBounce {
+  0%, 100% {
+    transform: translate(-50%, 0);
+  }
+  50% {
+    transform: translate(-50%, 4px);
+  }
+}
+
 .historyButton:disabled,
 .transitionsButton:disabled,
 .deleteButton:disabled,

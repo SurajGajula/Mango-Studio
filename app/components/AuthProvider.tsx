@@ -81,20 +81,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     const getUser = async () => {
       try {
-        const {
-          data: { user },
-          error
-        } = await supabase.auth.getUser()
-        
-        if (error) {
-          console.error('getUser error:', error)
-        }
-        
-        setUser(user)
-        setLoading(false) // Set loading to false as soon as session is checked
-        
-        if (user) {
-          fetchProfile(user.id)
+        const { data: { session } } = await supabase.auth.getSession()
+        const sessionUser = session?.user ?? null
+
+        setUser(sessionUser)
+        setLoading(false)
+
+        if (sessionUser) {
+          fetchProfile(sessionUser.id)
         }
       } catch (err) {
         console.error('Error in getUser:', err)

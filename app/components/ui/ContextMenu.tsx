@@ -34,7 +34,7 @@ export default function ContextMenu({
 }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ x: 0, y: 0 })
-  const [showCropSubMenu, setShowCropSubMenu] = useState(false)
+  const [activeSubMenu, setActiveSubMenu] = useState<'crop' | 'replace' | 'flip' | null>(null)
   const { contextMenu, closeContextMenu } = useSelectionStore()
   const { isOpen, x, y, itemId, itemType } = contextMenu
 
@@ -126,7 +126,7 @@ export default function ContextMenu({
 
   useEffect(() => {
     if (!isOpen) {
-      setShowCropSubMenu(false)
+      setActiveSubMenu(null)
     }
   }, [isOpen])
 
@@ -312,31 +312,39 @@ export default function ContextMenu({
 
       {(itemType === 'video' || itemType === 'image') && (
         <>
-          <button
-            className={styles.contextMenuItem}
-            onClick={() => handleAction(() => onReplace?.(itemId))}
+          <div
+            style={{ position: 'relative' }}
+            onMouseEnter={() => setActiveSubMenu('replace')}
+            onMouseLeave={() => setActiveSubMenu(null)}
           >
-            <div className={styles.contextMenuIcon}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
-              </svg>
-            </div>
-            Replace from file
-          </button>
-          <button
-            className={styles.contextMenuItem}
-            onClick={() => handleAction(() => onReplaceFromLibrary?.(itemId))}
-          >
-            <div className={styles.contextMenuIcon}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="7" height="7" rx="1" />
-                <rect x="14" y="3" width="7" height="7" rx="1" />
-                <rect x="3" y="14" width="7" height="7" rx="1" />
-                <rect x="14" y="14" width="7" height="7" rx="1" />
-              </svg>
-            </div>
-            Replace from library
-          </button>
+            <button className={styles.contextMenuItem}>
+              <div className={styles.contextMenuIcon}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
+                </svg>
+              </div>
+              Replace
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 18 6-6-6-6"/></svg>
+              </div>
+            </button>
+            {activeSubMenu === 'replace' && (
+              <div className={styles.contextSubMenu}>
+                <button
+                  className={styles.contextMenuItem}
+                  onClick={() => handleAction(() => onReplace?.(itemId))}
+                >
+                  Replace from file
+                </button>
+                <button
+                  className={styles.contextMenuItem}
+                  onClick={() => handleAction(() => onReplaceFromLibrary?.(itemId))}
+                >
+                  Replace from library
+                </button>
+              </div>
+            )}
+          </div>
           {itemType === 'image' && (
             <button
               className={styles.contextMenuItem}
@@ -363,52 +371,62 @@ export default function ContextMenu({
             </div>
             Animations
           </button>
-          <button
-            className={styles.contextMenuItem}
-            onClick={() => handleAction(() => {
-              pushHistory()
-              if (itemType === 'image') {
-                const img = images.find((i) => i.id === itemId)
-                if (img) updateImage(itemId, { flipHorizontal: !img.flipHorizontal })
-              } else {
-                const v = videos.find((vi) => vi.id === itemId)
-                if (v) updateVideo(itemId, { flipHorizontal: !v.flipHorizontal })
-              }
-            })}
+          <div
+            style={{ position: 'relative' }}
+            onMouseEnter={() => setActiveSubMenu('flip')}
+            onMouseLeave={() => setActiveSubMenu(null)}
           >
-            <div className={styles.contextMenuIcon}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M8 7h11M8 12h11M8 17h11" />
-                <path d="M5 7H3M5 12H3M5 17H3" />
-              </svg>
-            </div>
-            Flip horizontal
-          </button>
-          <button
-            className={styles.contextMenuItem}
-            onClick={() => handleAction(() => {
-              pushHistory()
-              if (itemType === 'image') {
-                const img = images.find((i) => i.id === itemId)
-                if (img) updateImage(itemId, { flipVertical: !img.flipVertical })
-              } else {
-                const v = videos.find((vi) => vi.id === itemId)
-                if (v) updateVideo(itemId, { flipVertical: !v.flipVertical })
-              }
-            })}
-          >
-            <div className={styles.contextMenuIcon}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M7 8v11M12 8v11M17 8v11" />
-                <path d="M7 5V3M12 5V3M17 5V3" />
-              </svg>
-            </div>
-            Flip vertical
-          </button>
+            <button className={styles.contextMenuItem}>
+              <div className={styles.contextMenuIcon}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M8 7h11M8 12h11M8 17h11" />
+                  <path d="M5 7H3M5 12H3M5 17H3" />
+                </svg>
+              </div>
+              Flip
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 18 6-6-6-6"/></svg>
+              </div>
+            </button>
+            {activeSubMenu === 'flip' && (
+              <div className={styles.contextSubMenu}>
+                <button
+                  className={styles.contextMenuItem}
+                  onClick={() => handleAction(() => {
+                    pushHistory()
+                    if (itemType === 'image') {
+                      const img = images.find((i) => i.id === itemId)
+                      if (img) updateImage(itemId, { flipHorizontal: !img.flipHorizontal })
+                    } else {
+                      const v = videos.find((vi) => vi.id === itemId)
+                      if (v) updateVideo(itemId, { flipHorizontal: !v.flipHorizontal })
+                    }
+                  })}
+                >
+                  Flip horizontal
+                </button>
+                <button
+                  className={styles.contextMenuItem}
+                  onClick={() => handleAction(() => {
+                    pushHistory()
+                    if (itemType === 'image') {
+                      const img = images.find((i) => i.id === itemId)
+                      if (img) updateImage(itemId, { flipVertical: !img.flipVertical })
+                    } else {
+                      const v = videos.find((vi) => vi.id === itemId)
+                      if (v) updateVideo(itemId, { flipVertical: !v.flipVertical })
+                    }
+                  })}
+                >
+                  Flip vertical
+                </button>
+              </div>
+            )}
+          </div>
           <div 
             style={{ position: 'relative' }}
-            onMouseEnter={() => setShowCropSubMenu(true)}
-            onMouseLeave={() => setShowCropSubMenu(false)}
+            onMouseEnter={() => setActiveSubMenu('crop')}
+            onMouseLeave={() => setActiveSubMenu(null)}
           >
             <button className={styles.contextMenuItem}>
               <div className={styles.contextMenuIcon}>
@@ -421,7 +439,7 @@ export default function ContextMenu({
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 18 6-6-6-6"/></svg>
               </div>
             </button>
-            {showCropSubMenu && (
+            {activeSubMenu === 'crop' && (
               <div className={styles.contextSubMenu}>
                 {RATIOS.map((r) => (
                   <button

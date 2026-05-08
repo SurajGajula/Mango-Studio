@@ -11,62 +11,52 @@ interface Props {
   onClose: () => void
 }
 
-const FONT_OPTIONS: { value: string; label: string; desc: string }[] = [
+const FONT_OPTIONS: { value: string; label: string }[] = [
   {
     value: 'Inter, sans-serif',
     label: 'Inter',
-    desc: 'Clean modern sans-serif',
   },
   {
     value: '"Playfair Display", Georgia, serif',
     label: 'Playfair Display',
-    desc: 'Elegant classic serif',
   },
   {
     value: 'Antonio, sans-serif',
     label: 'Antonio',
-    desc: 'Thin modern font',
   },
   {
     value: '"Bubble Sans", cursive',
     label: 'Bubble Sans',
-    desc: 'Custom comic manga style',
   },
 ]
 
-const ANIMATION_OPTIONS: { value: TextAnimation; label: string; desc: string }[] = [
+const ANIMATION_OPTIONS: { value: TextAnimation; label: string }[] = [
   {
     value: 'none',
     label: 'None',
-    desc: 'No animation',
   },
   {
     value: 'keyboard',
     label: 'Keyboard',
-    desc: 'Words appear one by one',
   },
   {
     value: 'shake',
     label: 'Shake',
-    desc: 'Smooth camera-like shake for full duration',
   },
 ]
 
-const STYLE_OPTIONS: { value: TextStyle; label: string; desc: string }[] = [
+const STYLE_OPTIONS: { value: TextStyle; label: string }[] = [
   {
     value: 'normal',
     label: 'Normal',
-    desc: 'Default text style',
   },
   {
     value: 'negative',
     label: 'Negative',
-    desc: 'Shows negative of background',
   },
   {
     value: 'highlight',
     label: 'Highlight',
-    desc: 'Yellow text on black box',
   },
 ]
 
@@ -115,7 +105,7 @@ export default function FontPanel({ onClose }: Props) {
         ) : (
           <>
             <p className={layout.sectionLabel}>Typeface</p>
-            <div className={styles.optionList}>
+            <div className={styles.optionListCompact}>
               {FONT_OPTIONS.map((opt) => {
                 const isActive = currentFont === opt.value
                 return (
@@ -144,7 +134,6 @@ export default function FontPanel({ onClose }: Props) {
                       >
                         {opt.label}
                       </span>
-                      <span className={styles.optionDesc}>{opt.desc}</span>
                     </span>
                   </button>
                 )
@@ -152,7 +141,7 @@ export default function FontPanel({ onClose }: Props) {
             </div>
 
             <p className={layout.sectionLabel} style={{ marginTop: '1.5rem' }}>Animation</p>
-            <div className={styles.optionList}>
+            <div className={styles.optionListCompact}>
               {ANIMATION_OPTIONS.map((opt) => {
                 const isActive = currentAnimation === opt.value
                 return (
@@ -163,7 +152,6 @@ export default function FontPanel({ onClose }: Props) {
                   >
                     <span className={styles.optionInfo}>
                       <span className={styles.optionName}>{opt.label}</span>
-                      <span className={styles.optionDesc}>{opt.desc}</span>
                     </span>
                   </button>
                 )
@@ -171,7 +159,7 @@ export default function FontPanel({ onClose }: Props) {
             </div>
 
             <p className={layout.sectionLabel} style={{ marginTop: '1.5rem' }}>Style</p>
-            <div className={styles.optionList}>
+            <div className={styles.optionListCompact}>
               {STYLE_OPTIONS.map((opt) => {
                 const isActive = currentStyle === opt.value
                 return (
@@ -200,7 +188,6 @@ export default function FontPanel({ onClose }: Props) {
                     </span>
                     <span className={styles.optionInfo}>
                       <span className={styles.optionName}>{opt.label}</span>
-                      <span className={styles.optionDesc}>{opt.desc}</span>
                     </span>
                   </button>
                 )

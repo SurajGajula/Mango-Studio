@@ -15,11 +15,10 @@ interface Props {
   onClose: () => void
 }
 
-const EFFECT_OPTIONS: { value: EffectType; label: string; desc: string; icon: React.ReactNode }[] = [
+const EFFECT_OPTIONS: { value: EffectType; label: string; icon: React.ReactNode }[] = [
   {
     value: 'crt-dither',
     label: 'CRT Dither',
-    desc: 'Retro CRT scanlines, grain, and phosphor glow',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="2" y="3" width="20" height="14" rx="2" />
@@ -32,7 +31,6 @@ const EFFECT_OPTIONS: { value: EffectType; label: string; desc: string; icon: Re
   {
     value: 'flashing-black-vignette',
     label: 'Vignette',
-    desc: 'Black vignette; flash speed 0 keeps the edge solid',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="10" />
@@ -44,7 +42,6 @@ const EFFECT_OPTIONS: { value: EffectType; label: string; desc: string; icon: Re
   {
     value: 'black-and-white',
     label: 'Black & White',
-    desc: 'Rec.709 grayscale; contrast only deepens tones below mid-gray',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="10" />
@@ -55,7 +52,6 @@ const EFFECT_OPTIONS: { value: EffectType; label: string; desc: string; icon: Re
   {
     value: 'vivid-sharp',
     label: 'Vivid Sharp',
-    desc: 'Vivid saturation with adjustable edge sharpening',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
@@ -66,7 +62,6 @@ const EFFECT_OPTIONS: { value: EffectType; label: string; desc: string; icon: Re
   {
     value: 'pixel-glitch-scan',
     label: 'Pixel Glitch Scan',
-    desc: 'Scrolling blocky band plus brief random pixel bursts',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M4 6h16M4 12h10M4 18h16" />
@@ -131,7 +126,7 @@ export default function EffectsPanel({ onClose }: Props) {
   return (
     <SidePanelLayout title="Effects" onClose={onClose}>
         <p className={layout.sectionLabel}>Video Effect</p>
-        <div className={styles.optionList}>
+        <div className={styles.optionListCompact}>
           {EFFECT_OPTIONS.map((opt) => (
             <button
               key={opt.value}
@@ -141,7 +136,6 @@ export default function EffectsPanel({ onClose }: Props) {
               <span className={styles.optionIcon}>{opt.icon}</span>
               <span className={styles.optionInfo}>
                 <span className={styles.optionName}>{opt.label}</span>
-                <span className={styles.optionDesc}>{opt.desc}</span>
               </span>
             </button>
           ))}

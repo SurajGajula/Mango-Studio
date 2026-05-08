@@ -26,11 +26,10 @@ interface Props {
   itemId?: string
 }
 
-const ANIMATION_OPTIONS: { value: AnimationMode; label: string; desc: string; icon: React.ReactNode }[] = [
+const ANIMATION_OPTIONS: { value: AnimationMode; label: string; icon: React.ReactNode }[] = [
   {
     value: 'none',
     label: 'None',
-    desc: 'No animation',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -40,7 +39,6 @@ const ANIMATION_OPTIONS: { value: AnimationMode; label: string; desc: string; ic
   {
     value: 'zoom-in',
     label: 'Zoom in',
-    desc: 'Single zoom in over the duration (pick speed curve below)',
     icon: (
       <svg
         width="16"
@@ -60,7 +58,6 @@ const ANIMATION_OPTIONS: { value: AnimationMode; label: string; desc: string; ic
   {
     value: 'zoom-out',
     label: 'Zoom out',
-    desc: 'Single zoom out over the duration (pick speed curve below)',
     icon: (
       <svg
         width="16"
@@ -80,7 +77,6 @@ const ANIMATION_OPTIONS: { value: AnimationMode; label: string; desc: string; ic
   {
     value: 'shake',
     label: 'Shake',
-    desc: 'Zooms in and smoothly shakes the item',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M4 12 Q6 9 8 12 Q10 15 12 12 Q14 9 16 12 Q18 15 20 12" />
@@ -90,7 +86,6 @@ const ANIMATION_OPTIONS: { value: AnimationMode; label: string; desc: string; ic
   {
     value: 'jitter',
     label: 'Jitter',
-    desc: 'Quickly shakes the item once at the start',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M2 12l3-3 4 4 4-4 4 4 5-5" />
@@ -100,7 +95,6 @@ const ANIMATION_OPTIONS: { value: AnimationMode; label: string; desc: string; ic
   {
     value: 'slide-shake-left',
     label: 'Slide shake left',
-    desc: 'Slides in from the left, then shakes at 10% intensity',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M4 12h12" />
@@ -112,7 +106,6 @@ const ANIMATION_OPTIONS: { value: AnimationMode; label: string; desc: string; ic
   {
     value: 'slide-shake-right',
     label: 'Slide shake right',
-    desc: 'Slides in from the right, then shakes at 10% intensity',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M8 12h12" />
@@ -124,7 +117,6 @@ const ANIMATION_OPTIONS: { value: AnimationMode; label: string; desc: string; ic
   {
     value: 'last-frame-hold',
     label: 'Last frame hold',
-    desc: 'Video plays, then stays on the last frame for the rest of the clip',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="4" y="5" width="10" height="10" rx="1" />
@@ -154,11 +146,10 @@ const ZOOM_SPEED_OPTIONS: { value: AnimationZoomEasing; label: string }[] = [
   { value: 'slow-fast', label: 'Slow → fast' },
 ]
 
-const TRANSITION_OPTIONS: { value: TransitionMode; label: string; desc: string; icon: React.ReactNode }[] = [
+const TRANSITION_OPTIONS: { value: TransitionMode; label: string; icon: React.ReactNode }[] = [
   {
     value: 'none',
     label: 'None',
-    desc: 'No transition effect',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -168,7 +159,6 @@ const TRANSITION_OPTIONS: { value: TransitionMode; label: string; desc: string; 
   {
     value: 'split',
     label: 'Split',
-    desc: 'The previous item splits and slides to reveal this item',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -180,7 +170,6 @@ const TRANSITION_OPTIONS: { value: TransitionMode; label: string; desc: string; 
   {
     value: 'fade',
     label: 'Fade',
-    desc: 'The previous item smoothly fades into this item',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="10" />
@@ -191,7 +180,6 @@ const TRANSITION_OPTIONS: { value: TransitionMode; label: string; desc: string; 
   {
     value: 'morph',
     label: 'Motion blur',
-    desc: 'WebGL: two textures, per-pixel mix, noise + luma-flow distortion (animation None only); otherwise crossfade',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="9" cy="12" r="5" opacity="0.45" />
@@ -203,7 +191,6 @@ const TRANSITION_OPTIONS: { value: TransitionMode; label: string; desc: string; 
   {
     value: 'slide-in',
     label: 'Slide In',
-    desc: 'This item slides in from a direction, on top of the previous item',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -214,7 +201,6 @@ const TRANSITION_OPTIONS: { value: TransitionMode; label: string; desc: string; 
   {
     value: 'wipe',
     label: 'Wipe',
-    desc: 'A black wipe bar passes across and reveals this item',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -225,7 +211,6 @@ const TRANSITION_OPTIONS: { value: TransitionMode; label: string; desc: string; 
   {
     value: 'circle',
     label: 'Circle',
-    desc: 'This item expands from a circle in the center to reveal the content',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="10" />
@@ -236,7 +221,6 @@ const TRANSITION_OPTIONS: { value: TransitionMode; label: string; desc: string; 
   {
     value: 'rotate',
     label: 'Rotate',
-    desc: 'The items rotate through 180 degrees to switch',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
@@ -247,7 +231,6 @@ const TRANSITION_OPTIONS: { value: TransitionMode; label: string; desc: string; 
   {
     value: 'flash',
     label: 'Flash',
-    desc: 'The screen flashes a color between items',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -446,7 +429,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
         ) : (
           <>
             <p className={layout.sectionLabel}>{mode === 'animation' ? 'Animation Type' : 'Transition Type'}</p>
-            <div className={styles.optionList}>
+            <div className={styles.optionListCompact}>
               {options
                 .filter((opt) => opt.value !== 'last-frame-hold' || (!!selectedItem && videos.some((v) => v.id === selectedItem.id)))
                 .map((opt) => (
@@ -458,7 +441,6 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
                   <span className={styles.optionIcon}>{opt.icon}</span>
                   <span className={styles.optionInfo}>
                     <span className={styles.optionName}>{opt.label}</span>
-                    <span className={styles.optionDesc}>{opt.desc}</span>
                   </span>
                 </button>
               ))}

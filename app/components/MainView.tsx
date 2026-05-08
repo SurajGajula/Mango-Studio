@@ -230,16 +230,16 @@ export default function MainView() {
           <PreviewArea />
         </div>
         <div className={styles.rightSection}>
-          {user ? (
-            <div className={styles.rightPanelStack}>
-              <div className={`${styles.persistentChatPanel} ${showChatPanel ? '' : styles.hiddenPanel}`}>
+          <div className={styles.rightPanelStack}>
+            <div className={`${styles.persistentChatPanel} ${showChatPanel ? '' : styles.hiddenPanel}`}>
+              {user ? (
                 <ChatWindow />
-              </div>
-              {!showChatPanel && <div className={styles.overlayPanel}>{renderActivePanel()}</div>}
+              ) : (
+                <ChatDisabledPlaceholder onOpenAuth={() => setAuthModalOpen(true)} />
+              )}
             </div>
-          ) : (
-            <ChatDisabledPlaceholder onOpenAuth={() => setAuthModalOpen(true)} />
-          )}
+            {!showChatPanel && <div className={styles.overlayPanel}>{renderActivePanel()}</div>}
+          </div>
         </div>
       </div>
       {authModalOpen && <AuthModal onClose={() => setAuthModalOpen(false)} />}

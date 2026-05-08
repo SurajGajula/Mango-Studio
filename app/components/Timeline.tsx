@@ -50,7 +50,11 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
   const setSelectedTextId = useSelectionStore((state) => state.setSelectedTextId)
   const setSelectedAudioId = useSelectionStore((state) => state.setSelectedAudioId)
   const setSelectedEffectId = useSelectionStore((state) => state.setSelectedEffectId)
+  const selectedVideoId = useSelectionStore((state) => state.selectedVideoId)
+  const selectedImageId = useSelectionStore((state) => state.selectedImageId)
+  const selectedTextId = useSelectionStore((state) => state.selectedTextId)
   const selectedAudioId = useSelectionStore((state) => state.selectedAudioId)
+  const selectedEffectId = useSelectionStore((state) => state.selectedEffectId)
 
   const updateImage = useManifestStore((state) => state.updateImage)
   const addText = useManifestStore((state) => state.addText)
@@ -326,6 +330,50 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
       setSelectedEffectId,
     ]
   )
+
+  useEffect(() => {
+    const selectedItem: TimelineSelectionItem | null = (() => {
+      if (selectedVideoId) {
+        return { id: selectedVideoId, type: 'video' }
+      }
+      if (selectedImageId) {
+        return { id: selectedImageId, type: 'image' }
+      }
+      if (selectedTextId) {
+        return { id: selectedTextId, type: 'text' }
+      }
+      if (selectedAudioId) {
+        return { id: selectedAudioId, type: 'audio' }
+      }
+      if (selectedEffectId) {
+        return { id: selectedEffectId, type: 'effect' }
+      }
+      return null
+    })()
+
+    if (!selectedItem) {
+      if (multiSelectedItems.length > 0) {
+        setMultiSelectedItems([])
+      }
+      return
+    }
+
+    const hasSelectedItem = multiSelectedItems.some(
+      (entry) => entry.id === selectedItem.id && entry.type === selectedItem.type
+    )
+
+    if (!hasSelectedItem) {
+      setMultiSelectedItems([selectedItem])
+    }
+  }, [
+    multiSelectedItems,
+    setMultiSelectedItems,
+    selectedAudioId,
+    selectedEffectId,
+    selectedImageId,
+    selectedTextId,
+    selectedVideoId,
+  ])
 
   const handleSelectionAreaMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (e.button !== 0) return
