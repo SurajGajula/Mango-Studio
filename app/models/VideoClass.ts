@@ -10,6 +10,10 @@ import {
   type TransitionMode,
 } from './ImageClass'
 import type { MediaKeyframe } from './mediaKeyframe'
+import {
+  quantizeOptionalTimelineSeconds,
+  quantizeTimelineSeconds,
+} from '@/app/lib/timeline/timelineQuantize'
 
 export class VideoClass {
   id: string
@@ -203,6 +207,23 @@ export class VideoClass {
     this.keyframes = keyframes ?? []
     this.flipHorizontal = flipHorizontal ?? false
     this.flipVertical = flipVertical ?? false
+
+    if (this.duration !== undefined && Number.isFinite(this.duration)) {
+      this.duration = quantizeTimelineSeconds(this.duration)
+    }
+    this.timestamp = quantizeTimelineSeconds(this.timestamp)
+    if (this.originalDuration !== undefined && Number.isFinite(this.originalDuration)) {
+      this.originalDuration = quantizeTimelineSeconds(this.originalDuration)
+    }
+    if (this.transitionDuration !== undefined && Number.isFinite(this.transitionDuration)) {
+      this.transitionDuration = quantizeTimelineSeconds(this.transitionDuration)
+    }
+    if (this.animationDuration !== undefined && Number.isFinite(this.animationDuration)) {
+      this.animationDuration = quantizeTimelineSeconds(this.animationDuration)
+    }
+    if (this.sourceDuration !== undefined && Number.isFinite(this.sourceDuration)) {
+      this.sourceDuration = quantizeTimelineSeconds(this.sourceDuration)
+    }
   }
 
   copy(updates: Partial<VideoClass>): VideoClass {
@@ -210,11 +231,11 @@ export class VideoClass {
       updates.id ?? this.id,
       updates.title ?? this.title,
       updates.url ?? this.url,
-      updates.duration ?? this.duration,
-      updates.timestamp ?? this.timestamp,
+      quantizeOptionalTimelineSeconds(updates.duration ?? this.duration),
+      quantizeOptionalTimelineSeconds(updates.timestamp ?? this.timestamp),
       updates.createdAt ?? this.createdAt,
       updates.updatedAt ?? this.updatedAt,
-      updates.originalDuration ?? this.originalDuration,
+      quantizeOptionalTimelineSeconds(updates.originalDuration ?? this.originalDuration),
       updates.trimStart ?? this.trimStart,
       updates.trimEnd ?? this.trimEnd,
       updates.prompt ?? this.prompt,
@@ -226,8 +247,8 @@ export class VideoClass {
       updates.animation ?? this.animation,
       updates.transition ?? this.transition,
       updates.zoomIntensity ?? this.zoomIntensity,
-      updates.transitionDuration ?? this.transitionDuration,
-      updates.animationDuration ?? this.animationDuration,
+      quantizeOptionalTimelineSeconds(updates.transitionDuration ?? this.transitionDuration),
+      quantizeOptionalTimelineSeconds(updates.animationDuration ?? this.animationDuration),
       updates.animationZoomEasing ?? this.animationZoomEasing,
       updates.transitionColor ?? this.transitionColor,
       updates.transitionDirection ?? this.transitionDirection,
@@ -243,7 +264,7 @@ export class VideoClass {
       updates.cropSh ?? this.cropSh,
       updates.sourceUrl ?? this.sourceUrl,
       updates.sourceTrimStart ?? this.sourceTrimStart,
-      updates.sourceDuration ?? this.sourceDuration,
+      quantizeOptionalTimelineSeconds(updates.sourceDuration ?? this.sourceDuration),
       updates.playbackSpeed ?? this.playbackSpeed,
       updates.speedStart ?? this.speedStart,
       updates.speedEnd ?? this.speedEnd,

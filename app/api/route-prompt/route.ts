@@ -49,6 +49,7 @@ interface SerializedManifest {
 interface UploadedFileMeta {
   index: number
   name: string
+  type?: 'image' | 'audio' | 'video'
 }
 
 interface RoutePromptRequest {
@@ -186,14 +187,14 @@ interface RoutePromptResponse {
 function buildUploadedFilesContext(files: UploadedFileMeta[]): string {
   const lines = [`Attached files (${files.length}):`]
   for (const f of files) {
-    lines.push(`  - index=${f.index} name="${f.name}"`)
+    lines.push(`  - index=${f.index} type=${f.type ?? 'image'} name="${f.name}"`)
   }
   return lines.join('\n')
 }
 
 function buildManifestContext(manifest: SerializedManifest): string {
   const lines: string[] = ['Current timeline contents:']
-  lines.push('Image numbers are global across all rows, sorted by image startTime.')
+  lines.push('All item numbers are global across all rows, sorted by startTime (or timestamp for videos).')
 
   if (manifest.images?.length) {
     const sorted = [...manifest.images].sort((a, b) => (a.startTime ?? 0) - (b.startTime ?? 0))

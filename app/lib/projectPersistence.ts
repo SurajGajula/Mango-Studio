@@ -98,7 +98,8 @@ function idbDeleteDatabase(dbName: string): Promise<void> {
 async function replaceBlobUrlsInValue(
   value: unknown,
   mapTokenToBlob: Map<string, Blob>,
-  tokenToObjectUrl: Map<string, string>
+  tokenToObjectUrl: Map<string, string>,
+  rawBlobUrlOutcome: Map<string, string>
 ): Promise<unknown> {
   if (typeof value === 'string') {
     if (value.startsWith(BLOB_TOKEN_PREFIX)) {
@@ -110,13 +111,29 @@ async function replaceBlobUrlsInValue(
         tokenToObjectUrl.set(value, url)
         return url
       }
+    } else if (value.startsWith('blob:')) {
+      const memo = rawBlobUrlOutcome.get(value)
+      if (memo !== undefined) return memo
+      try {
+        const res = await fetch(value)
+        const blob = await res.blob()
+        if (!blob || blob.size === 0) {
+          rawBlobUrlOutcome.set(value, '')
+          return ''
+        }
+        rawBlobUrlOutcome.set(value, value)
+        return value
+      } catch {
+        rawBlobUrlOutcome.set(value, '')
+        return ''
+      }
     }
     return value
   }
   if (Array.isArray(value)) {
     const out: unknown[] = []
     for (const item of value) {
-      out.push(await replaceBlobUrlsInValue(item, mapTokenToBlob, tokenToObjectUrl))
+      out.push(await replaceBlobUrlsInValue(item, mapTokenToBlob, tokenToObjectUrl, rawBlobUrlOutcome))
     }
     return out
   }
@@ -124,7 +141,7 @@ async function replaceBlobUrlsInValue(
     const o = value as Record<string, unknown>
     const next: Record<string, unknown> = {}
     for (const k of Object.keys(o)) {
-      next[k] = await replaceBlobUrlsInValue(o[k], mapTokenToBlob, tokenToObjectUrl)
+      next[k] = await replaceBlobUrlsInValue(o[k], mapTokenToBlob, tokenToObjectUrl, rawBlobUrlOutcome)
     }
     return next
   }
@@ -537,13 +554,14 @@ async function hydrateSnapshotIntoStore(snap: ProjectSnapshotPayload, dbName: st
   }
 
   const tokenToObjectUrl = new Map<string, string>()
-  const videos = (await replaceBlobUrlsInValue(snap.videos, mapTokenToBlob, tokenToObjectUrl)) as unknown[]
-  const images = (await replaceBlobUrlsInValue(snap.images, mapTokenToBlob, tokenToObjectUrl)) as unknown[]
-  const texts = (await replaceBlobUrlsInValue(snap.texts, mapTokenToBlob, tokenToObjectUrl)) as unknown[]
-  const audios = (await replaceBlobUrlsInValue(snap.audios, mapTokenToBlob, tokenToObjectUrl)) as unknown[]
-  const effects = (await replaceBlobUrlsInValue(snap.effects, mapTokenToBlob, tokenToObjectUrl)) as unknown[]
+  const rawBlobUrlOutcome = new Map<string, string>()
+  const videos = (await replaceBlobUrlsInValue(snap.videos, mapTokenToBlob, tokenToObjectUrl, rawBlobUrlOutcome)) as unknown[]
+  const images = (await replaceBlobUrlsInValue(snap.images, mapTokenToBlob, tokenToObjectUrl, rawBlobUrlOutcome)) as unknown[]
+  const texts = (await replaceBlobUrlsInValue(snap.texts, mapTokenToBlob, tokenToObjectUrl, rawBlobUrlOutcome)) as unknown[]
+  const audios = (await replaceBlobUrlsInValue(snap.audios, mapTokenToBlob, tokenToObjectUrl, rawBlobUrlOutcome)) as unknown[]
+  const effects = (await replaceBlobUrlsInValue(snap.effects, mapTokenToBlob, tokenToObjectUrl, rawBlobUrlOutcome)) as unknown[]
   const historyRaw = Array.isArray(snap.history)
-    ? ((await replaceBlobUrlsInValue(snap.history, mapTokenToBlob, tokenToObjectUrl)) as unknown[])
+    ? ((await replaceBlobUrlsInValue(snap.history, mapTokenToBlob, tokenToObjectUrl, rawBlobUrlOutcome)) as unknown[])
     : []
 
   const revivedVideos = videos.map((v) => reviveVideo(v as Record<string, unknown>))

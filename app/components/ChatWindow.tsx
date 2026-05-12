@@ -23,7 +23,7 @@ import {
   inferAnimationZoomEasing,
   migrateAnimationValue,
 } from '@/app/models/ImageClass'
-import { computeCropForAspect, computeCanvasCropPlacement, ASPECT_RATIOS, computeVideoCropForAspect, computeMediaCropForAspect, getLogicalCanvasDimensions } from '@/app/lib/mediaUtils'
+import { computeCropForAspect, computeCanvasCropPlacement, ASPECT_RATIOS, computeVideoCropForAspect, computeMediaCropForAspect, getLogicalCanvasDimensions, resolveVideoMetadata } from '@/app/lib/mediaUtils'
 import {
   imageCropOverlayFromPatch,
   replacePlacementDimensions,
@@ -34,6 +34,9 @@ import { findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
 import { createSolidColorDataUrl } from '@/app/lib/solidColorImage'
 import { FIXED_ASPECT_RATIO } from '@/app/lib/aspectRatio'
 import { useSelectionStore } from '@/app/stores/selectionStore'
+import { AudioClass } from '@/app/models/AudioClass'
+import { VideoClass as VideoModel } from '@/app/models/VideoClass'
+import { resolveAudioDurationFromUrl } from '@/app/lib/timelineMediaInsert'
 import styles from './ChatWindow.module.css'
 
 interface Message {
@@ -48,7 +51,9 @@ interface UploadedFile {
   id: string
   name: string
   base64: string
+  blobUrl: string
   mimeType: string
+  mediaType: 'image' | 'audio' | 'video'
 }
 
 interface EqualSplitRequest {
@@ -85,6 +90,8 @@ export default function ChatWindow() {
   const removeText = useManifestStore((state) => state.removeText)
   const removeAudio = useManifestStore((state) => state.removeAudio)
   const removeEffect = useManifestStore((state) => state.removeEffect)
+  const addVideo = useManifestStore((state) => state.addVideo)
+  const addAudio = useManifestStore((state) => state.addAudio)
   const duplicateTimelineRange = useManifestStore((state) => state.duplicateTimelineRange)
   useEffect(() => {
     if (pendingPrompt) {
@@ -437,16 +444,163 @@ export default function ChatWindow() {
     }
   }
 
+  const applyAudioReplacement = async (targetId: string, file: UploadedFile) => {
+    const { audios } = useManifestStore.getState()
+    const oldAudio = audios.find((a) => a.id === targetId)
+    if (!oldAudio) return
+
+    const duration = await resolveAudioDurationFromUrl(file.blobUrl)
+    const oldTimelineDuration = oldAudio.endTime - oldAudio.startTime
+    const endTime = duration >= oldTimelineDuration
+      ? oldAudio.endTime
+      : oldAudio.startTime + duration
+    const trimEnd = duration >= oldTimelineDuration
+      ? duration - oldTimelineDuration
+      : 0
+    const newId = `audio-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    const audioInstance = new AudioClass(
+      newId,
+      file.name,
+      file.blobUrl,
+      oldAudio.startTime,
+      endTime,
+      [],
+      undefined,
+      0,
+      trimEnd,
+      duration,
+      1,
+      oldAudio.row,
+      oldAudio.volume
+    )
+    removeAudio(targetId)
+    addAudio(audioInstance)
+  }
+
+  const applyVideoReplacement = async (targetId: string, file: UploadedFile) => {
+    const { videos, images } = useManifestStore.getState()
+    const oldVideo = videos.find((v) => v.id === targetId)
+    const oldImage = images.find((i) => i.id === targetId)
+
+    if (oldVideo) {
+      const { duration } = await resolveVideoMetadata(file.blobUrl)
+      const aspectRatio = FIXED_ASPECT_RATIO
+      const [rw, rh] = ASPECT_RATIOS[aspectRatio]
+      const crop = await computeMediaCropForAspect(file.blobUrl, 'video', aspectRatio, rw, rh, aspectRatio)
+      const newId = `video-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      const newVideo = new VideoModel(
+        newId,
+        file.name,
+        file.blobUrl,
+        duration,
+        oldVideo.timestamp,
+        undefined,
+        undefined,
+        undefined,
+        0,
+        0,
+        undefined,
+        crop.x,
+        crop.y,
+        crop.width,
+        crop.height,
+        1,
+        oldVideo.animation ?? 'none',
+        oldVideo.transition ?? 'none',
+        oldVideo.zoomIntensity ?? 0.5,
+        oldVideo.transitionDuration ?? 1.0,
+        oldVideo.animationDuration ?? 1.0,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        oldVideo.row,
+        true,
+        crop.cropAspect,
+        crop.cropSx,
+        crop.cropSy,
+        crop.cropSw,
+        crop.cropSh,
+        undefined,
+        undefined,
+        undefined,
+        1
+      )
+      removeVideo(targetId)
+      addVideo(newVideo)
+    } else if (oldImage) {
+      const { duration } = await resolveVideoMetadata(file.blobUrl)
+      const aspectRatio = FIXED_ASPECT_RATIO
+      const [rw, rh] = ASPECT_RATIOS[aspectRatio]
+      const crop = await computeMediaCropForAspect(file.blobUrl, 'video', aspectRatio, rw, rh, aspectRatio)
+      const newId = `video-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      const startTime = oldImage.startTime
+      const imageDuration = oldImage.endTime - oldImage.startTime
+      const row = oldImage.row
+      const newVideo = new VideoModel(
+        newId,
+        file.name,
+        file.blobUrl,
+        Math.min(duration, imageDuration),
+        startTime,
+        undefined,
+        undefined,
+        undefined,
+        0,
+        0,
+        undefined,
+        crop.x,
+        crop.y,
+        crop.width,
+        crop.height,
+        1,
+        oldImage.animation ?? 'none',
+        oldImage.transition ?? 'none',
+        oldImage.zoomIntensity ?? 0.5,
+        oldImage.transitionDuration ?? 1.0,
+        oldImage.animationDuration ?? 1.0,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        row,
+        true,
+        crop.cropAspect,
+        crop.cropSx,
+        crop.cropSy,
+        crop.cropSw,
+        crop.cropSh,
+        undefined,
+        undefined,
+        undefined,
+        1
+      )
+      removeImage(targetId)
+      addVideo(newVideo)
+    }
+  }
+
   const applyReplacements = async (replacements: ReplaceInstruction[], files: UploadedFile[]) => {
     for (const r of replacements) {
       const file = files[r.fileIndex]
       if (!file) continue
-      const blob = new Blob(
-        [Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0))],
-        { type: file.mimeType }
-      )
-      const url = URL.createObjectURL(blob)
-      await applyReplacementWithUrl(r.targetId, url, file.name)
+
+      if (file.mediaType === 'audio') {
+        await applyAudioReplacement(r.targetId, file)
+      } else if (file.mediaType === 'video') {
+        await applyVideoReplacement(r.targetId, file)
+      } else {
+        const blob = new Blob(
+          [Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0))],
+          { type: file.mimeType }
+        )
+        const url = URL.createObjectURL(blob)
+        await applyReplacementWithUrl(r.targetId, url, file.name)
+      }
     }
   }
 
@@ -557,7 +711,7 @@ export default function ChatWindow() {
       }
 
       const filesSnapshot = uploadedFiles
-      const uploadedFilesMeta = filesSnapshot.map((f, i) => ({ index: i, name: f.name }))
+      const uploadedFilesMeta = filesSnapshot.map((f, i) => ({ index: i, name: f.name, type: f.mediaType }))
 
       const response = await fetch('/api/route-prompt', {
         method: 'POST',
@@ -640,17 +794,29 @@ export default function ChatWindow() {
 
     const newFiles: UploadedFile[] = []
     for (const file of Array.from(files)) {
-      if (!file.type.startsWith('image/')) continue
-      const base64 = await new Promise<string>((resolve) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve((reader.result as string).split(',')[1])
-        reader.readAsDataURL(file)
-      })
+      let mediaType: 'image' | 'audio' | 'video'
+      if (file.type.startsWith('image/')) mediaType = 'image'
+      else if (file.type.startsWith('audio/')) mediaType = 'audio'
+      else if (file.type.startsWith('video/')) mediaType = 'video'
+      else continue
+
+      const blobUrl = URL.createObjectURL(file)
+      let base64 = ''
+      if (mediaType === 'image') {
+        base64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve((reader.result as string).split(',')[1])
+          reader.readAsDataURL(file)
+        })
+      }
+
       newFiles.push({
         id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         name: file.name,
         base64,
+        blobUrl,
         mimeType: file.type,
+        mediaType,
       })
     }
 
@@ -677,16 +843,36 @@ export default function ChatWindow() {
       </div>
 
       {uploadedFiles.length > 0 && (
-        <div className={styles.referenceImagesContainer}>
+        <div className={styles.referenceFilesContainer}>
           {uploadedFiles.map((file) => (
-            <div key={file.id} className={styles.referenceImageItem}>
-              <img
-                src={`data:${file.mimeType};base64,${file.base64}`}
-                alt={file.name}
-                className={styles.referenceImagePreview}
-              />
+            <div key={file.id} className={file.mediaType === 'image' ? styles.referenceImageItem : styles.referenceMediaItem}>
+              {file.mediaType === 'image' ? (
+                <img
+                  src={`data:${file.mimeType};base64,${file.base64}`}
+                  alt={file.name}
+                  className={styles.referenceImagePreview}
+                />
+              ) : (
+                <div className={styles.referenceMediaInfo}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    {file.mediaType === 'audio' ? (
+                      <>
+                        <path d="M9 18V5l12-2v13" />
+                        <circle cx="6" cy="18" r="3" />
+                        <circle cx="18" cy="16" r="3" />
+                      </>
+                    ) : (
+                      <>
+                        <polygon points="23 7 16 12 23 17 23 7" />
+                        <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                      </>
+                    )}
+                  </svg>
+                  <span className={styles.referenceMediaName}>{file.name}</span>
+                </div>
+              )}
               <button
-                className={styles.removeImageButton}
+                className={styles.removeFileButton}
                 onClick={() => removeUploadedFile(file.id)}
                 title="Remove"
               >
@@ -701,7 +887,7 @@ export default function ChatWindow() {
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
+          accept="image/*,audio/*,video/*"
           multiple
           onChange={handleFileSelect}
           style={{ display: 'none' }}
@@ -721,14 +907,12 @@ export default function ChatWindow() {
               type="button"
               className={styles.composerIconBtn}
               onClick={() => fileInputRef.current?.click()}
-              title="Attach images"
+              title="Attach files"
               disabled={isProcessing}
-              aria-label="Attach images"
+              aria-label="Attach files"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                <circle cx="8.5" cy="8.5" r="1.5" />
-                <polyline points="21 15 16 10 5 21" />
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
               </svg>
             </button>
             <button

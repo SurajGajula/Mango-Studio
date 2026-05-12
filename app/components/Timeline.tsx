@@ -74,6 +74,7 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const uploadInputRef = useRef<HTMLInputElement>(null)
   const replaceInputRef = useRef<HTMLInputElement>(null)
+  const audioReplaceInputRef = useRef<HTMLInputElement>(null)
   
   const totalDuration = getTotalDuration()
   const MIN_VISIBLE = 0.5
@@ -190,9 +191,13 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
     applyReplaceFromUrl,
     handleConfirmReplaceVideo,
     handleVideoDoubleClick,
+    audioReplaceTargetId,
+    setAudioReplaceTargetId,
+    handleAudioReplaceSelect,
   } = useTimelineReplace({
     videos,
     images,
+    audios,
     replaceImageWithVideo,
     replaceVideoWithImage,
   })
@@ -716,6 +721,13 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
           onChange={handleReplaceSelect}
           style={{ display: 'none' }}
         />
+        <input
+          ref={audioReplaceInputRef}
+          type="file"
+          accept="audio/*"
+          onChange={handleAudioReplaceSelect}
+          style={{ display: 'none' }}
+        />
         <div className={styles.timelineWrapper}>
           <PlaybackControls
             playbackTime={playbackTime}
@@ -862,6 +874,10 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
               replaceInputRef.current?.click()
             }}
             onReplaceFromLibrary={(id) => setReplaceLibraryTargetId(id)}
+            onReplaceAudio={(id) => {
+              setAudioReplaceTargetId(id)
+              audioReplaceInputRef.current?.click()
+            }}
             onRemoveBackground={(id) => setBgRemoveTargetId(id)}
           />
         </div>

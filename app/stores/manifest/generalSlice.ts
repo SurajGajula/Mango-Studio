@@ -5,7 +5,7 @@ import { TextClass } from '@/app/models/TextClass'
 import { EffectClass } from '@/app/models/EffectClass'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { ManifestStore } from './types'
-import { overlapsAny, occupancyIntervalsOnRow } from '@/app/lib/timeline'
+import { overlapsAny, occupancyIntervalsOnRow, quantizeTimelineSeconds } from '@/app/lib/timeline'
 import { calculateTotalDuration } from '@/app/lib/timeUtils'
 import { calculateSourceTime } from '@/app/lib/renderUtils'
 import { generateId } from '@/app/lib/idUtils'
@@ -75,7 +75,7 @@ export const createGeneralSlice = (set: any, get: any) => ({
 
     const startTime = type === 'video' ? item.timestamp : item.startTime
     const duration = type === 'audio' ? (item.originalDuration - item.trimStart - item.trimEnd) / (item.playbackSpeed ?? 1) : (item.duration ?? (item.endTime - item.startTime))
-    const finalTime = newTime !== undefined ? newTime : startTime
+    const finalTime = newTime !== undefined ? quantizeTimelineSeconds(newTime) : startTime
 
     const oldRow = item.row
     if (oldRow === targetRow && newTime === undefined) return

@@ -411,7 +411,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'replace_images',
-    description: 'Replace existing timeline images or videos with uploaded files ONLY when the user has attached one or more image/video files. Map each target id to the fileIndex of the uploaded file. Do NOT use this for solid/flat colors — use replace_with_solid instead.',
+    description: 'Replace existing timeline items (images, videos, or audios) with uploaded files ONLY when the user has attached one or more files. Match the uploaded file type to the target item type: use uploaded images to replace images/videos, uploaded videos to replace videos/images, and uploaded audios to replace audios. Map each target id to the fileIndex of the uploaded file. When a single file is uploaded and the user says "replace audios 2-5" or "replace images 3-10", map ALL target items to that same fileIndex (0). Do NOT use this for solid/flat colors — use replace_with_solid instead.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -423,7 +423,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
             properties: {
               targetId: {
                 type: Type.STRING,
-                description: 'The id of the existing timeline image or video to replace.',
+                description: 'The id of the existing timeline image, video, or audio to replace.',
               },
               fileIndex: {
                 type: Type.NUMBER,
@@ -538,11 +538,11 @@ export const systemInstruction =
   '- add_effect: when the user asks to add visual effects (like "crt-dither", "flashing-black-vignette" / vignette, "black-and-white", "vivid-sharp", or "pixel-glitch-scan") over a specific time range; include intensity (0.0–1.0) if specified; for vignette optionally flashSpeed (0.0 = solid edge, 1.0 = full pulse)\n' +
     '- set_step_growth: when the user asks to make an image grow in equal steps (e.g. "make image #3 grow in 4 steps", "grow selected image to full frame in 4 steps", or "make this image grow in 4 steps"). If the user says "this image", "selected image", or "current image", use target="selected". Use id when available; otherwise use global imageNumber (#N from manifest across all rows). Set steps to the requested count (default 4).\n' +
     '- replace_with_solid: when the user asks to replace timeline images or videos with a solid/flat color (white, black, hex, named CSS colors) without uploading a file — e.g. "replace videos 3–16 with white", "blank frames", "solid red background clip"\n' +
-    '- replace_images: ONLY when the user has attached image/video files AND asks to replace timeline items with those uploads\n' +
+    '- replace_images: ONLY when the user has attached files (images, videos, or audios) AND asks to replace timeline items with those uploads. Match the file type from the attached files list to the target item type. When one file is uploaded and the user says "replace audios 2-5", map all target audio ids to fileIndex 0. Audio numbering uses global #N by startTime, same as images/videos.\n' +
   '- set_transitions: when the user asks to set, apply, add, or remove animations (none, zoom-in, zoom-out, shake, jitter, slide-shake-left, or slide-shake-right) or transitions (none, split, fade, morph, slide-in, wipe, circle, rotate, or flash) on images or videos; include zoomIntensity (0.05–1.0) only for shake/jitter when specified, include zoomDistanceIntensity (0.25–2.5) when the user specifies lowering/raising zoom distance for zoom-in or zoom-out, include animationDuration for zoom animations or the slide-in portion of slide-shake-left/slide-shake-right, include animationZoomEasing ("constant", "fast-slow", or "slow-fast") for zoom animations, transitionDuration if specified, transitionColor if specified (for solid flash), transitionFlashMode if specified (solid or negative for flash), transitionDirection if specified (for slide-in or wipe), transitionAxis if specified (for split), transitionSlideEasing if specified (for slide-in), transitionWipeEasing if specified (for wipe), or transitionCircleEasing if specified (for circle). For image numbers/ranges, use global image numbering from the manifest (#N across all rows).\n' +
   '- set_crop: when the user asks to set or change the aspect ratio of images or videos (e.g. "make images 2-25 16:9"); cropAspect must be one of "16:9", "4:3", "1:1", "3:4", "9:16", or "none"\n' +
   '- no_op: for anything else\n' +
   'Always call exactly one function. Compute exact numeric values from the timeline data provided.\n' +
-  'For images, numbering is global: "image 1", "image 2", etc. always refer to the global manifest #N order by startTime across all rows. If the user says "this image", "selected image", or "current image", target the selected item instead of requiring a number.'
+  'For images, numbering is global: "image 1", "image 2", etc. always refer to the global manifest #N order by startTime across all rows. The same global numbering applies to videos (by timestamp), texts (by startTime), and audios (by startTime). If the user says "this image", "selected image", or "current image", target the selected item instead of requiring a number.'
 
 export { FunctionCallingConfigMode }

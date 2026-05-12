@@ -89,7 +89,7 @@ export async function addVideoToTimelineAtPlayhead(url: string, title: string) {
   await addVideoToTimelineAtTime(url, title, playbackTime)
 }
 
-async function resolveAudioDurationFromUrl(url: string): Promise<number> {
+export async function resolveAudioDurationFromUrl(url: string): Promise<number> {
   const response = await fetch(url)
   const arrayBuffer = await response.arrayBuffer()
   const audioCtx = new AudioContext()

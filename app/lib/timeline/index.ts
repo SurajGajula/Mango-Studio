@@ -16,3 +16,8 @@ export {
   replacePlacementDimensions,
 } from './replaceUtils'
 export { uploadToAccountLibrary, validateMediaDuration } from './mediaUploadUtils'
+export {
+  quantizeTimelineSeconds,
+  quantizeOptionalTimelineSeconds,
+  TIMELINE_POSITION_DECIMALS,
+} from './timelineQuantize'

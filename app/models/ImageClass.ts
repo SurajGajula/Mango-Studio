@@ -1,4 +1,8 @@
 import type { MediaKeyframe } from './mediaKeyframe'
+import {
+  quantizeOptionalTimelineSeconds,
+  quantizeTimelineSeconds,
+} from '@/app/lib/timeline/timelineQuantize'
 
 export type AnimationMode =
   | 'none'
@@ -233,6 +237,15 @@ export class ImageClass {
     this.cropSw = cropSw ?? 1
     this.cropSh = cropSh ?? 1
     this.keyframes = keyframes ?? []
+
+    this.startTime = quantizeTimelineSeconds(this.startTime)
+    this.endTime = quantizeTimelineSeconds(this.endTime)
+    if (this.transitionDuration !== undefined && Number.isFinite(this.transitionDuration)) {
+      this.transitionDuration = quantizeTimelineSeconds(this.transitionDuration)
+    }
+    if (this.animationDuration !== undefined && Number.isFinite(this.animationDuration)) {
+      this.animationDuration = quantizeTimelineSeconds(this.animationDuration)
+    }
   }
 
   copy(updates: Partial<ImageClass>): ImageClass {
@@ -240,8 +253,8 @@ export class ImageClass {
       updates.id ?? this.id,
       updates.name ?? this.name,
       updates.url ?? this.url,
-      updates.startTime ?? this.startTime,
-      updates.endTime ?? this.endTime,
+      quantizeTimelineSeconds(updates.startTime ?? this.startTime),
+      quantizeTimelineSeconds(updates.endTime ?? this.endTime),
       typeof updates.x === 'number' && Number.isFinite(updates.x) ? updates.x : this.x,
       typeof updates.y === 'number' && Number.isFinite(updates.y) ? updates.y : this.y,
       typeof updates.width === 'number' && Number.isFinite(updates.width) ? updates.width : this.width,
@@ -256,8 +269,8 @@ export class ImageClass {
       updates.cropSw ?? this.cropSw,
       updates.cropSh ?? this.cropSh,
       updates.zoomIntensity ?? this.zoomIntensity,
-      updates.transitionDuration ?? this.transitionDuration,
-      updates.animationDuration ?? this.animationDuration,
+      quantizeOptionalTimelineSeconds(updates.transitionDuration ?? this.transitionDuration),
+      quantizeOptionalTimelineSeconds(updates.animationDuration ?? this.animationDuration),
       updates.animationZoomEasing ?? this.animationZoomEasing,
       updates.transitionColor ?? this.transitionColor,
       updates.transitionDirection ?? this.transitionDirection,

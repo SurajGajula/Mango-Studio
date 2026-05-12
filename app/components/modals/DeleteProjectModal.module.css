@@ -1,0 +1,71 @@
+.header {
+  margin-bottom: 1rem;
+  padding-right: 1.5rem;
+}
+
+.header h2 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  color: #fff;
+}
+
+.body {
+  color: #888;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  margin: 0 0 0.35rem 0;
+}
+
+.projectName {
+  color: #e8e8e8;
+  font-weight: 600;
+}
+
+.errorText {
+  color: #ff7f7f;
+  font-size: 0.8rem;
+  margin: 0.75rem 0 0 0;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 1.1rem;
+}
+
+.cancelButton {
+  background: transparent;
+  border: 1px solid #333;
+  color: #aaa;
+  padding: 0.55rem 1rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.cancelButton:hover:not(:disabled) {
+  border-color: #555;
+  color: #fff;
+}
+
+.deleteButton {
+  background: #b42323;
+  color: #fff;
+  border: none;
+  padding: 0.55rem 1.1rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.deleteButton:hover:not(:disabled) {
+  background: #c92e2e;
+}
+
+.deleteButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

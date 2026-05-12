@@ -163,6 +163,7 @@ export function useVideoPlayback(
   const imageUrlsRef = useRef<Map<string, string>>(new Map())
   const urlCacheRef = useRef<Map<string, ImageBitmap>>(new Map())
   const loadingUrlsRef = useRef<Set<string>>(new Set())
+  const imagePrefetchGenRef = useRef(0)
   const persistenceCanvasesRef = useRef<Map<string, { current: HTMLCanvasElement; accumulation: HTMLCanvasElement }>>(new Map())
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map())
   const audioCtxRef = useRef<AudioContext | null>(null)
@@ -270,6 +271,9 @@ export function useVideoPlayback(
   }, [videos, getState])
 
   useEffect(() => {
+    imagePrefetchGenRef.current += 1
+    const gen = imagePrefetchGenRef.current
+
     const currentIds = new Set(images.map((o) => o.id))
 
     imageBitmapsRef.current.forEach((_, id) => {
@@ -279,23 +283,21 @@ export function useVideoPlayback(
       }
     })
 
-    if (urlCacheRef.current.size > 200) {
-      const activeUrls = new Set(images.map(img => img.url))
-      urlCacheRef.current.forEach((bitmap, url) => {
-        if (!activeUrls.has(url)) {
-          bitmap.close()
-          urlCacheRef.current.delete(url)
-        }
-      })
-    }
+    const activeUrls = new Set(images.map((img) => img.url))
+    urlCacheRef.current.forEach((bitmap, url) => {
+      if (!activeUrls.has(url)) {
+        bitmap.close()
+        urlCacheRef.current.delete(url)
+      }
+    })
 
-    images.forEach(async (image) => {
-      const isNearPlayhead = Math.abs(image.startTime - playbackTime) < 60 || 
-                             (playbackTime >= image.startTime && playbackTime < image.endTime)
+    images.forEach((image) => {
+      const isNearPlayhead =
+        Math.abs(image.startTime - playbackTime) < 60 ||
+        (playbackTime >= image.startTime && playbackTime < image.endTime)
 
       if (!isNearPlayhead) return
 
-      // Invalidate per-id cache if the URL has changed (image replacement)
       if (imageUrlsRef.current.get(image.id) !== image.url) {
         imageBitmapsRef.current.delete(image.id)
         imageUrlsRef.current.set(image.id, image.url)
@@ -305,19 +307,28 @@ export function useVideoPlayback(
       if (!bitmap) {
         bitmap = urlCacheRef.current.get(image.url)
         if (!bitmap) {
+          if (!image.url) return
           if (loadingUrlsRef.current.has(image.url)) return
           loadingUrlsRef.current.add(image.url)
-          try {
-            const response = await fetch(image.url)
-            const blob = await response.blob()
-            const newBitmap = await createImageBitmap(blob)
-            urlCacheRef.current.set(image.url, newBitmap)
-            imageBitmapsRef.current.set(image.id, newBitmap)
-          } catch (e) {
-            console.error('Failed to load image bitmap', image.url, e)
-          } finally {
-            loadingUrlsRef.current.delete(image.url)
-          }
+          void (async () => {
+            try {
+              const response = await fetch(image.url)
+              const blob = await response.blob()
+              const newBitmap = await createImageBitmap(blob)
+              if (gen !== imagePrefetchGenRef.current) {
+                newBitmap.close()
+                return
+              }
+              urlCacheRef.current.set(image.url, newBitmap)
+              imageBitmapsRef.current.set(image.id, newBitmap)
+            } catch (e) {
+              if (gen === imagePrefetchGenRef.current) {
+                console.error('Failed to load image bitmap', image.url, e)
+              }
+            } finally {
+              loadingUrlsRef.current.delete(image.url)
+            }
+          })()
         } else {
           imageBitmapsRef.current.set(image.id, bitmap)
         }

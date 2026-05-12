@@ -229,7 +229,7 @@
   to { transform: rotate(360deg); }
 }
 
-.referenceImagesContainer {
+.referenceFilesContainer {
   display: flex;
   gap: 0.5rem;
   padding: 0.5rem 1rem;
@@ -252,7 +252,34 @@
   object-fit: cover;
 }
 
-.removeImageButton {
+.referenceMediaItem {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 0.5rem;
+  padding-right: 1.5rem;
+  border-radius: 6px;
+  border: 1px solid #333333;
+  background-color: #1a1a1a;
+}
+
+.referenceMediaInfo {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #b0b0b0;
+}
+
+.referenceMediaName {
+  font-size: 0.7rem;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.removeFileButton {
   position: absolute;
   top: 2px;
   right: 2px;
@@ -270,7 +297,7 @@
   justify-content: center;
 }
 
-.removeImageButton:hover {
+.removeFileButton:hover {
   background-color: #ff4444;
 }
 

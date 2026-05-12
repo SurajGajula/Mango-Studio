@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
+import { AudioClass } from '@/app/models/AudioClass'
 import { computeMediaCropForAspect, resolveVideoMetadata } from '@/app/lib/mediaUtils'
 import { extractVideoClip } from '@/app/lib/videoExporter'
 import { timelineClipSourceSpanSeconds } from '@/app/lib/renderUtils'
@@ -8,6 +9,7 @@ import { useManifestStore } from '@/app/stores/manifestStore'
 import { generateId } from '@/app/lib/idUtils'
 import { getOrCreateObjectURLForFile } from '@/app/lib/fileObjectUrlCache'
 import { FIXED_ASPECT_RATIO } from '@/app/lib/aspectRatio'
+import { resolveAudioDurationFromUrl } from '@/app/lib/timelineMediaInsert'
 import {
   imageCropOverlayFromPatch,
   normalizeClipSpeedWindow,
@@ -21,6 +23,7 @@ import {
 interface UseTimelineReplaceProps {
   videos: VideoClass[]
   images: ImageClass[]
+  audios: AudioClass[]
   replaceImageWithVideo: (id: string, video: VideoClass) => void
   replaceVideoWithImage: (id: string, image: ImageClass) => void
 }
@@ -28,6 +31,7 @@ interface UseTimelineReplaceProps {
 export function useTimelineReplace({
   videos,
   images,
+  audios,
   replaceImageWithVideo,
   replaceVideoWithImage,
 }: UseTimelineReplaceProps) {
@@ -508,6 +512,58 @@ export function useTimelineReplace({
     [replaceVideoData, images, videos, replaceImageWithVideo, clearReplaceFlow]
   )
 
+  const [audioReplaceTargetId, setAudioReplaceTargetId] = useState<string | null>(null)
+
+  const handleAudioReplaceSelect = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0]
+      if (!file || !audioReplaceTargetId) return
+
+      if (!file.type.startsWith('audio/')) {
+        e.target.value = ''
+        return
+      }
+
+      const url = getOrCreateObjectURLForFile(file)
+      const title = file.name
+
+      void uploadReplacementToLibrary(file)
+
+      const newDuration = await resolveAudioDurationFromUrl(url)
+      const store = useManifestStore.getState()
+      const oldAudio = store.audios.find((a) => a.id === audioReplaceTargetId)
+      if (!oldAudio) {
+        e.target.value = ''
+        return
+      }
+
+      const oldTimelineDuration = oldAudio.endTime - oldAudio.startTime
+      const newEndTime = newDuration >= oldTimelineDuration
+        ? oldAudio.endTime
+        : oldAudio.startTime + newDuration
+      const newTrimEnd = newDuration >= oldTimelineDuration
+        ? newDuration - oldTimelineDuration
+        : 0
+
+      runHistoryTransaction((historyStore) => {
+        historyStore.updateAudio(audioReplaceTargetId, {
+          url,
+          name: title,
+          originalDuration: newDuration,
+          trimStart: 0,
+          trimEnd: newTrimEnd,
+          startTime: oldAudio.startTime,
+          endTime: newEndTime,
+          marks: [],
+        })
+      })
+
+      setAudioReplaceTargetId(null)
+      e.target.value = ''
+    },
+    [audioReplaceTargetId, uploadReplacementToLibrary]
+  )
+
   const handleVideoDoubleClick = useCallback((videoId: string) => {
     const video = videos.find((v) => v.id === videoId)
     if (!video || (!video.url && !video.sourceUrl)) return
@@ -543,5 +599,8 @@ export function useTimelineReplace({
     applyReplaceFromUrl,
     handleConfirmReplaceVideo,
     handleVideoDoubleClick,
+    audioReplaceTargetId,
+    setAudioReplaceTargetId,
+    handleAudioReplaceSelect,
   }
 }

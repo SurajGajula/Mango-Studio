@@ -104,6 +104,14 @@ const UnifiedRow = ({
     () => buildManifestNumberById(videos, (video) => video.id, (video) => video.timestamp),
     [videos]
   )
+  const textManifestNumberById = useMemo(
+    () => buildManifestNumberById(texts, (t) => t.id, (t) => t.startTime),
+    [texts]
+  )
+  const audioManifestNumberById = useMemo(
+    () => buildManifestNumberById(audios, (a) => a.id, (a) => a.startTime),
+    [audios]
+  )
 
   if (items.length === 0 && !showEmptyForDrag) return null
 
@@ -307,7 +315,7 @@ const UnifiedRow = ({
             >
               <div className={styles.overlayHandleStart} onMouseDown={(e) => { e.stopPropagation(); handleTextDragStart(id, 'start', e) }} />
               <div className={styles.overlayHandleEnd} onMouseDown={(e) => { e.stopPropagation(); handleTextDragStart(id, 'end', e) }} />
-              <div className={styles.overlayBox}><span className={styles.overlayName}>Text</span></div>
+              <div className={styles.overlayBox}><span className={styles.overlayName}>Text #{textManifestNumberById.get(id)}</span></div>
             </div>
           )
         }
@@ -377,7 +385,7 @@ const UnifiedRow = ({
               )}
               <div className={styles.overlayBox}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
-                <span className={styles.overlayName}>Audio</span>
+                <span className={styles.overlayName}>Audio #{audioManifestNumberById.get(id)}</span>
               </div>
               {markEntries.map(({ id: markId, timelinePos }) => (
                 <div

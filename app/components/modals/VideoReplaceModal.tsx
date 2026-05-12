@@ -108,7 +108,8 @@ export default function VideoReplaceModal({
       for (const a of audios) {
         const el = audioByIdRef.current.get(a.id)
         if (!el) continue
-        el.volume = a.volume ?? 1
+        const gain = a.volume ?? 1
+        el.volume = Math.max(0, Math.min(1, gain))
         if (!isProjectTimeInAudioClip(projectTime, a)) {
           if (!el.paused) el.pause()
           continue

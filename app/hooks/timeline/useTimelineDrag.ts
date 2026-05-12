@@ -6,6 +6,7 @@ import {
   getMaxOverlayRow,
   overlapsAny,
   occupancyIntervalsOnRow,
+  quantizeTimelineSeconds,
   resolveTargetRow,
   shiftItemsForwardInRow as buildRowShiftPlan,
   shouldRippleExpansionInRow as shouldRippleForWindow,
@@ -353,6 +354,7 @@ export function useTimelineDrag({
     }
     targetTime = Math.max(0, targetTime)
       targetTime = snapToZeroIfNear(targetTime)
+      targetTime = quantizeTimelineSeconds(targetTime)
 
       const container = timelineRowRef.current
       const rowElements = Array.from(container.children).filter(
@@ -740,7 +742,9 @@ export function useTimelineDrag({
       }
       newTrimStart = Math.max(0, Math.min(newTrimStart, originalDuration - initialTrimEnd - (0.5 * playbackSpeed)))
       const actualSourceDelta = newTrimStart - initialTrimStart
-      const newTimestamp = snapToZeroIfNear(Math.max(0, initialTimestamp + actualSourceDelta / playbackSpeed))
+      const newTimestamp = quantizeTimelineSeconds(
+        snapToZeroIfNear(Math.max(0, initialTimestamp + actualSourceDelta / playbackSpeed))
+      )
       const newDuration = (originalDuration - newTrimStart - initialTrimEnd) / playbackSpeed
       const stTrimStart = useManifestStore.getState()
       if (
@@ -1036,8 +1040,13 @@ export function useTimelineDrag({
           minEnd: item.startTime + minDur,
         },
       })
-      const nextStart = updates.startTime ?? item.startTime
-      const nextEnd = updates.endTime ?? item.endTime
+      const rawStart = updates.startTime ?? item.startTime
+      const rawEnd = updates.endTime ?? item.endTime
+      const nextStart = quantizeTimelineSeconds(rawStart)
+      const nextEnd = quantizeTimelineSeconds(rawEnd)
+      const finalUpdates = { ...updates }
+      if (updates.startTime !== undefined) finalUpdates.startTime = nextStart
+      if (updates.endTime !== undefined) finalUpdates.endTime = nextEnd
       const rowIntervals = getRowItems(item.row, kind, itemId).map((rowItem) => ({
         start: rowItem.start,
         end: rowItem.end,
@@ -1047,8 +1056,8 @@ export function useTimelineDrag({
         handle === 'end' &&
         item.row >= 0 &&
         updates.endTime !== undefined &&
-        updates.endTime > initialEndTime &&
-        shouldRippleExpansionInRow(item.row, initialEndTime, updates.endTime, excludeType, itemId)
+        nextEnd > initialEndTime &&
+        shouldRippleExpansionInRow(item.row, initialEndTime, nextEnd, excludeType, itemId)
       if (kind === 'image' || kind === 'text' || kind === 'effect') {
         if (
           overlapsAny(nextStart, nextEnd, rowIntervals, 0.01) &&
@@ -1058,11 +1067,11 @@ export function useTimelineDrag({
         }
       }
       if (canRippleEndExpansion) {
-        shiftItemsForwardInRow(item.row, initialEndTime, updates.endTime - initialEndTime, excludeType, itemId)
+        shiftItemsForwardInRow(item.row, initialEndTime, nextEnd - initialEndTime, excludeType, itemId)
       }
-      if (kind === 'image') updateImage(itemId, updates)
-      else if (kind === 'text') updateText(itemId, updates)
-      else updateEffect(itemId, updates)
+      if (kind === 'image') updateImage(itemId, finalUpdates)
+      else if (kind === 'text') updateText(itemId, finalUpdates)
+      else updateEffect(itemId, finalUpdates)
     },
     [
       visualEdgeDragging,
@@ -1197,17 +1206,20 @@ export function useTimelineDrag({
           return overlapsAny(start, end, intervals, 0.01)
         })
         if (!hasNegativeTime && !hasInternalOverlap && !hasRowOverlap) {
-          planned.forEach(({ entry, start, end, row }) => {
+          planned.forEach(({ entry, start, row, span }) => {
+            const dur = span.end - span.start
+            const qStart = quantizeTimelineSeconds(start)
+            const qEnd = qStart + dur
             if (entry.type === 'video') {
-              useManifestStore.getState().updateVideo(entry.id, { timestamp: start, row })
+              useManifestStore.getState().updateVideo(entry.id, { timestamp: qStart, row })
             } else if (entry.type === 'image') {
-              useManifestStore.getState().updateImage(entry.id, { startTime: start, endTime: end, row })
+              useManifestStore.getState().updateImage(entry.id, { startTime: qStart, endTime: qEnd, row })
             } else if (entry.type === 'text') {
-              useManifestStore.getState().updateText(entry.id, { startTime: start, endTime: end, row })
+              useManifestStore.getState().updateText(entry.id, { startTime: qStart, endTime: qEnd, row })
             } else if (entry.type === 'effect') {
-              useManifestStore.getState().updateEffect(entry.id, { startTime: start, endTime: end, row })
+              useManifestStore.getState().updateEffect(entry.id, { startTime: qStart, endTime: qEnd, row })
             } else {
-              useManifestStore.getState().updateAudio(entry.id, { startTime: start, endTime: end, row })
+              useManifestStore.getState().updateAudio(entry.id, { startTime: qStart, endTime: qEnd, row })
             }
           })
           didMutate = planned.length > 0

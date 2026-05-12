@@ -2,6 +2,7 @@
 
 import { ChangeEvent, useCallback, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { useAuth } from './AuthProvider'
+import DeleteConfirmModal from './modals/DeleteProjectModal'
 import MediaNameModal from './modals/MediaNameModal'
 import MoveMediaModal from './modals/MoveMediaModal'
 import PaymentModal from './modals/PaymentModal'
@@ -17,6 +18,11 @@ type NameModalState =
   | { type: 'new-folder' }
   | { type: 'rename-folder'; folderId: string; initialValue: string }
   | { type: 'rename-asset'; assetId: string; initialValue: string }
+
+type DeleteModalState =
+  | { type: 'project' }
+  | { type: 'folder'; folderId: string; name: string }
+  | { type: 'asset'; assetId: string; name: string }
 
 type MoveModalState = {
   assetId: string
@@ -40,6 +46,7 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
   const [dragOverTarget, setDragOverTarget] = useState<'root' | string | null>(null)
   const [shapesOpen, setShapesOpen] = useState(false)
   const [projectModalOpen, setProjectModalOpen] = useState(false)
+  const [deleteModal, setDeleteModal] = useState<DeleteModalState | null>(null)
 
   const { user, supabase, profile } = useAuth()
   const {
@@ -128,47 +135,27 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
     }
   }
 
-  const handleDeleteProject = async () => {
-    if (!activeProjectId) return
-    const current = projects.find((project) => project.id === activeProjectId)
-    if (!window.confirm(`Delete project "${current?.name ?? 'Untitled'}"?`)) return
-    try {
-      const response = await fetch('/api/projects', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: activeProjectId }),
-      })
-      const body = await response.json().catch(() => null)
-      if (!response.ok) {
-        throw new Error(body?.error ?? 'Failed to delete project')
-      }
-      const nextId = body?.projects?.[0]?.id ?? null
-      onSelectProject(nextId)
-      window.dispatchEvent(new Event('projects-updated'))
-    } catch (err: any) {
-      alert(err?.message ?? 'Failed to delete project')
+  const performDeleteProject = async () => {
+    if (!activeProjectId) throw new Error('No project selected')
+    const response = await fetch('/api/projects', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId: activeProjectId }),
+    })
+    const body = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw new Error(body?.error ?? 'Failed to delete project')
     }
+    const nextId = body?.projects?.[0]?.id ?? null
+    onSelectProject(nextId)
+    window.dispatchEvent(new Event('projects-updated'))
   }
 
-  const handleDeleteFolder = async (folderId: string, name: string) => {
-    if (!window.confirm(`Delete folder "${name}"?`)) return
-    try {
-      await deleteFolder(folderId)
-      if (currentFolderId === folderId) {
-        setCurrentFolderId(null)
-        setFolderTrail([{ id: null, name: 'Root' }])
-      }
-    } catch (err: any) {
-      alert(err?.message ?? 'Failed to delete folder')
-    }
-  }
-
-  const handleDeleteAsset = async (assetId: string, name: string) => {
-    if (!window.confirm(`Delete "${name}"?`)) return
-    try {
-      await deleteAsset(assetId)
-    } catch (err: any) {
-      alert(err?.message ?? 'Failed to delete asset')
+  const performDeleteFolder = async (folderId: string) => {
+    await deleteFolder(folderId)
+    if (currentFolderId === folderId) {
+      setCurrentFolderId(null)
+      setFolderTrail([{ id: null, name: 'Root' }])
     }
   }
 
@@ -322,7 +309,13 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
                 <button type="button" className={styles.mediaActionButton} onClick={handleRenameProject} disabled={!activeProjectId}>
                   Rename
                 </button>
-                <button type="button" className={styles.mediaActionButton} onClick={handleDeleteProject} disabled={!activeProjectId || projects.length <= 1}>
+                <button
+                  type="button"
+                  className={styles.mediaActionButton}
+                  onClick={() => setDeleteModal({ type: 'project' })}
+                  disabled={!activeProjectId || projects.length <= 1}
+                  title={projects.length === 1 ? 'At least one project must remain' : undefined}
+                >
                   Delete
                 </button>
               </div>
@@ -420,7 +413,7 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
                     <button type="button" className={styles.rowActionButton} onClick={() => setNameModal({ type: 'rename-folder', folderId: folder.id, initialValue: folder.name })}>
                       Rename
                     </button>
-                    <button type="button" className={styles.rowActionButton} onClick={() => handleDeleteFolder(folder.id, folder.name)}>
+                    <button type="button" className={styles.rowActionButton} onClick={() => setDeleteModal({ type: 'folder', folderId: folder.id, name: folder.name })}>
                       Delete
                     </button>
                   </div>
@@ -450,7 +443,7 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
                     <button type="button" className={styles.rowActionButton} onClick={() => setNameModal({ type: 'rename-asset', assetId: asset.id, initialValue: asset.name })}>
                       Rename
                     </button>
-                    <button type="button" className={styles.rowActionButton} onClick={() => handleDeleteAsset(asset.id, asset.name)}>
+                    <button type="button" className={styles.rowActionButton} onClick={() => setDeleteModal({ type: 'asset', assetId: asset.id, name: asset.name })}>
                       Delete
                     </button>
                   </div>
@@ -498,6 +491,33 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
           activeProjectId={activeProjectId}
           onSelect={(projectId) => onSelectProject(projectId)}
           onClose={() => setProjectModalOpen(false)}
+        />
+      ) : null}
+
+      {deleteModal?.type === 'project' && activeProjectId ? (
+        <DeleteConfirmModal
+          title="Delete project"
+          itemName={projects.find((project) => project.id === activeProjectId)?.name ?? 'Untitled'}
+          onClose={() => setDeleteModal(null)}
+          onConfirm={performDeleteProject}
+        />
+      ) : null}
+
+      {deleteModal?.type === 'folder' ? (
+        <DeleteConfirmModal
+          title="Delete folder"
+          itemName={deleteModal.name}
+          onClose={() => setDeleteModal(null)}
+          onConfirm={() => performDeleteFolder(deleteModal.folderId)}
+        />
+      ) : null}
+
+      {deleteModal?.type === 'asset' ? (
+        <DeleteConfirmModal
+          title="Delete media"
+          itemName={deleteModal.name}
+          onClose={() => setDeleteModal(null)}
+          onConfirm={() => deleteAsset(deleteModal.assetId)}
         />
       ) : null}
 
