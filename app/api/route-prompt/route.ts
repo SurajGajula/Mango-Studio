@@ -32,6 +32,7 @@ interface ManifestItem {
   speedEnd?: number
   speedEasing?: 'linear' | 'ease'
   muted?: boolean
+  volume?: number
   row?: number
   fontFamily?: string
   fontWeight?: string
@@ -148,6 +149,11 @@ export interface StepGrowthInstruction {
   steps?: number
 }
 
+export interface NormalizeAudioVolumesInstruction {
+  referenceAudioNumber: number
+  targetAudioNumbers: number[]
+}
+
 export interface DeleteTimelineItemInstruction {
   type: 'image' | 'video' | 'text' | 'audio' | 'effect'
   id: string
@@ -166,6 +172,7 @@ type RoutedAction =
   | 'add_effect'
   | 'delete_timeline_items'
   | 'duplicate_timeline_range'
+  | 'normalize_audio_volumes'
 
 interface RoutePromptResponse {
   action: RoutedAction
@@ -180,6 +187,7 @@ interface RoutePromptResponse {
   crops?: CropInstruction[]
   deleteItems?: DeleteTimelineItemInstruction[]
   duplicateRange?: { kind: 'image' | 'video'; firstNumber: number; lastNumber: number }
+  normalizeAudioVolumes?: NormalizeAudioVolumesInstruction
   message: string
 }
 
@@ -241,8 +249,9 @@ function buildManifestContext(manifest: SerializedManifest): string {
       )
       const timelineSplitStr = timelineSplits.length ? timelineSplits.map((t) => `${t.toFixed(3)}s`).join(', ') : 'none'
       const activeDur = Math.max(0, origDur - ts - te)
+      const vol = aud.volume ?? 1
       lines.push(
-        `  - #${i + 1} id="${aud.id}" name="${aud.name}" activeStartTime=${aud.startTime}s originalDuration=${origDur}s trimStart=${ts}s trimEnd=${te}s playbackSpeed=${aud.playbackSpeed ?? 1}x activeDuration=${activeDur.toFixed(3)}s (to restore to originalDuration set trimStart=0 trimEnd=0) marksSourceFileSeconds=[${markStr}] splitAtMarksTimelineSeconds=[${timelineSplitStr}] (marksSourceFileSeconds are positions in the original audio file; splitAtMarksTimelineSeconds are the absolute timeline times to use in split_at_marks)`
+        `  - #${i + 1} id="${aud.id}" name="${aud.name}" activeStartTime=${aud.startTime}s originalDuration=${origDur}s trimStart=${ts}s trimEnd=${te}s volume=${vol} (timeline gain 0–4; perceived loudness also depends on the file) playbackSpeed=${aud.playbackSpeed ?? 1}x activeDuration=${activeDur.toFixed(3)}s (to restore to originalDuration set trimStart=0 trimEnd=0) marksSourceFileSeconds=[${markStr}] splitAtMarksTimelineSeconds=[${timelineSplitStr}] (marksSourceFileSeconds are positions in the original audio file; splitAtMarksTimelineSeconds are the absolute timeline times to use in split_at_marks)`
       )
     })
   }
@@ -433,6 +442,7 @@ export async function POST(request: NextRequest) {
               'set_step_growth',
               'set_crop',
               'add_effect',
+              'normalize_audio_volumes',
             ],
           },
         },
@@ -540,6 +550,16 @@ export async function POST(request: NextRequest) {
         action: 'add_effect',
         newEffects: (args?.effects as AddEffectInstruction[]) || [],
         message: (args?.message as string) || 'Effect(s) added.',
+      }
+    } else if (action === 'normalize_audio_volumes') {
+      const referenceAudioNumber =
+        typeof args?.referenceAudioNumber === 'number' ? args.referenceAudioNumber : 1
+      const rawTargets = Array.isArray(args?.targetAudioNumbers) ? args.targetAudioNumbers : []
+      const targetAudioNumbers = rawTargets.filter((n: unknown): n is number => typeof n === 'number')
+      result = {
+        action: 'normalize_audio_volumes',
+        normalizeAudioVolumes: { referenceAudioNumber, targetAudioNumbers },
+        message: (args?.message as string) || 'Audio levels matched to reference.',
       }
     } else {
       result = {

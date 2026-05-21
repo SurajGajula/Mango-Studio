@@ -4,19 +4,23 @@ import { ImageClass } from '@/app/models/ImageClass'
 import { AudioClass } from '@/app/models/AudioClass'
 import { computeMediaCropForAspect, resolveVideoMetadata } from '@/app/lib/mediaUtils'
 import { extractVideoClip } from '@/app/lib/videoExporter'
-import { timelineClipSourceSpanSeconds } from '@/app/lib/renderUtils'
+import { calculateSourceTime, timelineClipSourceSpanSeconds } from '@/app/lib/renderUtils'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { generateId } from '@/app/lib/idUtils'
 import { getOrCreateObjectURLForFile } from '@/app/lib/fileObjectUrlCache'
 import { FIXED_ASPECT_RATIO } from '@/app/lib/aspectRatio'
+import { resolveTimelineFullMediaFromLibrary } from '@/app/lib/accountMediaLibraryMatch'
+import { isPlaybackFetchableUrl } from '@/app/lib/persistedMediaRefs'
 import { resolveAudioDurationFromUrl } from '@/app/lib/timelineMediaInsert'
 import {
+  accountMediaAssetPlaybackUrl,
   imageCropOverlayFromPatch,
   normalizeClipSpeedWindow,
   replacePlacementDimensions,
   resolveImagePatch,
   resolveVideoPatch,
   runHistoryTransaction,
+  uploadToAccountLibrary,
   videoCropOverlayFromPatch,
 } from '@/app/lib/timeline'
 
@@ -61,25 +65,6 @@ export function useTimelineReplace({
   const clearReplaceFlow = useCallback(() => {
     setReplaceVideoData(null)
     setReplaceTargetId(null)
-  }, [])
-
-  const uploadReplacementToLibrary = useCallback(async (file: File, durationSeconds?: number) => {
-    try {
-      const formData = new FormData()
-      formData.append('file', file)
-      if (durationSeconds !== undefined) {
-        formData.append('durationSeconds', String(durationSeconds))
-      }
-      const response = await fetch('/api/media/upload', {
-        method: 'POST',
-        body: formData,
-      })
-      if (response.ok) {
-        window.dispatchEvent(new Event('account-media-updated'))
-      }
-    } catch (error) {
-      console.error('Failed to persist replacement media to account library:', error)
-    }
   }, [])
 
   const applyReplaceFromUrl = useCallback(
@@ -355,18 +340,21 @@ export function useTimelineReplace({
         return
       }
 
-      const url = getOrCreateObjectURLForFile(file)
+      const blobUrl = getOrCreateObjectURLForFile(file)
       const title = file.name
-      if (isImage) void uploadReplacementToLibrary(file)
-      if (isVideo) {
-        const { duration } = await resolveVideoMetadata(url)
-        void uploadReplacementToLibrary(file, duration)
+      let applyUrl = blobUrl
+      if (isImage) {
+        void uploadToAccountLibrary(file)
+      } else if (isVideo) {
+        const { duration } = await resolveVideoMetadata(blobUrl)
+        const assetId = await uploadToAccountLibrary(file, duration)
+        if (assetId) applyUrl = accountMediaAssetPlaybackUrl(assetId)
       }
 
-      await applyReplaceFromUrl(replaceTargetId, url, title, isVideo ? 'video' : 'image')
+      await applyReplaceFromUrl(replaceTargetId, applyUrl, title, isVideo ? 'video' : 'image')
       e.target.value = ''
     },
-    [replaceTargetId, uploadReplacementToLibrary, applyReplaceFromUrl]
+    [replaceTargetId, applyReplaceFromUrl]
   )
 
   const handleConfirmReplaceVideo = useCallback(
@@ -513,6 +501,48 @@ export function useTimelineReplace({
   )
 
   const [audioReplaceTargetId, setAudioReplaceTargetId] = useState<string | null>(null)
+  const [replaceAudioData, setReplaceAudioData] = useState<{
+    targetId: string
+    url: string
+    title: string
+    duration: number
+    windowDuration: number
+    trimEnd: number
+    playbackSpeed: number
+    speedStart?: number
+    speedEnd?: number
+    speedEasing?: 'linear' | 'ease'
+    pitch: number
+    initialTrimStart: number
+  } | null>(null)
+
+  const applyReplaceAudioFromUrl = useCallback(async (targetId: string, url: string, title: string) => {
+    const newDuration = await resolveAudioDurationFromUrl(url)
+    const store = useManifestStore.getState()
+    const oldAudio = store.audios.find((a) => a.id === targetId)
+    if (!oldAudio) return
+
+    const oldTimelineDuration = oldAudio.endTime - oldAudio.startTime
+    const newEndTime = newDuration >= oldTimelineDuration
+      ? oldAudio.endTime
+      : oldAudio.startTime + newDuration
+    const newTrimEnd = newDuration >= oldTimelineDuration
+      ? newDuration - oldTimelineDuration
+      : 0
+
+    runHistoryTransaction((historyStore) => {
+      historyStore.updateAudio(targetId, {
+        url,
+        name: title,
+        originalDuration: newDuration,
+        trimStart: 0,
+        trimEnd: newTrimEnd,
+        startTime: oldAudio.startTime,
+        endTime: newEndTime,
+        marks: [],
+      })
+    })
+  }, [])
 
   const handleAudioReplaceSelect = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -524,67 +554,168 @@ export function useTimelineReplace({
         return
       }
 
-      const url = getOrCreateObjectURLForFile(file)
+      const blobUrl = getOrCreateObjectURLForFile(file)
       const title = file.name
+      const newDuration = await resolveAudioDurationFromUrl(blobUrl)
+      const assetId = await uploadToAccountLibrary(file, newDuration)
+      const applyUrl = assetId ? accountMediaAssetPlaybackUrl(assetId) : blobUrl
 
-      void uploadReplacementToLibrary(file)
-
-      const newDuration = await resolveAudioDurationFromUrl(url)
-      const store = useManifestStore.getState()
-      const oldAudio = store.audios.find((a) => a.id === audioReplaceTargetId)
-      if (!oldAudio) {
-        e.target.value = ''
-        return
-      }
-
-      const oldTimelineDuration = oldAudio.endTime - oldAudio.startTime
-      const newEndTime = newDuration >= oldTimelineDuration
-        ? oldAudio.endTime
-        : oldAudio.startTime + newDuration
-      const newTrimEnd = newDuration >= oldTimelineDuration
-        ? newDuration - oldTimelineDuration
-        : 0
-
-      runHistoryTransaction((historyStore) => {
-        historyStore.updateAudio(audioReplaceTargetId, {
-          url,
-          name: title,
-          originalDuration: newDuration,
-          trimStart: 0,
-          trimEnd: newTrimEnd,
-          startTime: oldAudio.startTime,
-          endTime: newEndTime,
-          marks: [],
-        })
-      })
-
+      await applyReplaceAudioFromUrl(audioReplaceTargetId, applyUrl, title)
       setAudioReplaceTargetId(null)
       e.target.value = ''
     },
-    [audioReplaceTargetId, uploadReplacementToLibrary]
+    [audioReplaceTargetId, applyReplaceAudioFromUrl]
   )
 
-  const handleVideoDoubleClick = useCallback((videoId: string) => {
+  const clearReplaceAudioFlow = useCallback(() => {
+    setReplaceAudioData(null)
+  }, [])
+
+  const handleConfirmAudioTrim = useCallback(
+    (newTrimStart: number) => {
+      if (!replaceAudioData) return
+      const store = useManifestStore.getState()
+      const audio = store.audios.find((a) => a.id === replaceAudioData.targetId)
+      if (!audio) return
+
+      const ps = audio.playbackSpeed ?? 1
+      const ss = audio.speedStart ?? ps
+      const se = audio.speedEnd ?? ps
+      const windowDuration = audio.endTime - audio.startTime
+      const sourceWindowDuration = calculateSourceTime(
+        windowDuration,
+        windowDuration,
+        ss,
+        se,
+        ps,
+        audio.speedEasing ?? 'linear'
+      )
+      const sourceDuration = replaceAudioData.duration
+      const newTrimEnd = Math.max(0, sourceDuration - newTrimStart - sourceWindowDuration)
+
+      runHistoryTransaction((historyStore) => {
+        historyStore.updateAudio(audio.id, {
+          trimStart: newTrimStart,
+          trimEnd: newTrimEnd,
+          ...(replaceAudioData.url !== audio.url
+            ? { url: replaceAudioData.url, originalDuration: sourceDuration }
+            : {}),
+        })
+      })
+      clearReplaceAudioFlow()
+    },
+    [replaceAudioData, clearReplaceAudioFlow]
+  )
+
+  const handleAudioDoubleClick = useCallback(async (audioId: string) => {
+    const audio = useManifestStore.getState().audios.find((a) => a.id === audioId)
+    if (!audio) return
+
+    const windowDuration = audio.endTime - audio.startTime
+    if (!(windowDuration > 0)) return
+
+    const ps = audio.playbackSpeed ?? 1
+    const ss = audio.speedStart ?? ps
+    const se = audio.speedEnd ?? ps
+    const pitch = audio.pitch ?? 1
+    const sourceWindowDuration = calculateSourceTime(
+      windowDuration,
+      windowDuration,
+      ss,
+      se,
+      ps,
+      audio.speedEasing ?? 'linear'
+    )
+
+    let url = audio.url
+    let originalDuration = audio.originalDuration
+    const trimEnd = audio.trimEnd
+
+    try {
+      const library = await resolveTimelineFullMediaFromLibrary(audio.name, 'audio', undefined, audio.url)
+      if (library) {
+        url = library.url
+        originalDuration = Math.max(originalDuration, library.duration)
+      }
+    } catch (err) {
+      console.error(err)
+    }
+
+    if (url && isPlaybackFetchableUrl(url) && originalDuration <= sourceWindowDuration + 0.001) {
+      try {
+        const probed = await resolveAudioDurationFromUrl(url)
+        originalDuration = Math.max(originalDuration, probed)
+      } catch (err) {
+        console.error(err)
+      }
+    }
+
+    if (!url || !isPlaybackFetchableUrl(url)) return
+    if (originalDuration <= sourceWindowDuration + 0.001) return
+
+    setReplaceAudioData({
+      targetId: audioId,
+      url,
+      title: audio.name,
+      duration: originalDuration,
+      windowDuration,
+      trimEnd,
+      playbackSpeed: ps,
+      speedStart: ss,
+      speedEnd: se,
+      speedEasing: audio.speedEasing,
+      pitch,
+      initialTrimStart: audio.trimStart,
+    })
+  }, [])
+
+  const handleVideoDoubleClick = useCallback(async (videoId: string) => {
     const video = videos.find((v) => v.id === videoId)
-    if (!video || (!video.url && !video.sourceUrl)) return
-    const sourceUrl = video.sourceUrl || video.url
-    const originalDuration = video.sourceDuration ?? video.originalDuration ?? video.duration ?? 0
-    const initialTrimStart = video.sourceTrimStart ?? video.trimStart
-    if (originalDuration <= (video.duration ?? 0)) return
+    if (!video) return
+
+    const windowDuration = video.duration ?? 0
+    const initialTrimStart = video.sourceTrimStart ?? video.trimStart ?? 0
+
+    let sourceUrl = video.sourceUrl || video.url
+    let originalDuration = video.sourceDuration ?? video.originalDuration ?? video.duration ?? 0
+    const shouldResolveFromLibrary =
+      !isPlaybackFetchableUrl(sourceUrl) || originalDuration <= windowDuration + 0.001
+
+    if (shouldResolveFromLibrary) {
+      const library = await resolveTimelineFullMediaFromLibrary(video.title, 'video')
+      if (library) {
+        sourceUrl = library.url
+        if (library.duration > originalDuration) {
+          originalDuration = library.duration
+        }
+        runHistoryTransaction((historyStore) => {
+          historyStore.updateVideo(videoId, {
+            sourceUrl: library.url,
+            sourceDuration: library.duration,
+            originalDuration: Math.max(video.originalDuration ?? 0, library.duration),
+            ...(isPlaybackFetchableUrl(video.url) ? {} : { url: library.url }),
+          })
+        })
+      }
+    }
+
+    if (!sourceUrl || !isPlaybackFetchableUrl(sourceUrl)) return
+    if (originalDuration <= windowDuration + 0.001) return
+
     setReplaceVideoData({
       targetId: videoId,
       targetType: 'video',
-      url: sourceUrl!,
+      url: sourceUrl,
       title: video.title,
       duration: originalDuration,
       width: video.width,
       height: video.height,
-      windowDuration: video.duration!,
+      windowDuration,
       playbackSpeed: video.playbackSpeed ?? 1,
       speedStart: video.speedStart ?? video.playbackSpeed ?? 1,
       speedEnd: video.speedEnd ?? video.playbackSpeed ?? 1,
       speedEasing: video.speedEasing,
-      initialTrimStart: initialTrimStart,
+      initialTrimStart,
       projectStartTime: video.timestamp,
     })
   }, [videos])
@@ -602,5 +733,11 @@ export function useTimelineReplace({
     audioReplaceTargetId,
     setAudioReplaceTargetId,
     handleAudioReplaceSelect,
+    applyReplaceAudioFromUrl,
+    replaceAudioData,
+    setReplaceAudioData,
+    handleAudioDoubleClick,
+    handleConfirmAudioTrim,
+    clearReplaceAudioFlow,
   }
 }

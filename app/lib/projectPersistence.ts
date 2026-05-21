@@ -6,6 +6,8 @@ import { TextClass } from '@/app/models/TextClass'
 import { AudioClass } from '@/app/models/AudioClass'
 import { EffectClass, type EffectType } from '@/app/models/EffectClass'
 import type { HistoryEntry } from '@/app/stores/manifest/types'
+import { PERSISTED_BLOB_TOKEN_PREFIX } from '@/app/lib/persistedMediaRefs'
+import { repairSnapshotMediaFromAccountLibrary } from '@/app/lib/repairSnapshotMediaFromLibrary'
 
 const DB_NAME_GUEST = 'mango-guest-project'
 const DB_VERSION = 1
@@ -13,7 +15,7 @@ const STORE_META = 'meta'
 const STORE_BLOBS = 'blobs'
 const SNAPSHOT_KEY_GUEST = 'guest-snapshot'
 
-const BLOB_TOKEN_PREFIX = '__GUESTPERSIST_BLOB:'
+const BLOB_TOKEN_PREFIX = PERSISTED_BLOB_TOKEN_PREFIX
 const inflightCloudLoadSnapshot = new Map<string, Promise<ProjectSnapshotPayload | null>>()
 const lastCloudSnapshotHash = new Map<string, string>()
 const inflightCloudSaveSnapshot = new Map<string, Promise<void>>()
@@ -111,6 +113,7 @@ async function replaceBlobUrlsInValue(
         tokenToObjectUrl.set(value, url)
         return url
       }
+      return ''
     } else if (value.startsWith('blob:')) {
       const memo = rawBlobUrlOutcome.get(value)
       if (memo !== undefined) return memo
@@ -363,12 +366,23 @@ function reviveHistoryEntry(e: Record<string, unknown>): HistoryEntry {
 
 export function isManifestVisuallyEmpty(): boolean {
   const s = useManifestStore.getState()
+  return isSnapshotPayloadVisuallyEmpty({
+    version: 1,
+    videos: s.videos,
+    images: s.images,
+    texts: s.texts,
+    audios: s.audios,
+    effects: s.effects,
+  })
+}
+
+export function isSnapshotPayloadVisuallyEmpty(snap: ProjectSnapshotPayload): boolean {
   return (
-    s.videos.length === 0 &&
-    s.images.length === 0 &&
-    s.texts.length === 0 &&
-    s.audios.length === 0 &&
-    s.effects.length === 0
+    snap.videos.length === 0 &&
+    snap.images.length === 0 &&
+    snap.texts.length === 0 &&
+    snap.audios.length === 0 &&
+    snap.effects.length === 0
   )
 }
 
@@ -453,7 +467,9 @@ async function saveCloudProjectSnapshot(payload: ProjectSnapshotPayload, project
     .then(async (res) => {
       if (!res.ok) {
         const errBody = (await res.json().catch(() => null)) as { error?: string } | null
-        throw new Error(errBody?.error ?? res.statusText)
+        const message = errBody?.error ?? res.statusText
+        console.error('Cloud snapshot save failed:', message)
+        throw new Error(message)
       }
       lastCloudSnapshotHash.set(projectId, cloudPayloadHash)
     })
@@ -523,29 +539,11 @@ function snapshotUsesLocalOnlyMediaRefs(payload: ProjectSnapshotPayload): boolea
   })
 }
 
-function snapshotContainsBlobUrlStrings(value: unknown): boolean {
-  if (typeof value === 'string') return value.startsWith('blob:')
-  if (Array.isArray(value)) return value.some(snapshotContainsBlobUrlStrings)
-  if (value && typeof value === 'object') {
-    return Object.values(value as object).some(snapshotContainsBlobUrlStrings)
-  }
-  return false
-}
-
-async function cloudSnapshotMediaResolvableFromIdb(
+async function hydrateSnapshotIntoStore(
   snap: ProjectSnapshotPayload,
-  dbName: string
+  dbName: string,
+  repairFromAccountLibrary: boolean
 ): Promise<boolean> {
-  if (snapshotContainsBlobUrlStrings(snap)) return false
-  const tokens = collectBlobTokens(snap)
-  for (const token of tokens) {
-    const blob = await idbGet<Blob>(dbName, STORE_BLOBS, token)
-    if (!blob) return false
-  }
-  return true
-}
-
-async function hydrateSnapshotIntoStore(snap: ProjectSnapshotPayload, dbName: string): Promise<void> {
   const tokens = collectBlobTokens(snap)
   const mapTokenToBlob = new Map<string, Blob>()
   for (const token of tokens) {
@@ -599,6 +597,9 @@ async function hydrateSnapshotIntoStore(snap: ProjectSnapshotPayload, dbName: st
     playbackRate: typeof snap.playbackRate === 'number' ? snap.playbackRate : 1,
     pendingPrompt: snap.pendingPrompt ?? null,
   })
+
+  if (!repairFromAccountLibrary) return false
+  return repairSnapshotMediaFromAccountLibrary()
 }
 
 export async function saveGuestProjectSnapshot(): Promise<void> {
@@ -631,17 +632,17 @@ export async function hydrateLocalProjectIfNeeded(user: { id: string } | null, p
 
   if (user) {
     if (!projectId) return
-    const userSnap = await loadProjectSnapshot(userDraftDbName(user.id), userSnapshotKey(projectId))
-    if (userSnap && userSnap.version === 1) {
-      await hydrateSnapshotIntoStore(userSnap, userDraftDbName(user.id))
+    const dbName = userDraftDbName(user.id)
+    const userSnap = await loadProjectSnapshot(dbName, userSnapshotKey(projectId))
+    if (userSnap && userSnap.version === 1 && !isSnapshotPayloadVisuallyEmpty(userSnap)) {
+      const repaired = await hydrateSnapshotIntoStore(userSnap, dbName, true)
+      if (repaired) await saveUserDraftSnapshot(user.id, projectId)
       return
     }
     const cloudSnap = await loadCloudProjectSnapshot(projectId)
-    if (cloudSnap && cloudSnap.version === 1) {
-      const dbName = userDraftDbName(user.id)
-      if (await cloudSnapshotMediaResolvableFromIdb(cloudSnap, dbName)) {
-        await hydrateSnapshotIntoStore(cloudSnap, dbName)
-      }
+    if (cloudSnap && cloudSnap.version === 1 && !isSnapshotPayloadVisuallyEmpty(cloudSnap)) {
+      const repaired = await hydrateSnapshotIntoStore(cloudSnap, dbName, true)
+      if (repaired) await saveUserDraftSnapshot(user.id, projectId)
       return
     }
   }
@@ -649,7 +650,7 @@ export async function hydrateLocalProjectIfNeeded(user: { id: string } | null, p
   const snap = await loadProjectSnapshot(DB_NAME_GUEST, SNAPSHOT_KEY_GUEST)
   if (!snap || snap.version !== 1) return
 
-  await hydrateSnapshotIntoStore(snap, DB_NAME_GUEST)
+  await hydrateSnapshotIntoStore(snap, DB_NAME_GUEST, false)
 
   if (user) {
     await clearGuestProjectPersistence()

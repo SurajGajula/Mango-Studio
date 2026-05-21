@@ -12,13 +12,22 @@ export type ReplaceLibraryVisualAsset = {
   kind: 'image' | 'video'
 }
 
+export type ReplaceLibraryAudioAsset = {
+  id: string
+  name: string
+  kind: 'audio'
+}
+
+export type ReplaceLibraryAsset = ReplaceLibraryVisualAsset | ReplaceLibraryAudioAsset
+
 type ReplaceFromLibraryModalProps = {
   open: boolean
   onClose: () => void
-  onPick: (asset: ReplaceLibraryVisualAsset) => void | Promise<void>
+  mediaFilter: 'visual' | 'audio'
+  onPick: (asset: ReplaceLibraryAsset) => void | Promise<void>
 }
 
-export default function ReplaceFromLibraryModal({ open, onClose, onPick }: ReplaceFromLibraryModalProps) {
+export default function ReplaceFromLibraryModal({ open, onClose, mediaFilter, onPick }: ReplaceFromLibraryModalProps) {
   const { user } = useAuth()
   const enabled = Boolean(open && user)
   const {
@@ -40,7 +49,10 @@ export default function ReplaceFromLibraryModal({ open, onClose, onPick }: Repla
     setSearch('')
   }, [open, setSearch])
 
-  const visualAssets = useMemo(() => assets.filter((a) => a.kind === 'image' || a.kind === 'video'), [assets])
+  const filteredAssets = useMemo(() => {
+    if (mediaFilter === 'audio') return assets.filter((a) => a.kind === 'audio')
+    return assets.filter((a) => a.kind === 'image' || a.kind === 'video')
+  }, [assets, mediaFilter])
 
   const handleOpenFolder = useCallback(
     (folderId: string, name: string) => {
@@ -69,10 +81,14 @@ export default function ReplaceFromLibraryModal({ open, onClose, onPick }: Repla
 
   const handlePickAsset = useCallback(
     async (asset: AccountMediaAsset) => {
-      if (asset.kind !== 'image' && asset.kind !== 'video') return
+      if (mediaFilter === 'audio') {
+        if (asset.kind !== 'audio') return
+      } else if (asset.kind !== 'image' && asset.kind !== 'video') {
+        return
+      }
       setPickingId(asset.id)
       try {
-        await onPick({ id: asset.id, kind: asset.kind, name: asset.name })
+        await onPick({ id: asset.id, kind: asset.kind, name: asset.name } as ReplaceLibraryAsset)
         onClose()
       } catch (err) {
         console.error(err)
@@ -80,7 +96,7 @@ export default function ReplaceFromLibraryModal({ open, onClose, onPick }: Repla
         setPickingId(null)
       }
     },
-    [onPick, onClose]
+    [mediaFilter, onPick, onClose]
   )
 
   if (!open) return null
@@ -91,7 +107,11 @@ export default function ReplaceFromLibraryModal({ open, onClose, onPick }: Repla
         <div className={styles.header}>
           <div>
             <h2 id="replace-library-title">Replace from library</h2>
-            <p>Choose an image or video from your account media.</p>
+            <p>
+              {mediaFilter === 'audio'
+                ? 'Choose an audio file from your account media.'
+                : 'Choose an image or video from your account media.'}
+            </p>
           </div>
           <button type="button" className={styles.closeButton} onClick={onClose} aria-label="Close">
             ×
@@ -132,8 +152,12 @@ export default function ReplaceFromLibraryModal({ open, onClose, onPick }: Repla
                 {!loading && !error && folders.length === 0 && assets.length === 0 ? (
                   <p className={styles.statusText}>No media in this folder.</p>
                 ) : null}
-                {!loading && !error && (folders.length > 0 || assets.length > 0) && visualAssets.length === 0 ? (
-                  <p className={styles.statusText}>No images or videos here. Try another folder or search.</p>
+                {!loading && !error && (folders.length > 0 || assets.length > 0) && filteredAssets.length === 0 ? (
+                  <p className={styles.statusText}>
+                    {mediaFilter === 'audio'
+                      ? 'No audio files here. Try another folder or search.'
+                      : 'No images or videos here. Try another folder or search.'}
+                  </p>
                 ) : null}
                 {folders.map((folder) => (
                   <div key={folder.id} className={styles.row}>
@@ -142,7 +166,7 @@ export default function ReplaceFromLibraryModal({ open, onClose, onPick }: Repla
                     </button>
                   </div>
                 ))}
-                {visualAssets.map((asset) => (
+                {filteredAssets.map((asset) => (
                   <div key={asset.id} className={styles.row}>
                     <button
                       type="button"

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/app/utils/supabase/admin'
 import { createClient } from '@/app/utils/supabase/server'
-import { resolveProjectId } from '@/app/lib/projectServer'
+import { resolveProjectId, saveProjectSnapshotJson } from '@/app/lib/projectServer'
 
 const TABLE_NAME = 'project_snapshots'
 export async function GET(req: NextRequest) {
@@ -61,20 +61,9 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: 'Missing snapshot payload' }, { status: 400 })
   }
 
-  const admin = createAdminClient()
-  const { error } = await admin.from(TABLE_NAME).upsert(
-    {
-      user_id: user.id,
-      name: 'default',
-      project_id: projectId,
-      snapshot_json: snapshot,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'user_id,project_id' }
-  )
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  const saveError = await saveProjectSnapshotJson(user.id, projectId, snapshot as Record<string, unknown>)
+  if (saveError) {
+    return NextResponse.json({ error: saveError }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true })

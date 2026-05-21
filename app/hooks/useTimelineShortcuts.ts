@@ -10,7 +10,8 @@ import type { TimelineSelectionItem } from '@/app/hooks/timeline/useTimelineDrag
 import { occupancyIntervalsOnRow, overlapsAny } from '@/app/lib/timeline'
 
 interface UseTimelineShortcutsProps {
-  replaceVideoData: any
+  replaceVideoData: unknown
+  replaceAudioData: unknown
   applyZoom: (newVisible: number) => void
   visibleDurationRef: React.MutableRefObject<number>
   MIN_VISIBLE: number
@@ -24,6 +25,7 @@ interface UseTimelineShortcutsProps {
 
 export function useTimelineShortcuts({
   replaceVideoData,
+  replaceAudioData,
   applyZoom,
   visibleDurationRef,
   MIN_VISIBLE,
@@ -59,7 +61,7 @@ export function useTimelineShortcuts({
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (replaceVideoData) return
+      if (replaceVideoData || replaceAudioData) return
 
       const tag = (e.target as HTMLElement).tagName
       const isEditing = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable
@@ -456,7 +458,7 @@ export function useTimelineShortcuts({
   }, [
     undo, redo, removeVideo, removeImage, removeText, 
     removeAudioFromManifest, removeEffect, duplicateItem, updateVideo, updateImage, updateAudio,
-    replaceVideoData, applyZoom, visibleDurationRef, 
+    replaceVideoData, replaceAudioData, applyZoom, visibleDurationRef, 
     MIN_VISIBLE, MAX_VISIBLE, selectedAudioId, 
     setSelectedAudioId, uploadInputRef, multiSelectedItems, setMultiSelectedItems
   ])

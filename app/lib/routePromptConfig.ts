@@ -410,6 +410,30 @@ export const functionDeclarations: FunctionDeclaration[] = [
     },
   },
   {
+    name: 'normalize_audio_volumes',
+    description:
+      'Match perceived loudness of target audio clips to a reference audio clip. Use when the user asks to normalize, level-match, or make audios the same volume or loudness as another audio — including phrases like "make audios 2–5 the same volume as audio 1", "match loudness of clips 3 and 4 to #2", or "normalize audio levels to the first track". The app measures each file\'s loudness in its current trimmed region (not just the volume slider) and sets target volumes so playback level matches the reference\'s current volume and innate loudness. Use global audio #N from the manifest (sorted by startTime). Put every target index in targetAudioNumbers (expand ranges like 2–5 into [2,3,4,5]); omit the reference index from targets.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        referenceAudioNumber: {
+          type: Type.NUMBER,
+          description: '1-based manifest audio number (#N) to match — its current trim and volume define the target perceived level.',
+        },
+        targetAudioNumbers: {
+          type: Type.ARRAY,
+          description: '1-based manifest audio numbers to adjust (each appears once; do not include the reference).',
+          items: { type: Type.NUMBER },
+        },
+        message: {
+          type: Type.STRING,
+          description: 'Short confirmation, e.g. "Matched audios #2–#5 to #1."',
+        },
+      },
+      required: ['referenceAudioNumber', 'targetAudioNumbers', 'message'],
+    },
+  },
+  {
     name: 'replace_images',
     description: 'Replace existing timeline items (images, videos, or audios) with uploaded files ONLY when the user has attached one or more files. Match the uploaded file type to the target item type: use uploaded images to replace images/videos, uploaded videos to replace videos/images, and uploaded audios to replace audios. Map each target id to the fileIndex of the uploaded file. When a single file is uploaded and the user says "replace audios 2-5" or "replace images 3-10", map ALL target items to that same fileIndex (0). Do NOT use this for solid/flat colors — use replace_with_solid instead.',
     parameters: {
@@ -541,6 +565,7 @@ export const systemInstruction =
     '- replace_images: ONLY when the user has attached files (images, videos, or audios) AND asks to replace timeline items with those uploads. Match the file type from the attached files list to the target item type. When one file is uploaded and the user says "replace audios 2-5", map all target audio ids to fileIndex 0. Audio numbering uses global #N by startTime, same as images/videos.\n' +
   '- set_transitions: when the user asks to set, apply, add, or remove animations (none, zoom-in, zoom-out, shake, jitter, slide-shake-left, or slide-shake-right) or transitions (none, split, fade, morph, slide-in, wipe, circle, rotate, or flash) on images or videos; include zoomIntensity (0.05–1.0) only for shake/jitter when specified, include zoomDistanceIntensity (0.25–2.5) when the user specifies lowering/raising zoom distance for zoom-in or zoom-out, include animationDuration for zoom animations or the slide-in portion of slide-shake-left/slide-shake-right, include animationZoomEasing ("constant", "fast-slow", or "slow-fast") for zoom animations, transitionDuration if specified, transitionColor if specified (for solid flash), transitionFlashMode if specified (solid or negative for flash), transitionDirection if specified (for slide-in or wipe), transitionAxis if specified (for split), transitionSlideEasing if specified (for slide-in), transitionWipeEasing if specified (for wipe), or transitionCircleEasing if specified (for circle). For image numbers/ranges, use global image numbering from the manifest (#N across all rows).\n' +
   '- set_crop: when the user asks to set or change the aspect ratio of images or videos (e.g. "make images 2-25 16:9"); cropAspect must be one of "16:9", "4:3", "1:1", "3:4", "9:16", or "none"\n' +
+  '- normalize_audio_volumes: when the user asks to match or normalize loudness/volume between audio clips so they sound equally loud — e.g. "make audios 2-5 the same volume as audio 1", "level match tracks", "normalize audio to clip 1". Use referenceAudioNumber for the clip to match and list every target index in targetAudioNumbers (expand inclusive ranges). Do not use edit_manifest volume alone for this — the app analyzes file loudness.\n' +
   '- no_op: for anything else\n' +
   'Always call exactly one function. Compute exact numeric values from the timeline data provided.\n' +
   'For images, numbering is global: "image 1", "image 2", etc. always refer to the global manifest #N order by startTime across all rows. The same global numbering applies to videos (by timestamp), texts (by startTime), and audios (by startTime). If the user says "this image", "selected image", or "current image", target the selected item instead of requiring a number.'

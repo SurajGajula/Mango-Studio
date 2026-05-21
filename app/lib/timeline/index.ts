@@ -15,7 +15,12 @@ export {
   videoCropOverlayFromPatch,
   replacePlacementDimensions,
 } from './replaceUtils'
-export { uploadToAccountLibrary, validateMediaDuration } from './mediaUploadUtils'
+export {
+  accountMediaAssetPlaybackUrl,
+  uploadToAccountLibrary,
+  validateMediaDuration,
+} from './mediaUploadUtils'
+export { handleTimelineClipMouseDown } from './timelineClipMouseDown'
 export {
   quantizeTimelineSeconds,
   quantizeOptionalTimelineSeconds,

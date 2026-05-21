@@ -484,7 +484,6 @@ export function useTimelineDrag({
   const scheduleHoldMoveDrag = useCallback(
     (e: React.MouseEvent, getDraft: () => ActiveDragDraft | null) => {
       if (e.button !== 0) return
-      e.preventDefault()
       e.stopPropagation()
 
       holdMoveCleanupRef.current?.()

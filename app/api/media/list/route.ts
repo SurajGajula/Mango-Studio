@@ -12,6 +12,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const listAll = req.nextUrl.searchParams.get('all') === '1'
   const folderIdParam = req.nextUrl.searchParams.get('folderId')
   const folderId = folderIdParam && folderIdParam.length > 0 ? folderIdParam : null
   const search = req.nextUrl.searchParams.get('search')?.trim() ?? ''
@@ -46,12 +47,14 @@ export async function GET(req: NextRequest) {
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
 
-  if (search) {
-    assetsQuery = assetsQuery.ilike('name', `%${search}%`)
-  } else if (folderId) {
-    assetsQuery = assetsQuery.eq('folder_id', folderId)
-  } else {
-    assetsQuery = assetsQuery.is('folder_id', null)
+  if (!listAll) {
+    if (search) {
+      assetsQuery = assetsQuery.ilike('name', `%${search}%`)
+    } else if (folderId) {
+      assetsQuery = assetsQuery.eq('folder_id', folderId)
+    } else {
+      assetsQuery = assetsQuery.is('folder_id', null)
+    }
   }
 
   const { data: assets, error: assetsError } = await assetsQuery

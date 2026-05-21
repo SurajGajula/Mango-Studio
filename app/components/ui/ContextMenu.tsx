@@ -18,6 +18,7 @@ interface ContextMenuProps {
   onReplace?: (id: string) => void
   onReplaceFromLibrary?: (id: string) => void
   onReplaceAudio?: (id: string) => void
+  onReplaceAudioFromLibrary?: (id: string) => void
   onRemoveBackground?: (id: string) => void
   playbackTime: number
 }
@@ -31,6 +32,7 @@ export default function ContextMenu({
   onReplace,
   onReplaceFromLibrary,
   onReplaceAudio,
+  onReplaceAudioFromLibrary,
   onRemoveBackground,
   playbackTime,
 }: ContextMenuProps) {
@@ -234,7 +236,7 @@ export default function ContextMenu({
               type="range"
               min="0"
               max="4"
-              step="0.05"
+              step="0.25"
               value={currentAudio.volume ?? 1}
               onPointerDown={volumeSliderHistory}
               onChange={(e) => updateAudio(itemId, { volume: parseFloat(e.target.value) })}
@@ -292,17 +294,39 @@ export default function ContextMenu({
               {(currentAudio.fadeOutDuration ?? 0).toFixed(2)}s
             </span>
           </div>
-          <button
-            className={styles.contextMenuItem}
-            onClick={() => handleAction(() => onReplaceAudio?.(itemId))}
+          <div
+            style={{ position: 'relative' }}
+            onMouseEnter={() => setActiveSubMenu('replace')}
+            onMouseLeave={() => setActiveSubMenu(null)}
           >
-            <div className={styles.contextMenuIcon}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
-              </svg>
-            </div>
-            Replace
-          </button>
+            <button className={styles.contextMenuItem}>
+              <div className={styles.contextMenuIcon}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
+                </svg>
+              </div>
+              Replace
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 18 6-6-6-6"/></svg>
+              </div>
+            </button>
+            {activeSubMenu === 'replace' && (
+              <div className={styles.contextSubMenu}>
+                <button
+                  className={styles.contextMenuItem}
+                  onClick={() => handleAction(() => onReplaceAudio?.(itemId))}
+                >
+                  Replace from file
+                </button>
+                <button
+                  className={styles.contextMenuItem}
+                  onClick={() => handleAction(() => onReplaceAudioFromLibrary?.(itemId))}
+                >
+                  Replace from library
+                </button>
+              </div>
+            )}
+          </div>
           <div className={styles.contextMenuSeparator} />
         </>
       )}

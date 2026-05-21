@@ -10,6 +10,7 @@ import { VideoRenderingEngine, RenderState, RenderResources } from '@/app/lib/vi
 import { setVideoCrossOriginForUrl } from '@/app/lib/mediaUtils'
 import type { VideoClass } from '@/app/models/VideoClass'
 import type { AudioClass } from '@/app/models/AudioClass'
+import { isPlaybackFetchableUrl } from '@/app/lib/persistedMediaRefs'
 
 function resolvedMediaHref(src: string): string {
   try {
@@ -230,6 +231,7 @@ export function useVideoPlayback(
     (audioItem: AudioClass) => {
       const ctx = getAudioCtx()
       if (ctx.state === 'suspended') ctx.resume().catch(() => {})
+      if (!isPlaybackFetchableUrl(audioItem.url)) return
       const el = new Audio(audioItem.url)
       el.preload = 'auto'
       el.crossOrigin = 'anonymous'
@@ -307,7 +309,7 @@ export function useVideoPlayback(
       if (!bitmap) {
         bitmap = urlCacheRef.current.get(image.url)
         if (!bitmap) {
-          if (!image.url) return
+          if (!isPlaybackFetchableUrl(image.url)) return
           if (loadingUrlsRef.current.has(image.url)) return
           loadingUrlsRef.current.add(image.url)
           void (async () => {
@@ -345,6 +347,10 @@ export function useVideoPlayback(
     })
 
     audios.forEach((audioItem) => {
+      if (!isPlaybackFetchableUrl(audioItem.url)) {
+        disposePreviewAudio(audioItem.id)
+        return
+      }
       const el = audioElementsRef.current.get(audioItem.id)
       if (!el) {
         installPreviewAudio(audioItem)
@@ -503,6 +509,7 @@ export function useVideoPlayback(
 
       let newTime = 0
       let didWrapPlayback = false
+      let didStopAtEnd = false
       if (isPlaying) {
         internalPlaybackTimeRef.current += delta * rate
         newTime = internalPlaybackTimeRef.current
@@ -521,6 +528,7 @@ export function useVideoPlayback(
             internalPlaybackTimeRef.current = 0
             newTime = 0
             lastTimestamp = null
+            didStopAtEnd = true
           }
         } else {
           state.setPlaybackTime(newTime)
@@ -531,6 +539,8 @@ export function useVideoPlayback(
         lastTimestamp = null
       }
 
+      const effectiveIsPlaying = isPlaying && !didStopAtEnd
+
       syncSelectionToActivePlayingClip(newTime, state.videos, state.images, useSelectionStore.getState())
 
       syncManifestVideoPool(newTime, state.videos, videoElementsRef, persistenceCanvasesRef)
@@ -538,14 +548,14 @@ export function useVideoPlayback(
       const canvas = canvasRef.current; const container = containerRef.current
       
       const audioCtx = getAudioCtx()
-      if (isPlaying && audioCtx.state === 'suspended') {
+      if (effectiveIsPlaying && audioCtx.state === 'suspended') {
         audioCtx.resume().catch(() => {})
       }
 
       const decodeLead = state.audios.length > 0 ? audioDecodeLeadSeconds(audioCtx) : 0
       const audioDriftSeek = 0.055
 
-      if (!isPlaying && wasPlayingRef.current) {
+      if (!effectiveIsPlaying && wasPlayingRef.current) {
         audioPlayPromisesRef.current.clear()
         audioWarmupUntilRef.current.clear()
         audioPendingStartRef.current.clear()
@@ -559,6 +569,20 @@ export function useVideoPlayback(
             audioCanPlayListenersRef.current.delete(audioItem.id)
           }
         })
+        videoElementsRef.current.forEach((el, id) => {
+          if (el.paused) return
+          const p = videoPlayPromisesRef.current.get(id)
+          if (p) {
+            p.then(() => {
+              el.pause()
+              el.playbackRate = 1
+            }).catch(() => {})
+          } else {
+            el.pause()
+            el.playbackRate = 1
+          }
+        })
+        videoPlayPromisesRef.current.clear()
       }
 
       if (didWrapPlayback) {
@@ -568,7 +592,7 @@ export function useVideoPlayback(
         rebuildAllPreviewAudios(state.audios)
       }
 
-      const playbackJustStarted = isPlaying && !wasPlayingRef.current
+      const playbackJustStarted = effectiveIsPlaying && !wasPlayingRef.current
       const replayFromTimelineStart =
         playbackJustStarted && !didWrapPlayback && newTime <= 0.05
 
@@ -646,7 +670,7 @@ export function useVideoPlayback(
 
         const isInside = newTime >= audioItem.startTime && newTime < audioItem.endTime
 
-        if (isInside && isPlaying) {
+        if (isInside && effectiveIsPlaying) {
           const elapsed = newTime - audioItem.startTime
           const timelineDuration = audioItem.endTime - audioItem.startTime
           const sourceTimeOffset = calculateSourceTime(
@@ -690,6 +714,7 @@ export function useVideoPlayback(
               const canPlayListener = () => {
                 const pending = audioPendingStartRef.current.get(audioItem.id)
                 if (!pending) return
+                if (!getState().isPlaying) return
                 if (!isAudioElementReady(el) || !el.paused || audioPlayPromisesRef.current.has(audioItem.id)) return
                 el.currentTime = clampAudioSeekTime(el, pending.syncTarget)
                 nodes.gain.gain.setValueAtTime(0, audioCtx.currentTime)
@@ -800,7 +825,7 @@ export function useVideoPlayback(
 
           const renderState: RenderState = {
             playbackTime: alignTimeToFrame(newTime, 60),
-            isPlaying,
+            isPlaying: effectiveIsPlaying,
             playbackRate: rate,
             videos: state.videos,
             images: state.images,
@@ -848,7 +873,7 @@ export function useVideoPlayback(
           )
         }
       }
-      wasPlayingRef.current = isPlaying
+      wasPlayingRef.current = effectiveIsPlaying
       rafRef.current = requestAnimationFrame(loop)
     }
     rafRef.current = requestAnimationFrame(loop)

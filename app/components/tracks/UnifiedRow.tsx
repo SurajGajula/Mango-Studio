@@ -1,6 +1,7 @@
 'use client'
 
 import { memo, useMemo } from 'react'
+import { handleTimelineClipMouseDown } from '@/app/lib/timeline/timelineClipMouseDown'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { AudioClass } from '@/app/models/AudioClass'
@@ -29,6 +30,7 @@ interface UnifiedRowProps {
   handleAudioBodyDragStart: (audioId: string, e: React.MouseEvent) => void
   handleAudioTrimStart: (audioId: string, handle: 'start' | 'end', e: React.MouseEvent) => void
   handleVideoDoubleClick: (videoId: string) => void
+  handleAudioDoubleClick: (audioId: string) => void
   videoThumbnails: Map<string, Map<number, string>>
   scrollContainerRef: React.RefObject<HTMLDivElement>
   timelineInnerWidthPx: number
@@ -52,6 +54,7 @@ const UnifiedRow = ({
   handleAudioBodyDragStart,
   handleAudioTrimStart,
   handleVideoDoubleClick,
+  handleAudioDoubleClick,
   videoThumbnails,
   scrollContainerRef,
   timelineInnerWidthPx,
@@ -189,7 +192,9 @@ const UnifiedRow = ({
                 <div className={styles.overlayHandleStart} onMouseDown={(e) => { e.stopPropagation(); handleImageDragStart(id, 'start', e) }} />
                 <div className={styles.overlayHandleEnd} onMouseDown={(e) => { e.stopPropagation(); handleImageDragStart(id, 'end', e) }} />
                 <div className={styles.overlayBox}>
-                  <img src={(item as any).url} className={styles.overlayThumbnail} alt="" draggable={false} />
+                  {imgItem.url ? (
+                    <img src={imgItem.url} className={styles.overlayThumbnail} alt="" draggable={false} />
+                  ) : null}
                   <span className={styles.overlayName}>{imageLabel}</span>
                 </div>
                 {kfImg.map(({ id: kfId, timelinePos }) => (
@@ -242,8 +247,14 @@ const UnifiedRow = ({
                   if (!additive) selectVideo(id, null)
                   onSelectionToggle({ id, type: 'video' }, additive)
                 }}
-                onDoubleClick={(e) => { e.stopPropagation(); handleVideoDoubleClick(id) }}
-                onMouseDown={(e) => handleVideoDragStart(id, e)}
+                onMouseDown={(e) =>
+                  handleTimelineClipMouseDown(
+                    `video:${id}`,
+                    e,
+                    () => void handleVideoDoubleClick(id),
+                    (ev) => handleVideoDragStart(id, ev)
+                  )
+                }
                 onContextMenu={(e) => {
                   e.preventDefault(); e.stopPropagation(); selectVideo(id)
                   setContextMenu({ isOpen: true, x: e.clientX, y: e.clientY, itemId: id, itemType: 'video' })
@@ -263,9 +274,11 @@ const UnifiedRow = ({
                         totalDuration,
                       })
                       if (repeatedThumbs.length === 0) return null
-                      return repeatedThumbs.map((thumb, tIdx) => (
-                        <img key={`${id}-thumb-${tIdx}`} src={thumb} alt="" className={styles.thumbnail} draggable={false} />
-                      ))
+                      return repeatedThumbs
+                        .filter((thumb): thumb is string => Boolean(thumb))
+                        .map((thumb, tIdx) => (
+                          <img key={`${id}-thumb-${tIdx}`} src={thumb} alt="" className={styles.thumbnail} draggable={false} />
+                        ))
                     })()}
                   </div>
                   <div className={styles.videoOverlayText}>
@@ -371,7 +384,14 @@ const UnifiedRow = ({
                 if (!additive) selectAudio(id, null)
                 onSelectionToggle({ id, type: 'audio' }, additive)
               }}
-              onMouseDown={(e) => handleAudioBodyDragStart(id, e)}
+              onMouseDown={(e) =>
+                handleTimelineClipMouseDown(
+                  `audio:${id}`,
+                  e,
+                  () => void handleAudioDoubleClick(id),
+                  (ev) => handleAudioBodyDragStart(id, ev)
+                )
+              }
               onContextMenu={(e) => {
                 e.preventDefault(); e.stopPropagation(); selectAudio(id)
                 setContextMenu({ isOpen: true, x: e.clientX, y: e.clientY, itemId: id, itemType: 'audio' })

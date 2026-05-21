@@ -303,122 +303,118 @@ export class VideoRenderingEngine {
     const timeChanged = Math.abs(newTime - this.lastRenderedTime) > 0.001
     const shouldSwap = isPlaying || stateChanged
 
-    if (shouldSwap || timeChanged) {
-      for (let i = 0; i < state.videos.length; i++) {
-        const video = state.videos[i]
-        const vEl = videoElements.get(video.id)
-        if (!vEl) continue
-        const span = manifestVideoTimelineSpanSeconds(video)
-        const inRange = span > 0 && newTime >= video.timestamp && newTime < video.timestamp + span
-        const elapsed = Math.max(0, newTime - video.timestamp)
-        const vDur = clipTimelineSpanForSourceMap(
-          video.duration != null && video.duration > 0 ? video.duration : span
-        )
-        const tmV = videoTimelineSourceMapping(video, elapsed, vDur)
-        const target = (video.trimStart ?? 0) + tmV.sourceElapsed
+    for (let i = 0; i < state.videos.length; i++) {
+      const video = state.videos[i]
+      const vEl = videoElements.get(video.id)
+      if (!vEl) continue
+      const span = manifestVideoTimelineSpanSeconds(video)
+      const inRange = span > 0 && newTime >= video.timestamp && newTime < video.timestamp + span
+      const elapsed = Math.max(0, newTime - video.timestamp)
+      const vDur = clipTimelineSpanForSourceMap(
+        video.duration != null && video.duration > 0 ? video.duration : span
+      )
+      const tmV = videoTimelineSourceMapping(video, elapsed, vDur)
+      const target = (video.trimStart ?? 0) + tmV.sourceElapsed
 
-        let prewarm = false
-        const rowTrans = rowTransitionByRow.get(video.row)
-        if (rowTrans && rowTrans.next.type === 'video' && rowTrans.next.id === video.id) {
-          const timeUntilNext = rowTrans.next.startTime - newTime
-          prewarm = rowTrans.transitionActive || (timeUntilNext > 0 && timeUntilNext < 1.0)
-        }
-        if (
-          !prewarm &&
-          span > 0 &&
-          video.row >= 0 &&
-          newTime < video.timestamp &&
-          video.timestamp - newTime <= PREWARM_LEAD_SEC
-        ) {
-          prewarm = true
-        }
+      let prewarm = false
+      const rowTrans = rowTransitionByRow.get(video.row)
+      if (rowTrans && rowTrans.next.type === 'video' && rowTrans.next.id === video.id) {
+        const timeUntilNext = rowTrans.next.startTime - newTime
+        prewarm = rowTrans.transitionActive || (timeUntilNext > 0 && timeUntilNext < 1.0)
+      }
+      if (
+        !prewarm &&
+        span > 0 &&
+        video.row >= 0 &&
+        newTime < video.timestamp &&
+        video.timestamp - newTime <= PREWARM_LEAD_SEC
+      ) {
+        prewarm = true
+      }
 
-        const decodeOnlyPrewarm = prewarm && !inRange
+      const decodeOnlyPrewarm = prewarm && !inRange
 
-        if (inRange || prewarm) {
-          if (decodeOnlyPrewarm) {
+      if (inRange || prewarm) {
+        if (decodeOnlyPrewarm) {
+          if (!vEl.paused) onVideoPlayState(video.id, false, 1)
+          const clampedTarget = clampVideoSeekTime(vEl, target)
+          applyPausedPreviewVideoSync(vEl, clampedTarget, (t) => onVideoTimeUpdate(video.id, t))
+        } else if (isPlaying) {
+          const clampedTarget = clampVideoSeekTime(vEl, target)
+          const drift = Math.abs(vEl.currentTime - clampedTarget)
+          if (drift > 0.22 && !vEl.seeking) {
+            vEl.currentTime = clampedTarget
+            onVideoTimeUpdate(video.id, clampedTarget)
+          }
+          if (tmV.inHold) {
             if (!vEl.paused) onVideoPlayState(video.id, false, 1)
-            const clampedTarget = clampVideoSeekTime(vEl, target)
-            applyPausedPreviewVideoSync(vEl, clampedTarget, (t) => onVideoTimeUpdate(video.id, t))
-          } else if (isPlaying) {
-            const clampedTarget = clampVideoSeekTime(vEl, target)
-            const drift = Math.abs(vEl.currentTime - clampedTarget)
-            if (drift > 0.22 && !vEl.seeking) {
-              vEl.currentTime = clampedTarget
-              onVideoTimeUpdate(video.id, clampedTarget)
-            }
-            if (tmV.inHold) {
-              if (!vEl.paused) onVideoPlayState(video.id, false, 1)
-            } else {
-              const x = tmV.playSpan > 0 ? Math.min(elapsed, tmV.playSpan) / tmV.playSpan : 1
-              const f = video.speedEasing === 'ease' ? 3 * Math.pow(x, 2) - 2 * Math.pow(x, 3) : x
-              const inst =
-                (video.speedStart ?? video.playbackSpeed ?? 1) +
-                f * ((video.speedEnd ?? video.playbackSpeed ?? 1) - (video.speedStart ?? video.playbackSpeed ?? 1))
-              onVideoPlayState(video.id, true, rate * inst)
-            }
           } else {
-            if (!vEl.paused) onVideoPlayState(video.id, false, 1)
-            const clampedTarget = clampVideoSeekTime(vEl, target)
-            applyPausedPreviewVideoSync(vEl, clampedTarget, (t) => onVideoTimeUpdate(video.id, t))
+            const x = tmV.playSpan > 0 ? Math.min(elapsed, tmV.playSpan) / tmV.playSpan : 1
+            const f = video.speedEasing === 'ease' ? 3 * Math.pow(x, 2) - 2 * Math.pow(x, 3) : x
+            const inst =
+              (video.speedStart ?? video.playbackSpeed ?? 1) +
+              f * ((video.speedEnd ?? video.playbackSpeed ?? 1) - (video.speedStart ?? video.playbackSpeed ?? 1))
+            onVideoPlayState(video.id, true, rate * inst)
           }
         } else {
           if (!vEl.paused) onVideoPlayState(video.id, false, 1)
+          const clampedTarget = clampVideoSeekTime(vEl, target)
+          applyPausedPreviewVideoSync(vEl, clampedTarget, (t) => onVideoTimeUpdate(video.id, t))
+        }
+      } else {
+        if (!vEl.paused) onVideoPlayState(video.id, false, 1)
+      }
+    }
+
+    if (shouldSwap || timeChanged) {
+      bufferCtx.fillStyle = PREVIEW_CHROME_FILL
+      bufferCtx.fillRect(0, 0, bufferCanvas.width, bufferCanvas.height)
+      bufferCtx.fillStyle = '#000000'
+      bufferCtx.fillRect(cr.x, cr.y, cr.width, cr.height)
+      this.drawOverlays(
+        bufferCtx,
+        cr,
+        newTime,
+        state.images,
+        state.videos,
+        state.texts,
+        videoElements,
+        imageBitmaps,
+        isPlaying,
+        rowTransitionByRow
+      )
+
+      if (effects && effects.length > 0) {
+        const activeEffects = effects
+          .filter((eff) => newTime >= eff.startTime && newTime < eff.endTime)
+          .sort((a, b) => a.row - b.row || a.startTime - b.startTime)
+        for (let i = 0; i < activeEffects.length; i++) {
+          const eff = activeEffects[i]
+          applyEffect(
+            bufferCtx,
+            eff.type,
+            cr.x,
+            cr.y,
+            cr.width,
+            cr.height,
+            newTime,
+            eff.intensity,
+            eff.contrast,
+            eff.flashSpeed
+          )
         }
       }
 
-      // 3. Render to Buffer
-      if (shouldSwap || timeChanged) {
-        bufferCtx.fillStyle = PREVIEW_CHROME_FILL
-        bufferCtx.fillRect(0, 0, bufferCanvas.width, bufferCanvas.height)
-        bufferCtx.fillStyle = '#000000'
-        bufferCtx.fillRect(cr.x, cr.y, cr.width, cr.height)
-        {
-          this.drawOverlays(
-            bufferCtx,
-            cr,
-            newTime,
-            state.images,
-            state.videos,
-            state.texts,
-            videoElements,
-            imageBitmaps,
-            isPlaying,
-            rowTransitionByRow
-          )
-          
-          // Optimization: Only filter/sort effects if they exist
-          if (effects && effects.length > 0) {
-            const activeEffects = effects
-              .filter((eff) => newTime >= eff.startTime && newTime < eff.endTime)
-              .sort((a, b) => a.row - b.row || a.startTime - b.startTime)
-            for (let i = 0; i < activeEffects.length; i++) {
-              const eff = activeEffects[i]
-              applyEffect(
-                bufferCtx,
-                eff.type,
-                cr.x,
-                cr.y,
-                cr.width,
-                cr.height,
-                newTime,
-                eff.intensity,
-                eff.contrast,
-                eff.flashSpeed
-              )
-            }
-          }
-
-          if (this.frameStallCount > 10) {
-            bufferCtx.save(); bufferCtx.fillStyle = 'rgba(255, 0, 0, 0.3)'; bufferCtx.fillRect(cr.x, cr.y, 4, 20); bufferCtx.restore()
-          }
-
-          // Atomic visible swap
-          visibleCtx.drawImage(bufferCanvas, 0, 0)
-          this.lastStateKey = stateKey
-          this.lastRenderedTime = newTime
-        } 
+      if (this.frameStallCount > 10) {
+        bufferCtx.save()
+        bufferCtx.fillStyle = 'rgba(255, 0, 0, 0.3)'
+        bufferCtx.fillRect(cr.x, cr.y, 4, 20)
+        bufferCtx.restore()
       }
+
+      visibleCtx.drawImage(bufferCanvas, 0, 0)
+      this.lastStateKey = stateKey
+      this.lastRenderedTime = newTime
     }
   }
 

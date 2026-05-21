@@ -13,6 +13,18 @@ export function getKeyboardVisibleWordCount(
   return Math.max(1, Math.min(words.length, Math.floor(elapsed / wordDuration) + 1))
 }
 
+export function getKeyboardVisibleContent(
+  content: string,
+  startTime: number,
+  endTime: number,
+  t: number
+): string {
+  const words = content.split(/\s+/).filter((w) => w.length > 0)
+  if (words.length === 0) return content
+  const visibleCount = getKeyboardVisibleWordCount(content, startTime, endTime, t)
+  return words.slice(0, visibleCount).join(' ')
+}
+
 export function wrapTextToLines(
   ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   text: string,

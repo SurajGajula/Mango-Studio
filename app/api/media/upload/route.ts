@@ -19,6 +19,16 @@ function sanitizeFileName(name: string): string {
 }
 
 export async function POST(req: NextRequest) {
+  let formData: FormData
+  try {
+    formData = await req.formData()
+  } catch {
+    return NextResponse.json(
+      { error: 'Expected multipart form data with a file field' },
+      { status: 400 }
+    )
+  }
+
   const supabase = await createClient()
   const {
     data: { user },
@@ -28,7 +38,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const formData = await req.formData()
   const file = formData.get('file')
   const folderIdRaw = formData.get('folderId')
   const storageScopeRaw = formData.get('storageScope')

@@ -4,6 +4,7 @@ import { memo, useRef, useLayoutEffect } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { TextClass } from '@/app/models/TextClass'
+import { getKeyboardVisibleContent } from '@/app/lib/textUtils'
 import styles from './PreviewArea.module.css'
 
 interface TextOverlayProps {
@@ -47,7 +48,11 @@ function TextOverlayComponent({
 
   const isSelected = selectedTextId === text.id
   const isEditing = editingTextId === text.id
-  const displayContent = text.content || 'Text'
+  const rawContent = text.content || 'Text'
+  const displayContent =
+    text.animation === 'keyboard' && !isEditing
+      ? getKeyboardVisibleContent(rawContent, text.startTime, text.endTime, playbackTime)
+      : rawContent
   const shakeTransform =
     text.animation === 'shake' && !isEditing
       ? (() => {

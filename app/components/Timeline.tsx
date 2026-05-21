@@ -7,6 +7,7 @@ import { TextClass } from '@/app/models/TextClass'
 import { formatTime } from '@/app/lib/timeUtils'
 import { findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
 import VideoReplaceModal from './modals/VideoReplaceModal'
+import AudioTrimModal from './modals/AudioTrimModal'
 import ReplaceFromLibraryModal from './modals/ReplaceFromLibraryModal'
 import BgRemoveModal from './modals/BgRemoveModal'
 import ExportModal from './modals/ExportModal'
@@ -86,7 +87,7 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
   const totalTimelineWidth = totalDuration > 0 ? ((totalDuration + effectivePadding * 2) / visibleDuration) * 100 : 100
 
   const [timelineScrollPortWidth, setTimelineScrollPortWidth] = useState(0)
-  const [replaceLibraryTargetId, setReplaceLibraryTargetId] = useState<string | null>(null)
+  const [replaceLibraryTarget, setReplaceLibraryTarget] = useState<{ id: string; media: 'visual' | 'audio' } | null>(null)
   const [bgRemoveTargetId, setBgRemoveTargetId] = useState<string | null>(null)
   const [multiSelectedItems, setMultiSelectedItems] = useState<TimelineSelectionItem[]>([])
   const [selectionBox, setSelectionBox] = useState<{ left: number; top: number; width: number; height: number } | null>(null)
@@ -194,6 +195,11 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
     audioReplaceTargetId,
     setAudioReplaceTargetId,
     handleAudioReplaceSelect,
+    applyReplaceAudioFromUrl,
+    replaceAudioData,
+    handleAudioDoubleClick,
+    handleConfirmAudioTrim,
+    clearReplaceAudioFlow,
   } = useTimelineReplace({
     videos,
     images,
@@ -574,6 +580,7 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
 
   useTimelineShortcuts({
     replaceVideoData,
+    replaceAudioData,
     applyZoom,
     visibleDurationRef,
     MIN_VISIBLE,
@@ -587,7 +594,7 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
 
   useEffect(() => {
     const handler = (e: WheelEvent) => {
-      if (replaceVideoData) return
+      if (replaceVideoData || replaceAudioData) return
       if (e.target instanceof Element && e.target.closest('[role="dialog"]')) return
       const container = scrollContainerRef.current
       if (!container) return
@@ -642,7 +649,7 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
     }
     document.addEventListener('wheel', handler, { passive: false, capture: true })
     return () => document.removeEventListener('wheel', handler, true)
-  }, [applyZoom, replaceVideoData])
+  }, [applyZoom, replaceVideoData, replaceAudioData])
 
   return (
     <div className={styles.container}>
@@ -654,16 +661,19 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
         onClose={closeExportModal}
       />
       <ReplaceFromLibraryModal
-        open={replaceLibraryTargetId !== null}
-        onClose={() => setReplaceLibraryTargetId(null)}
+        open={replaceLibraryTarget !== null}
+        mediaFilter={replaceLibraryTarget?.media ?? 'visual'}
+        onClose={() => setReplaceLibraryTarget(null)}
         onPick={async (asset) => {
-          if (!replaceLibraryTargetId) return
-          await applyReplaceFromUrl(
-            replaceLibraryTargetId,
-            `/api/media/asset/${asset.id}`,
-            asset.name,
-            asset.kind
-          )
+          if (!replaceLibraryTarget) return
+          const url = `/api/media/asset/${asset.id}`
+          if (replaceLibraryTarget.media === 'audio') {
+            if (asset.kind !== 'audio') return
+            await applyReplaceAudioFromUrl(replaceLibraryTarget.id, url, asset.name)
+            return
+          }
+          if (asset.kind !== 'image' && asset.kind !== 'video') return
+          await applyReplaceFromUrl(replaceLibraryTarget.id, url, asset.name, asset.kind)
         }}
       />
       {(() => {
@@ -683,6 +693,22 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
           />
         )
       })()}
+      {replaceAudioData && (
+        <AudioTrimModal
+          key={`${replaceAudioData.targetId}-${replaceAudioData.url}-${replaceAudioData.windowDuration}-${replaceAudioData.playbackSpeed}-${replaceAudioData.speedStart ?? ''}-${replaceAudioData.speedEnd ?? ''}-${replaceAudioData.speedEasing ?? ''}-${replaceAudioData.pitch}`}
+          audioUrl={replaceAudioData.url}
+          windowDuration={replaceAudioData.windowDuration}
+          audioDuration={replaceAudioData.duration}
+          playbackSpeed={replaceAudioData.playbackSpeed}
+          speedStart={replaceAudioData.speedStart}
+          speedEnd={replaceAudioData.speedEnd}
+          speedEasing={replaceAudioData.speedEasing}
+          pitch={replaceAudioData.pitch}
+          initialTrimStart={replaceAudioData.initialTrimStart}
+          onConfirm={handleConfirmAudioTrim}
+          onCancel={clearReplaceAudioFlow}
+        />
+      )}
       {replaceVideoData && (
         <VideoReplaceModal
           key={`${replaceVideoData.targetId}-${replaceVideoData.url}-${replaceVideoData.windowDuration}-${replaceVideoData.playbackSpeed}-${replaceVideoData.speedStart ?? ''}-${replaceVideoData.speedEnd ?? ''}-${replaceVideoData.speedEasing ?? ''}`}
@@ -774,6 +800,7 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
                     handleAudioBodyDragStart={handleAudioBodyDragStart}
                     handleAudioTrimStart={handleAudioTrimStart}
                     handleVideoDoubleClick={handleVideoDoubleClick}
+                    handleAudioDoubleClick={handleAudioDoubleClick}
                     videoThumbnails={videoThumbnails}
                     scrollContainerRef={scrollContainerRef}
                     timelineInnerWidthPx={timelineInnerWidthPx}
@@ -873,11 +900,12 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
               setReplaceTargetId(id)
               replaceInputRef.current?.click()
             }}
-            onReplaceFromLibrary={(id) => setReplaceLibraryTargetId(id)}
+            onReplaceFromLibrary={(id) => setReplaceLibraryTarget({ id, media: 'visual' })}
             onReplaceAudio={(id) => {
               setAudioReplaceTargetId(id)
               audioReplaceInputRef.current?.click()
             }}
+            onReplaceAudioFromLibrary={(id) => setReplaceLibraryTarget({ id, media: 'audio' })}
             onRemoveBackground={(id) => setBgRemoveTargetId(id)}
           />
         </div>

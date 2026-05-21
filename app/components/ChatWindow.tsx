@@ -13,6 +13,7 @@ import type {
   StepGrowthInstruction,
   CropInstruction,
   DeleteTimelineItemInstruction,
+  NormalizeAudioVolumesInstruction,
 } from '@/app/api/route-prompt/route'
 import { TextClass } from '@/app/models/TextClass'
 import { EffectClass } from '@/app/models/EffectClass'
@@ -25,10 +26,13 @@ import {
 } from '@/app/models/ImageClass'
 import { computeCropForAspect, computeCanvasCropPlacement, ASPECT_RATIOS, computeVideoCropForAspect, computeMediaCropForAspect, getLogicalCanvasDimensions, resolveVideoMetadata } from '@/app/lib/mediaUtils'
 import {
+  accountMediaAssetPlaybackUrl,
   imageCropOverlayFromPatch,
   replacePlacementDimensions,
   resolveImagePatch,
   runHistoryTransaction,
+  uploadToAccountLibrary,
+  validateMediaDuration,
 } from '@/app/lib/timeline'
 import { findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
 import { createSolidColorDataUrl } from '@/app/lib/solidColorImage'
@@ -37,6 +41,11 @@ import { useSelectionStore } from '@/app/stores/selectionStore'
 import { AudioClass } from '@/app/models/AudioClass'
 import { VideoClass as VideoModel } from '@/app/models/VideoClass'
 import { resolveAudioDurationFromUrl } from '@/app/lib/timelineMediaInsert'
+import {
+  AUDIO_VOLUME_SLIDER_MAX,
+  decodeAudioFromUrl,
+  rmsFromAudioBufferTrimmed,
+} from '@/app/lib/audioLoudnessNormalize'
 import styles from './ChatWindow.module.css'
 
 interface Message {
@@ -59,6 +68,67 @@ interface UploadedFile {
 interface EqualSplitRequest {
   imageNumber: number
   parts: number
+}
+
+const AUDIO_RMS_FLOOR = 1e-7
+
+async function runNormalizeAudioVolumes(
+  instruction: NormalizeAudioVolumesInstruction,
+  audios: AudioClass[],
+  updateAudio: (id: string, updates: Partial<AudioClass>) => void
+) {
+  const sorted = [...audios].sort((a, b) => a.startTime - b.startTime)
+  const refN = instruction.referenceAudioNumber
+  const targets = [...new Set(instruction.targetAudioNumbers)]
+    .filter((n) => n !== refN)
+    .sort((a, b) => a - b)
+  if (refN < 1 || refN > sorted.length) {
+    throw new Error(`Reference audio #${refN} is out of range (1–${sorted.length}).`)
+  }
+  if (targets.length === 0) {
+    throw new Error('No target audios to adjust.')
+  }
+  for (const n of targets) {
+    if (n < 1 || n > sorted.length) {
+      throw new Error(`Target audio #${n} is out of range (1–${sorted.length}).`)
+    }
+  }
+  const refAudio = sorted[refN - 1]
+  const ctx = new AudioContext()
+  try {
+    const refBuf = await decodeAudioFromUrl(ctx, refAudio.url)
+    const refRms = rmsFromAudioBufferTrimmed(
+      refBuf,
+      refAudio.trimStart ?? 0,
+      refAudio.trimEnd ?? 0,
+      refAudio.originalDuration ?? refBuf.duration
+    )
+    if (refRms < AUDIO_RMS_FLOOR) {
+      throw new Error(
+        'Reference audio is effectively silent in its trimmed region; cannot match loudness.'
+      )
+    }
+    const refLevel = refRms * (refAudio.volume ?? 1)
+    for (const n of targets) {
+      const a = sorted[n - 1]
+      const buf = await decodeAudioFromUrl(ctx, a.url)
+      const rms = rmsFromAudioBufferTrimmed(
+        buf,
+        a.trimStart ?? 0,
+        a.trimEnd ?? 0,
+        a.originalDuration ?? buf.duration
+      )
+      if (rms < AUDIO_RMS_FLOOR) {
+        throw new Error(`Audio #${n} is effectively silent in its trimmed region.`)
+      }
+      let vol = refLevel / rms
+      vol = Math.max(0, Math.min(AUDIO_VOLUME_SLIDER_MAX, vol))
+      vol = Math.round(vol * 4) / 4
+      updateAudio(a.id, { volume: vol })
+    }
+  } finally {
+    await ctx.close()
+  }
 }
 
 export default function ChatWindow() {
@@ -477,21 +547,21 @@ export default function ChatWindow() {
     addAudio(audioInstance)
   }
 
-  const applyVideoReplacement = async (targetId: string, file: UploadedFile) => {
+  const applyVideoReplacement = async (targetId: string, file: UploadedFile, sourceUrl: string) => {
     const { videos, images } = useManifestStore.getState()
     const oldVideo = videos.find((v) => v.id === targetId)
     const oldImage = images.find((i) => i.id === targetId)
 
     if (oldVideo) {
-      const { duration } = await resolveVideoMetadata(file.blobUrl)
+      const { duration } = await resolveVideoMetadata(sourceUrl)
       const aspectRatio = FIXED_ASPECT_RATIO
       const [rw, rh] = ASPECT_RATIOS[aspectRatio]
-      const crop = await computeMediaCropForAspect(file.blobUrl, 'video', aspectRatio, rw, rh, aspectRatio)
+      const crop = await computeMediaCropForAspect(sourceUrl, 'video', aspectRatio, rw, rh, aspectRatio)
       const newId = `video-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       const newVideo = new VideoModel(
         newId,
         file.name,
-        file.blobUrl,
+        sourceUrl,
         duration,
         oldVideo.timestamp,
         undefined,
@@ -531,10 +601,10 @@ export default function ChatWindow() {
       removeVideo(targetId)
       addVideo(newVideo)
     } else if (oldImage) {
-      const { duration } = await resolveVideoMetadata(file.blobUrl)
+      const { duration } = await resolveVideoMetadata(sourceUrl)
       const aspectRatio = FIXED_ASPECT_RATIO
       const [rw, rh] = ASPECT_RATIOS[aspectRatio]
-      const crop = await computeMediaCropForAspect(file.blobUrl, 'video', aspectRatio, rw, rh, aspectRatio)
+      const crop = await computeMediaCropForAspect(sourceUrl, 'video', aspectRatio, rw, rh, aspectRatio)
       const newId = `video-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       const startTime = oldImage.startTime
       const imageDuration = oldImage.endTime - oldImage.startTime
@@ -542,7 +612,7 @@ export default function ChatWindow() {
       const newVideo = new VideoModel(
         newId,
         file.name,
-        file.blobUrl,
+        sourceUrl,
         Math.min(duration, imageDuration),
         startTime,
         undefined,
@@ -590,14 +660,30 @@ export default function ChatWindow() {
       if (!file) continue
 
       if (file.mediaType === 'audio') {
+        const duration = await resolveAudioDurationFromUrl(file.blobUrl)
+        if (validateMediaDuration(duration, 'Audio')) {
+          const blob = await fetch(file.blobUrl).then((res) => res.blob())
+          const uploadFile = new File([blob], file.name, { type: file.mimeType })
+          void uploadToAccountLibrary(uploadFile, duration)
+        }
         await applyAudioReplacement(r.targetId, file)
       } else if (file.mediaType === 'video') {
-        await applyVideoReplacement(r.targetId, file)
+        const { duration } = await resolveVideoMetadata(file.blobUrl)
+        let sourceUrl = file.blobUrl
+        if (validateMediaDuration(duration, 'Video')) {
+          const blob = await fetch(file.blobUrl).then((res) => res.blob())
+          const uploadFile = new File([blob], file.name, { type: file.mimeType })
+          const assetId = await uploadToAccountLibrary(uploadFile, duration)
+          if (assetId) sourceUrl = accountMediaAssetPlaybackUrl(assetId)
+        }
+        await applyVideoReplacement(r.targetId, file, sourceUrl)
       } else {
         const blob = new Blob(
           [Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0))],
           { type: file.mimeType }
         )
+        const uploadFile = new File([blob], file.name, { type: file.mimeType })
+        void uploadToAccountLibrary(uploadFile)
         const url = URL.createObjectURL(blob)
         await applyReplacementWithUrl(r.targetId, url, file.name)
       }
@@ -698,7 +784,21 @@ export default function ChatWindow() {
           animation: t.animation,
           style: t.style,
         })),
-        audios: audios.map((a) => ({ id: a.id, name: a.name, startTime: a.startTime, endTime: a.endTime, originalDuration: a.originalDuration, trimStart: a.trimStart, trimEnd: a.trimEnd, playbackSpeed: a.playbackSpeed, speedStart: a.speedStart, speedEnd: a.speedEnd, speedEasing: a.speedEasing, marks: a.marks })),
+        audios: audios.map((a) => ({
+          id: a.id,
+          name: a.name,
+          startTime: a.startTime,
+          endTime: a.endTime,
+          originalDuration: a.originalDuration,
+          trimStart: a.trimStart,
+          trimEnd: a.trimEnd,
+          volume: a.volume,
+          playbackSpeed: a.playbackSpeed,
+          speedStart: a.speedStart,
+          speedEnd: a.speedEnd,
+          speedEasing: a.speedEasing,
+          marks: a.marks,
+        })),
         effects: effects.map((e) => ({
           id: e.id,
           name: e.type,
@@ -754,6 +854,13 @@ export default function ChatWindow() {
           await applyCrops(data.crops || [])
         } else if (data.action === 'add_effect') {
           applyNewEffects(data.newEffects || [])
+        } else if (data.action === 'normalize_audio_volumes') {
+          const spec = data.normalizeAudioVolumes as NormalizeAudioVolumesInstruction | undefined
+          if (!spec) {
+            throw new Error('Missing audio normalization parameters.')
+          }
+          const { audios: liveAudios } = useManifestStore.getState()
+          await runNormalizeAudioVolumes(spec, liveAudios, updateAudio)
         }
       } finally {
         resumeHistory()
