@@ -40,8 +40,6 @@ export async function updateSession(request: NextRequest) {
     !request.nextUrl.pathname.startsWith('/login') &&
     !request.nextUrl.pathname.startsWith('/auth')
   ) {
-    // no user, potentially redirect to login page if we had one
-    // but the plan is to use a modal, so we'll just return the response
     return supabaseResponse
   }
 

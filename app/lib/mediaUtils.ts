@@ -491,8 +491,8 @@ export async function generateVideoThumbnails(
   const ctx = canvas.getContext('2d')
   if (!ctx) return null
 
-  const thumbHeight = 48
-  const thumbWidth = Math.round(thumbHeight * (video.videoWidth / video.videoHeight)) || 85
+  const thumbHeight = 40
+  const thumbWidth = Math.round(thumbHeight * (video.videoWidth / video.videoHeight)) || 72
   canvas.width = thumbWidth
   canvas.height = thumbHeight
 
@@ -516,7 +516,7 @@ export async function generateVideoThumbnails(
     })
     
     ctx.drawImage(video, 0, 0, thumbWidth, thumbHeight)
-    const data = canvas.toDataURL('image/jpeg', 0.6)
+    const data = canvas.toDataURL('image/jpeg', 0.5)
     thumbnails.set(s, data)
     
     if (onProgress) {

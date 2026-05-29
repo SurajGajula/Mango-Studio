@@ -8,14 +8,15 @@ import styles from './AuthModal.module.css'
 
 interface AuthModalProps {
   onClose: () => void
+  initialSignUp?: boolean
 }
 
-export default function AuthModal({ onClose }: AuthModalProps) {
+export default function AuthModal({ onClose, initialSignUp = false }: AuthModalProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [authLoading, setAuthLoading] = useState(false)
-  const [isSignUp, setIsSignUp] = useState(false)
+  const [isSignUp, setIsSignUp] = useState(initialSignUp)
   const [showConfirmation, setShowConfirmation] = useState(false)
 
   const { supabase } = useAuth()

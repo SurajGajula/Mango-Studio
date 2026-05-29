@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback, useState, useMemo, memo, type CSSProper
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useVideoPlayback } from '@/app/lib/useVideoPlayback'
+import { useLivePlaybackTime } from '@/app/hooks/useLivePlaybackTime'
 import { usePreviewInteractions } from '@/app/hooks/preview/usePreviewInteractions'
 import { ImageClass } from '@/app/models/ImageClass'
 import { VideoClass } from '@/app/models/VideoClass'
@@ -111,12 +112,12 @@ export default function PreviewArea() {
     return measureCanvas.current.getContext('2d')!
   }, [])
 
-  const { contentRect } = useVideoPlayback(canvasRef, containerRef, editingTextId, false)
+  const { contentRect } = useVideoPlayback(canvasRef, containerRef, editingTextId, true)
 
   const videos = useManifestStore((state) => state.videos)
   const images = useManifestStore((state) => state.images)
   const texts = useManifestStore((state) => state.texts)
-  const playbackTime = useManifestStore((state) => state.playbackTime)
+  const playbackTime = useLivePlaybackTime(12)
   const selectedImageId = useSelectionStore((state) => state.selectedImageId)
   const setSelectedImageId = useSelectionStore((state) => state.setSelectedImageId)
   const selectedVideoId = useSelectionStore((state) => state.selectedVideoId)
@@ -389,6 +390,7 @@ export default function PreviewArea() {
     <div className={styles.container}>
       <div className={styles.content}>
         <div ref={containerRef} className={styles.videoContainer}>
+          <div className={styles.previewLcpShell} aria-hidden />
           <div className={styles.canvasWrapper}>
             <canvas
               ref={canvasRef}
@@ -480,6 +482,7 @@ export default function PreviewArea() {
                         handleTextResizeStart={handleTextResizeStart}
                         playbackTime={playbackTime}
                         textRefs={textRefs}
+                        getMeasureCtx={getMeasureCtx}
                       />
                     )
                   })}

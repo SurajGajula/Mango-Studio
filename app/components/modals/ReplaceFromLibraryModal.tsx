@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react'
-import { useAuth } from '@/app/components/AuthProvider'
 import { useAccountMediaLibrary } from '@/app/hooks/useAccountMediaLibrary'
 import type { AccountMediaAsset } from '@/app/lib/accountMediaTypes'
 import styles from './ReplaceFromLibraryModal.module.css'
@@ -28,8 +27,7 @@ type ReplaceFromLibraryModalProps = {
 }
 
 export default function ReplaceFromLibraryModal({ open, onClose, mediaFilter, onPick }: ReplaceFromLibraryModalProps) {
-  const { user } = useAuth()
-  const enabled = Boolean(open && user)
+  const enabled = open
   const {
     folders,
     assets,
@@ -118,70 +116,64 @@ export default function ReplaceFromLibraryModal({ open, onClose, mediaFilter, on
           </button>
         </div>
         <div className={styles.body}>
-          {!user ? (
-            <p className={styles.signInHint}>Sign in to browse saved media in the account panel.</p>
-          ) : (
-            <>
-              <input
-                className={styles.searchInput}
-                type="text"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search by name"
-              />
-              <div className={styles.folderTrail}>
-                {folderTrail.map((entry, index) => (
-                  <button
-                    type="button"
-                    key={`${entry.id ?? 'root'}-${index}`}
-                    className={styles.trailButton}
-                    onClick={() => handleGoToTrail(index)}
-                  >
-                    {entry.name}
-                  </button>
-                ))}
-              </div>
-              <div
-                className={styles.list}
-                onWheelCapture={(event) => {
-                  event.stopPropagation()
-                }}
+          <input
+            className={styles.searchInput}
+            type="text"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search by name"
+          />
+          <div className={styles.folderTrail}>
+            {folderTrail.map((entry, index) => (
+              <button
+                type="button"
+                key={`${entry.id ?? 'root'}-${index}`}
+                className={styles.trailButton}
+                onClick={() => handleGoToTrail(index)}
               >
-                {loading ? <p className={styles.statusText}>Loading…</p> : null}
-                {error ? <p className={styles.errorText}>{error}</p> : null}
-                {!loading && !error && folders.length === 0 && assets.length === 0 ? (
-                  <p className={styles.statusText}>No media in this folder.</p>
-                ) : null}
-                {!loading && !error && (folders.length > 0 || assets.length > 0) && filteredAssets.length === 0 ? (
-                  <p className={styles.statusText}>
-                    {mediaFilter === 'audio'
-                      ? 'No audio files here. Try another folder or search.'
-                      : 'No images or videos here. Try another folder or search.'}
-                  </p>
-                ) : null}
-                {folders.map((folder) => (
-                  <div key={folder.id} className={styles.row}>
-                    <button type="button" className={styles.folderPrimary} onClick={(e) => handleOpenFolderRow(e, folder.id, folder.name)}>
-                      {folder.name}
-                    </button>
-                  </div>
-                ))}
-                {filteredAssets.map((asset) => (
-                  <div key={asset.id} className={styles.row}>
-                    <button
-                      type="button"
-                      className={styles.assetButton}
-                      disabled={pickingId !== null}
-                      onClick={() => void handlePickAsset(asset)}
-                    >
-                      <span className={styles.kindBadge}>{asset.kind}</span>
-                      <span>{pickingId === asset.id ? '…' : asset.name}</span>
-                    </button>
-                  </div>
-                ))}
+                {entry.name}
+              </button>
+            ))}
+          </div>
+          <div
+            className={styles.list}
+            onWheelCapture={(event) => {
+              event.stopPropagation()
+            }}
+          >
+            {loading ? <p className={styles.statusText}>Loading…</p> : null}
+            {error ? <p className={styles.errorText}>{error}</p> : null}
+            {!loading && !error && folders.length === 0 && assets.length === 0 ? (
+              <p className={styles.statusText}>No media in this folder.</p>
+            ) : null}
+            {!loading && !error && (folders.length > 0 || assets.length > 0) && filteredAssets.length === 0 ? (
+              <p className={styles.statusText}>
+                {mediaFilter === 'audio'
+                  ? 'No audio files here. Try another folder or search.'
+                  : 'No images or videos here. Try another folder or search.'}
+              </p>
+            ) : null}
+            {folders.map((folder) => (
+              <div key={folder.id} className={styles.row}>
+                <button type="button" className={styles.folderPrimary} onClick={(e) => handleOpenFolderRow(e, folder.id, folder.name)}>
+                  {folder.name}
+                </button>
               </div>
-            </>
-          )}
+            ))}
+            {filteredAssets.map((asset) => (
+              <div key={asset.id} className={styles.row}>
+                <button
+                  type="button"
+                  className={styles.assetButton}
+                  disabled={pickingId !== null}
+                  onClick={() => void handlePickAsset(asset)}
+                >
+                  <span className={styles.kindBadge}>{asset.kind}</span>
+                  <span>{pickingId === asset.id ? '…' : asset.name}</span>
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>

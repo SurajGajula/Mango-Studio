@@ -66,7 +66,8 @@ interface UploadedFile {
 }
 
 interface EqualSplitRequest {
-  imageNumber: number
+  kind: 'image' | 'text' | 'video'
+  itemNumber: number
   parts: number
 }
 
@@ -146,6 +147,7 @@ export default function ChatWindow() {
   const trimAudio = useManifestStore((state) => state.trimAudio)
   const splitVideoAtTimes = useManifestStore((state) => state.splitVideoAtTimes)
   const splitImageAtTimes = useManifestStore((state) => state.splitImageAtTimes)
+  const splitTextAtTimes = useManifestStore((state) => state.splitTextAtTimes)
   const replaceVideoWithImage = useManifestStore((state) => state.replaceVideoWithImage)
   const addText = useManifestStore((state) => state.addText)
   const addEffect = useManifestStore((state) => state.addEffect)
@@ -228,6 +230,7 @@ export default function ChatWindow() {
     for (const s of splits) {
       if (s.type === 'image') splitImageAtTimes(s.id, s.times)
       else if (s.type === 'video') splitVideoAtTimes(s.id, s.times)
+      else if (s.type === 'text') splitTextAtTimes(s.id, s.times)
     }
   }
 
@@ -699,13 +702,16 @@ export default function ChatWindow() {
 
   const parseEqualSplitPrompt = (prompt: string): EqualSplitRequest | null => {
     const normalized = prompt.toLowerCase().replace(/#/g, ' ')
-    const match = normalized.match(/split\s+image\s+(\d+)\s+(?:into|in|to)\s+(\d+)\s+(?:equal\s+)?(?:parts?|pieces?|segments?)/i)
+    const match = normalized.match(
+      /split\s+(image|text|video)\s+(\d+)\s+(?:into|in|to)\s+(\d+)\s+(?:equal\s+)?(?:parts?|pieces?|segments?)/i
+    )
     if (!match) return null
-    const imageNumber = Number.parseInt(match[1], 10)
-    const parts = Number.parseInt(match[2], 10)
-    if (!Number.isFinite(imageNumber) || !Number.isFinite(parts)) return null
-    if (imageNumber < 1 || parts < 2) return null
-    return { imageNumber, parts }
+    const kind = match[1].toLowerCase() as EqualSplitRequest['kind']
+    const itemNumber = Number.parseInt(match[2], 10)
+    const parts = Number.parseInt(match[3], 10)
+    if (!Number.isFinite(itemNumber) || !Number.isFinite(parts)) return null
+    if (itemNumber < 1 || parts < 2) return null
+    return { kind, itemNumber, parts }
   }
 
   const handleSend = async () => {
@@ -738,35 +744,64 @@ export default function ChatWindow() {
     try {
       const equalSplitRequest = parseEqualSplitPrompt(userPrompt)
       if (equalSplitRequest) {
-        const { images } = useManifestStore.getState()
-        const sortedImages = [...images].sort((a, b) => a.startTime - b.startTime)
-        const targetImage = sortedImages[equalSplitRequest.imageNumber - 1]
+        const { images, texts, videos } = useManifestStore.getState()
+        const { kind, itemNumber, parts } = equalSplitRequest
 
-        if (!targetImage) {
-          updateStatus(`Error: image #${equalSplitRequest.imageNumber} was not found.`, false)
-          return
+        let targetId: string | undefined
+        let rangeStart = 0
+        let rangeEnd = 0
+
+        if (kind === 'image') {
+          const target = [...images].sort((a, b) => a.startTime - b.startTime)[itemNumber - 1]
+          if (!target) {
+            updateStatus(`Error: image #${itemNumber} was not found.`, false)
+            return
+          }
+          targetId = target.id
+          rangeStart = target.startTime
+          rangeEnd = target.endTime
+        } else if (kind === 'text') {
+          const target = [...texts].sort((a, b) => a.startTime - b.startTime)[itemNumber - 1]
+          if (!target) {
+            updateStatus(`Error: text #${itemNumber} was not found.`, false)
+            return
+          }
+          targetId = target.id
+          rangeStart = target.startTime
+          rangeEnd = target.endTime
+        } else {
+          const target = [...videos].sort((a, b) => a.timestamp - b.timestamp)[itemNumber - 1]
+          if (!target) {
+            updateStatus(`Error: video #${itemNumber} was not found.`, false)
+            return
+          }
+          targetId = target.id
+          rangeStart = target.timestamp
+          rangeEnd = target.timestamp + (target.duration ?? 0)
         }
 
-        const duration = targetImage.endTime - targetImage.startTime
+        const duration = rangeEnd - rangeStart
         if (!(duration > 0)) {
-          updateStatus(`Error: image #${equalSplitRequest.imageNumber} has invalid duration.`, false)
+          updateStatus(`Error: ${kind} #${itemNumber} has invalid duration.`, false)
           return
         }
 
         const splitTimes: number[] = []
-        for (let i = 1; i < equalSplitRequest.parts; i++) {
-          splitTimes.push(targetImage.startTime + (duration * i) / equalSplitRequest.parts)
+        for (let i = 1; i < parts; i++) {
+          splitTimes.push(rangeStart + (duration * i) / parts)
         }
 
         pauseHistory()
         try {
-          splitImageAtTimes(targetImage.id, splitTimes)
+          if (kind === 'image') splitImageAtTimes(targetId, splitTimes)
+          else if (kind === 'text') splitTextAtTimes(targetId, splitTimes)
+          else splitVideoAtTimes(targetId, splitTimes)
         } finally {
           resumeHistory()
           pushHistory()
         }
 
-        updateStatus(`Split image #${equalSplitRequest.imageNumber} into ${equalSplitRequest.parts} equal parts.`, false)
+        updateStatus(`Split ${kind} #${itemNumber} into ${parts} equal parts.`, false)
         return
       }
 

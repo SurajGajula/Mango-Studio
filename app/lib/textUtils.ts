@@ -25,6 +25,27 @@ export function getKeyboardVisibleContent(
   return words.slice(0, visibleCount).join(' ')
 }
 
+function breakWordToFit(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  word: string,
+  maxWidth: number
+): string[] {
+  if (ctx.measureText(word).width <= maxWidth) return [word]
+  const parts: string[] = []
+  let current = ''
+  for (const ch of word) {
+    const next = current + ch
+    if (ctx.measureText(next).width > maxWidth && current) {
+      parts.push(current)
+      current = ch
+    } else {
+      current = next
+    }
+  }
+  if (current) parts.push(current)
+  return parts.length > 0 ? parts : [word]
+}
+
 export function wrapTextToLines(
   ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   text: string,
@@ -35,12 +56,15 @@ export function wrapTextToLines(
     const words = paragraph.split(' ')
     let current = ''
     for (const word of words) {
-      const candidate = current ? `${current} ${word}` : word
-      if (ctx.measureText(candidate).width > maxWidth && current) {
-        lines.push(current)
-        current = word
-      } else {
-        current = candidate
+      const wordParts = breakWordToFit(ctx, word, maxWidth)
+      for (const part of wordParts) {
+        const candidate = current ? `${current} ${part}` : part
+        if (ctx.measureText(candidate).width > maxWidth && current) {
+          lines.push(current)
+          current = part
+        } else {
+          current = candidate
+        }
       }
     }
     lines.push(current)

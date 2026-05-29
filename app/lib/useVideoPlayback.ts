@@ -1,16 +1,30 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback, type MutableRefObject } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { calculateSourceTime } from '@/app/lib/renderUtils'
-import { alignTimeToFrame, manifestVideoTimelineSpanSeconds } from '@/app/lib/timeUtils'
+import { alignTimeToFrame } from '@/app/lib/timeUtils'
 import { syncSelectionToActivePlayingClip } from '@/app/lib/playbackSelectionSync'
 import { VideoRenderingEngine, RenderState, RenderResources } from '@/app/lib/videoRenderingEngine'
-import { setVideoCrossOriginForUrl } from '@/app/lib/mediaUtils'
-import type { VideoClass } from '@/app/models/VideoClass'
+import { preloadTextFonts } from '@/app/lib/drawTextOverlay'
+import { setPreviewVideoPool } from '@/app/lib/previewVideoPool'
 import type { AudioClass } from '@/app/models/AudioClass'
 import { isPlaybackFetchableUrl } from '@/app/lib/persistedMediaRefs'
+import {
+  enablePreviewEngine,
+  isPreviewEngineEnabled,
+  isTimelineScrubbingRef,
+  livePlaybackTimeRef,
+  setLivePlaybackTime,
+  subscribePreviewVideoPurge,
+  subscribePreviewWake,
+} from '@/app/lib/playbackClock'
+import {
+  purgeOffscreenPreviewVideos,
+  releasePreviewVideoElement,
+  syncManifestVideoPool,
+} from '@/app/lib/previewVideoPoolSync'
 
 function resolvedMediaHref(src: string): string {
   try {
@@ -18,11 +32,6 @@ function resolvedMediaHref(src: string): string {
   } catch {
     return src
   }
-}
-
-function videoElementSrcMatches(el: HTMLVideoElement, src: string): boolean {
-  const current = el.currentSrc || el.src || ''
-  return resolvedMediaHref(current) === resolvedMediaHref(src)
 }
 
 function audioElementSrcMatches(el: HTMLAudioElement, src: string): boolean {
@@ -54,6 +63,7 @@ function resetAudioElementForLoop(el: HTMLAudioElement, restartAt: number) {
 }
 
 const AUDIO_PREFETCH_BEFORE_SEC = 35
+const STORE_PLAYBACK_PUSH_INTERVAL_SEC = 0.05
 
 function isAudioElementReady(el: HTMLAudioElement): boolean {
   if (el.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return false
@@ -63,92 +73,6 @@ function isAudioElementReady(el: HTMLAudioElement): boolean {
 }
 
 type PersistenceCanvasMap = Map<string, { current: HTMLCanvasElement; accumulation: HTMLCanvasElement }>
-
-function syncManifestVideoPool(
-  playbackTime: number,
-  videosList: VideoClass[],
-  videoElementsRef: MutableRefObject<Map<string, HTMLVideoElement>>,
-  persistenceCanvasesRef: MutableRefObject<PersistenceCanvasMap>
-) {
-  const sortedVideos = [...videosList].sort((a, b) => a.timestamp - b.timestamp)
-  const currentIds = new Set(sortedVideos.map((v) => v.id))
-
-  const removedElements = new Map<string, HTMLVideoElement>()
-  videoElementsRef.current.forEach((el, id) => {
-    if (!currentIds.has(id)) {
-      removedElements.set(el.src, el)
-      videoElementsRef.current.delete(id)
-      persistenceCanvasesRef.current.delete(id)
-    }
-  })
-
-  sortedVideos.forEach((clip) => {
-    let video = videoElementsRef.current.get(clip.id)
-    const clipSrc = clip.url || clip.sourceUrl
-    const span = manifestVideoTimelineSpanSeconds(clip)
-    const clipEnd = clip.timestamp + span
-    const inTimelineRange = playbackTime >= clip.timestamp && playbackTime < clipEnd
-    const prefetchBeforeStart =
-      playbackTime < clip.timestamp && clip.timestamp - playbackTime <= 10
-    const isNearPlayhead = inTimelineRange || prefetchBeforeStart
-
-    if (!video && clipSrc && isNearPlayhead) {
-      const fullUrl = clipSrc.startsWith('http') ? clipSrc : window.location.origin + clipSrc
-      video =
-        removedElements.get(resolvedMediaHref(fullUrl)) ||
-        removedElements.get(resolvedMediaHref(clipSrc)) ||
-        removedElements.get(fullUrl) ||
-        removedElements.get(clipSrc)
-
-      if (video) {
-        removedElements.delete(video.src)
-        setVideoCrossOriginForUrl(video, clipSrc)
-      } else {
-        video = document.createElement('video')
-        video.preload = 'auto'
-        video.playsInline = true
-        setVideoCrossOriginForUrl(video, clipSrc)
-        video.src = clipSrc
-        video.onloadedmetadata = () => {
-          const currentClip = useManifestStore.getState().videos.find((v) => v.id === clip.id)
-          if (!currentClip) return
-          const hasTrim = currentClip.trimStart > 0 || currentClip.trimEnd > 0
-          const cd = currentClip.duration
-          const needsTimelineDuration = cd == null || !(cd > 0)
-          if (!hasTrim && video!.duration && needsTimelineDuration) {
-            useManifestStore.getState().updateVideo(clip.id, { duration: video!.duration })
-          }
-        }
-      }
-      videoElementsRef.current.set(clip.id, video)
-    } else if (video && clipSrc && !videoElementSrcMatches(video, clipSrc) && isNearPlayhead) {
-      video.pause()
-      setVideoCrossOriginForUrl(video, clipSrc)
-      video.src = clipSrc
-      video.load()
-    } else if (video && !isNearPlayhead) {
-      const srcActive = (video.currentSrc || video.src || '').length > 0
-      if (srcActive) {
-        video.pause()
-        video.src = ''
-        video.load()
-      }
-      videoElementsRef.current.delete(clip.id)
-      persistenceCanvasesRef.current.delete(clip.id)
-      video = undefined
-    }
-
-    if (video && video.muted !== clip.muted) {
-      video.muted = clip.muted
-    }
-  })
-
-  removedElements.forEach((el) => {
-    el.pause()
-    el.src = ''
-    el.load()
-  })
-}
 
 export function useVideoPlayback(
   canvasRef: React.RefObject<HTMLCanvasElement>,
@@ -160,6 +84,7 @@ export function useVideoPlayback(
   if (!engineRef.current) engineRef.current = new VideoRenderingEngine()
 
   const videoElementsRef = useRef<Map<string, HTMLVideoElement>>(new Map())
+  const videoReleaseDeadlinesRef = useRef<Map<string, number>>(new Map())
   const imageBitmapsRef = useRef<Map<string, ImageBitmap>>(new Map())
   const imageUrlsRef = useRef<Map<string, string>>(new Map())
   const urlCacheRef = useRef<Map<string, ImageBitmap>>(new Map())
@@ -187,15 +112,18 @@ export function useVideoPlayback(
   const audioCanPlayListenersRef = useRef<Map<string, () => void>>(new Map())
   const wasPlayingRef = useRef(false)
   const internalPlaybackTimeRef = useRef(0)
+  const lastStorePlaybackPushRef = useRef(-1)
+  const lastLoopPlaybackTimeRef = useRef(-1)
   const playbackClockResetRef = useRef(false)
   const [contentRect, setContentRect] = useState({ x: 0, y: 0, width: 0, height: 0 })
   const contentRectRef = useRef({ x: 0, y: 0, width: 0, height: 0 })
 
   const videos = useManifestStore((state) => state.videos)
   const images = useManifestStore((state) => state.images)
+  const texts = useManifestStore((state) => state.texts)
   const audios = useManifestStore((state) => state.audios)
-  const playbackTime = useManifestStore((state) => state.playbackTime)
   const effects = useManifestStore((state) => state.effects)
+  const lastImagePrefetchBucketRef = useRef(-1)
 
   const getState = useManifestStore.getState
 
@@ -268,18 +196,58 @@ export function useVideoPlayback(
     [disposePreviewAudio, installPreviewAudio]
   )
 
-  useEffect(() => {
-    syncManifestVideoPool(getState().playbackTime, videos, videoElementsRef, persistenceCanvasesRef)
-  }, [videos, getState])
+  const disposeRemovedPreviewVideos = useCallback(() => {
+    const currentIds = new Set(videos.map((v) => v.id))
+    videoElementsRef.current.forEach((_, id) => {
+      if (!currentIds.has(id)) {
+        releasePreviewVideoElement(
+          id,
+          videoElementsRef,
+          persistenceCanvasesRef,
+          videoReleaseDeadlinesRef
+        )
+      }
+    })
+  }, [videos])
+
+  const purgePreviewVideoPool = useCallback(() => {
+    purgeOffscreenPreviewVideos(
+      livePlaybackTimeRef.current,
+      getState().videos,
+      videoElementsRef,
+      persistenceCanvasesRef,
+      videoReleaseDeadlinesRef
+    )
+  }, [getState])
 
   useEffect(() => {
-    imagePrefetchGenRef.current += 1
+    disposeRemovedPreviewVideos()
+    syncManifestVideoPool(
+      livePlaybackTimeRef.current,
+      videos,
+      videoElementsRef,
+      persistenceCanvasesRef,
+      videoReleaseDeadlinesRef
+    )
+  }, [videos, disposeRemovedPreviewVideos])
+
+  useEffect(() => {
+    if (!renderTextsInCanvas || texts.length === 0) return
+    void preloadTextFonts(texts)
+  }, [texts, renderTextsInCanvas])
+
+  const prefetchImagesNearPlayhead = useCallback((playbackTime: number) => {
+    const bucket = Math.floor(playbackTime * 2)
+    if (bucket === lastImagePrefetchBucketRef.current) return
+    lastImagePrefetchBucketRef.current = bucket
+
     const gen = imagePrefetchGenRef.current
 
     const currentIds = new Set(images.map((o) => o.id))
 
-    imageBitmapsRef.current.forEach((_, id) => {
+    imageBitmapsRef.current.forEach((bitmap, id) => {
       if (!currentIds.has(id)) {
+        bitmap.close()
         imageBitmapsRef.current.delete(id)
         imageUrlsRef.current.delete(id)
       }
@@ -336,7 +304,13 @@ export function useVideoPlayback(
         }
       }
     })
-  }, [images, Math.floor(playbackTime * 4)])
+  }, [images])
+
+  useEffect(() => {
+    imagePrefetchGenRef.current += 1
+    lastImagePrefetchBucketRef.current = -1
+    prefetchImagesNearPlayhead(livePlaybackTimeRef.current)
+  }, [images, prefetchImagesNearPlayhead])
 
   useEffect(() => {
     const currentAudioIds = new Set(audios.map((a) => a.id))
@@ -492,9 +466,38 @@ export function useVideoPlayback(
   }, [])
 
   useEffect(() => {
+    const enableOnInteract = () => enablePreviewEngine()
+    window.addEventListener('pointerdown', enableOnInteract, { capture: true, passive: true, once: true })
+    let idleId = 0
+    let timeoutId = 0
+    if (typeof requestIdleCallback === 'function') {
+      idleId = requestIdleCallback(enableOnInteract, { timeout: 1200 })
+    } else {
+      timeoutId = window.setTimeout(enableOnInteract, 500)
+    }
+    return () => {
+      window.removeEventListener('pointerdown', enableOnInteract, true)
+      if (idleId) cancelIdleCallback(idleId)
+      if (timeoutId) clearTimeout(timeoutId)
+    }
+  }, [])
+
+  useEffect(() => {
     let lastTimestamp: number | null = null
 
+    const pushPlaybackTimeToStore = (state: ReturnType<typeof getState>, time: number) => {
+      if (isTimelineScrubbingRef.current) return
+      if (Math.abs(time - lastStorePlaybackPushRef.current) < STORE_PLAYBACK_PUSH_INTERVAL_SEC) return
+      state.setPlaybackTime(time)
+      lastStorePlaybackPushRef.current = time
+    }
+
     const loop = (timestamp: number) => {
+      if (!isPreviewEngineEnabled()) {
+        rafRef.current = null
+        return
+      }
+
       const state = getState()
       const { isPlaying } = state
 
@@ -518,6 +521,7 @@ export function useVideoPlayback(
         if (newTime >= totalDur) {
           if (state.isLooping && totalDur > 0) {
             state.setPlaybackTime(0)
+            lastStorePlaybackPushRef.current = 0
             internalPlaybackTimeRef.current = 0
             newTime = 0
             lastTimestamp = null
@@ -525,25 +529,42 @@ export function useVideoPlayback(
           } else {
             state.setIsPlaying(false)
             state.setPlaybackTime(0)
+            lastStorePlaybackPushRef.current = 0
             internalPlaybackTimeRef.current = 0
             newTime = 0
             lastTimestamp = null
             didStopAtEnd = true
           }
         } else {
-          state.setPlaybackTime(newTime)
+          pushPlaybackTimeToStore(state, newTime)
         }
+      } else if (isTimelineScrubbingRef.current) {
+        newTime = livePlaybackTimeRef.current
+        internalPlaybackTimeRef.current = newTime
+        lastTimestamp = null
       } else {
         internalPlaybackTimeRef.current = state.playbackTime
         newTime = state.playbackTime
         lastTimestamp = null
+        lastStorePlaybackPushRef.current = newTime
       }
+
+      setLivePlaybackTime(newTime)
 
       const effectiveIsPlaying = isPlaying && !didStopAtEnd
 
-      syncSelectionToActivePlayingClip(newTime, state.videos, state.images, useSelectionStore.getState())
+      if (effectiveIsPlaying) {
+        syncSelectionToActivePlayingClip(newTime, state.videos, state.images, useSelectionStore.getState())
+      }
 
-      syncManifestVideoPool(newTime, state.videos, videoElementsRef, persistenceCanvasesRef)
+      syncManifestVideoPool(
+        newTime,
+        state.videos,
+        videoElementsRef,
+        persistenceCanvasesRef,
+        videoReleaseDeadlinesRef
+      )
+      prefetchImagesNearPlayhead(newTime)
 
       const canvas = canvasRef.current; const container = containerRef.current
       
@@ -556,6 +577,10 @@ export function useVideoPlayback(
       const audioDriftSeek = 0.055
 
       if (!effectiveIsPlaying && wasPlayingRef.current) {
+        if (Math.abs(newTime - state.playbackTime) >= 0.0005) {
+          state.setPlaybackTime(newTime)
+          lastStorePlaybackPushRef.current = newTime
+        }
         audioPlayPromisesRef.current.clear()
         audioWarmupUntilRef.current.clear()
         audioPendingStartRef.current.clear()
@@ -835,6 +860,8 @@ export function useVideoPlayback(
             effects: state.effects
           }
 
+          setPreviewVideoPool(videoElementsRef.current)
+
           const resources: RenderResources = {
             videoElements: videoElementsRef.current,
             imageBitmaps: imageBitmapsRef.current,
@@ -874,22 +901,70 @@ export function useVideoPlayback(
         }
       }
       wasPlayingRef.current = effectiveIsPlaying
+
+      const playbackTimeMoved = Math.abs(newTime - lastLoopPlaybackTimeRef.current) > 0.0005
+      lastLoopPlaybackTimeRef.current = newTime
+      if (effectiveIsPlaying || playbackTimeMoved) {
+        rafRef.current = requestAnimationFrame(loop)
+      } else {
+        rafRef.current = null
+      }
+    }
+
+    const wakePreviewLoop = () => {
+      if (rafRef.current !== null) return
       rafRef.current = requestAnimationFrame(loop)
     }
+
     rafRef.current = requestAnimationFrame(loop)
-    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
-  }, [getState, canvasRef, containerRef, getAudioCtx, hiddenTextId, renderTextsInCanvas, rebuildAllPreviewAudios])
+
+    const unsubscribeWake = subscribePreviewWake(wakePreviewLoop)
+    const unsubscribePurge = subscribePreviewVideoPurge(purgePreviewVideoPool)
+
+    const unsubscribeManifest = useManifestStore.subscribe((state, prev) => {
+      if (state.isPlaying) {
+        wakePreviewLoop()
+        return
+      }
+      if (state.playbackTime !== prev.playbackTime && !isTimelineScrubbingRef.current) {
+        livePlaybackTimeRef.current = state.playbackTime
+        wakePreviewLoop()
+      }
+      if (
+        state.videos !== prev.videos ||
+        state.images !== prev.images ||
+        state.texts !== prev.texts ||
+        state.effects !== prev.effects
+      ) {
+        wakePreviewLoop()
+      }
+    })
+
+    return () => {
+      unsubscribeWake()
+      unsubscribePurge()
+      unsubscribeManifest()
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
+  }, [getState, canvasRef, containerRef, getAudioCtx, hiddenTextId, renderTextsInCanvas, rebuildAllPreviewAudios, prefetchImagesNearPlayhead, purgePreviewVideoPool])
 
   useEffect(() => { return () => { 
-    videoElementsRef.current.forEach((video) => { 
-      video.pause(); video.src = ''; video.load();
-    }); 
-    videoElementsRef.current.clear();
+    videoElementsRef.current.forEach((_, id) => {
+      releasePreviewVideoElement(
+        id,
+        videoElementsRef,
+        persistenceCanvasesRef,
+        videoReleaseDeadlinesRef
+      )
+    })
+    videoReleaseDeadlinesRef.current.clear()
     imageBitmapsRef.current.forEach((bitmap) => bitmap.close())
     imageBitmapsRef.current.clear()
     urlCacheRef.current.forEach((bitmap) => bitmap.close())
     urlCacheRef.current.clear()
     persistenceCanvasesRef.current.clear();
+    setPreviewVideoPool(new Map())
   } }, [])
   return { contentRect }
 }

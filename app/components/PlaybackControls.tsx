@@ -1,15 +1,15 @@
 'use client'
 
+import { memo } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
+import { useLivePlaybackTime } from '@/app/hooks/useLivePlaybackTime'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { ASPECT_RATIOS, computeMediaCropForAspect } from '@/app/lib/mediaUtils'
 import { FIXED_ASPECT_RATIO } from '@/app/lib/aspectRatio'
-import { useAuth } from './AuthProvider'
 import styles from './tracks/Timeline.module.css'
 
 interface PlaybackControlsProps {
-  playbackTime: number
   totalDuration: number
   formatTime: (seconds: number) => string
   uploadInputRef: React.RefObject<HTMLInputElement>
@@ -22,8 +22,7 @@ interface PlaybackControlsProps {
   handleAddText: () => void
 }
 
-export default function PlaybackControls({
-  playbackTime,
+function PlaybackControls({
   totalDuration,
   formatTime,
   uploadInputRef,
@@ -35,6 +34,7 @@ export default function PlaybackControls({
   handleExport,
   handleAddText,
 }: PlaybackControlsProps) {
+  const playbackTime = useLivePlaybackTime(10)
   const isPlaying = useManifestStore((state) => state.isPlaying)
   const isLooping = useManifestStore((state) => state.isLooping)
   const setIsPlaying = useManifestStore((state) => state.setIsPlaying)
@@ -62,21 +62,16 @@ export default function PlaybackControls({
   const images = useManifestStore((state) => state.images)
   const texts = useManifestStore((state) => state.texts)
   const audios = useManifestStore((state) => state.audios)
-  const { user, loading: authLoading } = useAuth()
-  const showUploadHint =
-    !authLoading
-    && !user
-    && videos.length === 0
-    && images.length === 0
-    && texts.length === 0
-    && audios.length === 0
-
   return (
     <>
       <div className={styles.playbackControls}>
         <button
           className={styles.historyButton}
-          onClick={undo}
+          onClick={() => {
+            const active = document.activeElement
+            if (active instanceof HTMLElement && active.dataset.textEdit !== undefined) return
+            undo()
+          }}
           disabled={historyIndex <= 0}
           title="Undo (Cmd+Z)"
         >
@@ -87,7 +82,11 @@ export default function PlaybackControls({
         </button>
         <button
           className={styles.historyButton}
-          onClick={redo}
+          onClick={() => {
+            const active = document.activeElement
+            if (active instanceof HTMLElement && active.dataset.textEdit !== undefined) return
+            redo()
+          }}
           disabled={historyIndex >= historyLength - 1}
           title="Redo (Cmd+Y)"
         >
@@ -157,24 +156,17 @@ export default function PlaybackControls({
         <span className={styles.timeDisplay}>
           {formatTime(playbackTime)} / {formatTime(totalDuration)}
         </span>
-        <div className={styles.uploadButtonWrapper}>
-          <button
-            className={styles.addOverlayButton}
-            onClick={() => uploadInputRef.current?.click()}
-            title="Upload video or image (Cmd+U)"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" y1="3" x2="12" y2="15" />
-            </svg>
-          </button>
-          {showUploadHint && (
-            <div className={styles.uploadHint} role="tooltip">
-              Upload media here
-            </div>
-          )}
-        </div>
+        <button
+          className={styles.addOverlayButton}
+          onClick={() => uploadInputRef.current?.click()}
+          title="Upload video or image (Cmd+U)"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="17 8 12 3 7 8" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+          </svg>
+        </button>
         <button
           className={styles.addTextButton}
           onClick={handleAddText}
@@ -202,3 +194,5 @@ export default function PlaybackControls({
     </>
   )
 }
+
+export default memo(PlaybackControls)

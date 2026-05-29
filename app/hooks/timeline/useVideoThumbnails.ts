@@ -10,6 +10,12 @@ export function useVideoThumbnails(videos: VideoClass[]) {
   videoThumbnailsRef.current = videoThumbnails
 
   useEffect(() => {
+    let cancelled = false
+    let idleId = 0
+    let timeoutId = 0
+
+    const run = () => {
+      if (cancelled) return
     const neededByKey = new Map<string, Set<number>>()
     videos.forEach((v) => {
       const key = videoThumbnailCacheKey(v)
@@ -21,6 +27,19 @@ export function useVideoThumbnails(videos: VideoClass[]) {
       for (const s of seconds) {
         set.add(s)
       }
+    })
+
+    setVideoThumbnails((prev) => {
+      const activeKeys = new Set(neededByKey.keys())
+      let changed = false
+      const next = new Map(prev)
+      for (const key of next.keys()) {
+        if (!activeKeys.has(key)) {
+          next.delete(key)
+          changed = true
+        }
+      }
+      return changed ? next : prev
     })
 
     neededByKey.forEach(async (neededSeconds, cacheKey) => {
@@ -45,6 +64,19 @@ export function useVideoThumbnails(videos: VideoClass[]) {
         processingKeysRef.current.delete(cacheKey)
       }
     })
+    }
+
+    if (typeof requestIdleCallback === 'function') {
+      idleId = requestIdleCallback(run, { timeout: 2500 })
+    } else {
+      timeoutId = window.setTimeout(run, 800)
+    }
+
+    return () => {
+      cancelled = true
+      if (idleId) cancelIdleCallback(idleId)
+      if (timeoutId) clearTimeout(timeoutId)
+    }
   }, [videos])
 
   return { videoThumbnails, setVideoThumbnails }

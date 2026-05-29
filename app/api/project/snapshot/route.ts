@@ -4,6 +4,9 @@ import { createClient } from '@/app/utils/supabase/server'
 import { resolveProjectId, saveProjectSnapshotJson } from '@/app/lib/projectServer'
 
 const TABLE_NAME = 'project_snapshots'
+
+export const maxDuration = 60
+
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
   const {

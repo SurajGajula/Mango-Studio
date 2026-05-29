@@ -12,11 +12,11 @@ export type AnimationMode =
   | 'jitter'
   | 'slide-shake-left'
   | 'slide-shake-right'
-  | 'last-frame-hold'
 
 export type AnimationZoomEasing = 'constant' | 'fast-slow' | 'slow-fast'
 
 const LEGACY_ANIMATION: Record<string, AnimationMode> = {
+  'last-frame-hold': 'none',
   pulse: 'zoom-in',
   'zoom-fast-slow': 'zoom-in',
   'zoom-slow-fast': 'zoom-in',
@@ -30,7 +30,7 @@ export function migrateAnimationValue(raw: string | AnimationMode | undefined | 
   if (raw === undefined || raw === null || raw === '') return 'none'
   const s = raw as string
   if (LEGACY_ANIMATION[s]) return LEGACY_ANIMATION[s]
-  const allowed: AnimationMode[] = ['none', 'zoom-in', 'zoom-out', 'shake', 'jitter', 'slide-shake-left', 'slide-shake-right', 'last-frame-hold']
+  const allowed: AnimationMode[] = ['none', 'zoom-in', 'zoom-out', 'shake', 'jitter', 'slide-shake-left', 'slide-shake-right']
   if (allowed.includes(s as AnimationMode)) return s as AnimationMode
   return 'none'
 }

@@ -1,11 +1,16 @@
 'use client'
 
+import { Antonio, Playfair_Display } from 'next/font/google'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { TextAnimation, TextStyle } from '@/app/models/TextClass'
 import { SidePanelLayout } from '@/app/components/ui/SidePanelLayout'
 import layout from '@/app/components/ui/SidePanelLayout.module.css'
 import styles from './TransitionsPanel.module.css'
+
+const playfair = Playfair_Display({ subsets: ['latin'], display: 'swap' })
+const antonio = Antonio({ subsets: ['latin'], weight: '300', display: 'swap' })
+const panelFontClass = [playfair.className, antonio.className].join(' ')
 
 interface Props {
   onClose: () => void
@@ -64,6 +69,7 @@ export default function FontPanel({ onClose }: Props) {
   const selectedTextId = useSelectionStore((s) => s.selectedTextId)
   const texts = useManifestStore((s) => s.texts)
   const updateText = useManifestStore((s) => s.updateText)
+  const pushHistory = useManifestStore((s) => s.pushHistory)
 
   const selectedText = selectedTextId ? texts.find((t) => t.id === selectedTextId) : null
   const currentFont = selectedText?.fontFamily ?? FONT_OPTIONS[0].value
@@ -83,22 +89,26 @@ export default function FontPanel({ onClose }: Props) {
         updates.fontWeight = '400'
       }
       updateText(selectedTextId, updates)
+      pushHistory()
     }
   }
 
   const handleAnimationSelect = (animation: TextAnimation) => {
     if (selectedTextId) {
       updateText(selectedTextId, { animation })
+      pushHistory()
     }
   }
 
   const handleStyleSelect = (style: TextStyle) => {
     if (selectedTextId) {
       updateText(selectedTextId, { style })
+      pushHistory()
     }
   }
 
   return (
+    <div className={panelFontClass}>
     <SidePanelLayout title="Font" onClose={onClose}>
         {!selectedText ? (
           <p className={layout.emptyState}>Select a text item on the timeline to change its font.</p>
@@ -196,5 +206,6 @@ export default function FontPanel({ onClose }: Props) {
           </>
         )}
     </SidePanelLayout>
+    </div>
   )
 }

@@ -43,7 +43,10 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
   const texts = useManifestStore((state) => state.texts)
   const audios = useManifestStore((state) => state.audios)
   const effects = useManifestStore((state) => state.effects)
-  const playbackTime = useManifestStore((state) => state.playbackTime)
+  const playbackTime = useManifestStore(
+    (state) => state.playbackTime,
+    (left, right) => Math.abs(left - right) < 0.045
+  )
   const isPlaying = useManifestStore((state) => state.isPlaying)
   
   const setSelectedVideoId = useSelectionStore((state) => state.setSelectedVideoId)
@@ -114,7 +117,6 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
     effectivePadding,
     isPlaying,
     playbackTime,
-    setPlaybackTime,
   })
 
   const { videoThumbnails } = useVideoThumbnails(videos)
@@ -528,7 +530,7 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
 
   const handleAddText = () => {
     const id = `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-    const start = playbackTime
+    const start = useManifestStore.getState().playbackTime
     const end = start + 5
     const row = findFreeVisualOverlayRow(start, end)
     const logicalW = 1080
@@ -593,62 +595,54 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
   })
 
   useEffect(() => {
+    const container = scrollContainerRef.current
+    if (!container) return
+
     const handler = (e: WheelEvent) => {
       if (replaceVideoData || replaceAudioData) return
-      if (e.target instanceof Element && e.target.closest('[role="dialog"]')) return
-      const container = scrollContainerRef.current
-      if (!container) return
-      const r = container.getBoundingClientRect()
-      const overTimeline =
-        e.clientX >= r.left &&
-        e.clientX <= r.right &&
-        e.clientY >= r.top &&
-        e.clientY <= r.bottom
-      if (!overTimeline) return
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault()
         const factor = Math.exp(e.deltaY * 0.005)
         const next = Math.max(MIN_VISIBLE, Math.min(MAX_VISIBLE, visibleDurationRef.current * factor))
         applyZoom(next)
-      } else {
-        e.preventDefault()
-        if (!useManifestStore.getState().isPlaying) {
-          const deltaX = e.deltaX
-          const deltaY = e.deltaY
-          const canScrollY = container.scrollHeight > container.clientHeight + 1
-          if (canScrollY) {
-            const maxTop = Math.max(0, container.scrollHeight - container.clientHeight)
-            const topBefore = container.scrollTop
-            const nextTop = Math.min(maxTop, Math.max(0, topBefore + deltaY))
-            const appliedY = nextTop - topBefore
-            container.scrollTop = nextTop
-            const remainderY = deltaY - appliedY
-            const verticalDominant =
-              Math.abs(deltaY) >= Math.abs(deltaX) * WHEEL_VERTICAL_DOMINANCE_RATIO
-            const horizontalFromAxis = verticalDominant ? 0 : deltaX
-            const horizontalDelta = horizontalFromAxis + remainderY
-            if (horizontalDelta !== 0) {
-              const atLeftEdgeBefore = container.scrollLeft <= 1
-              container.scrollLeft += horizontalDelta
-              const atLeftEdgeAfter = container.scrollLeft <= 1
-              if ((atLeftEdgeBefore || atLeftEdgeAfter) && horizontalDelta < 0) {
-                useManifestStore.getState().setPlaybackTime(0)
-              }
-            }
-          } else {
-            const delta = deltaX + deltaY
-            const atLeftEdgeBefore = container.scrollLeft <= 1
-            container.scrollLeft += delta
-            const atLeftEdgeAfter = container.scrollLeft <= 1
-            if ((atLeftEdgeBefore || atLeftEdgeAfter) && delta < 0) {
-              useManifestStore.getState().setPlaybackTime(0)
-            }
+        return
+      }
+      if (useManifestStore.getState().isPlaying) return
+      e.preventDefault()
+      const deltaX = e.deltaX
+      const deltaY = e.deltaY
+      const canScrollY = container.scrollHeight > container.clientHeight + 1
+      if (canScrollY) {
+        const maxTop = Math.max(0, container.scrollHeight - container.clientHeight)
+        const topBefore = container.scrollTop
+        const nextTop = Math.min(maxTop, Math.max(0, topBefore + deltaY))
+        const appliedY = nextTop - topBefore
+        container.scrollTop = nextTop
+        const remainderY = deltaY - appliedY
+        const verticalDominant =
+          Math.abs(deltaY) >= Math.abs(deltaX) * WHEEL_VERTICAL_DOMINANCE_RATIO
+        const horizontalFromAxis = verticalDominant ? 0 : deltaX
+        const horizontalDelta = horizontalFromAxis + remainderY
+        if (horizontalDelta !== 0) {
+          const atLeftEdgeBefore = container.scrollLeft <= 1
+          container.scrollLeft += horizontalDelta
+          const atLeftEdgeAfter = container.scrollLeft <= 1
+          if ((atLeftEdgeBefore || atLeftEdgeAfter) && horizontalDelta < 0) {
+            useManifestStore.getState().setPlaybackTime(0)
           }
+        }
+      } else {
+        const delta = deltaX + deltaY
+        const atLeftEdgeBefore = container.scrollLeft <= 1
+        container.scrollLeft += delta
+        const atLeftEdgeAfter = container.scrollLeft <= 1
+        if ((atLeftEdgeBefore || atLeftEdgeAfter) && delta < 0) {
+          useManifestStore.getState().setPlaybackTime(0)
         }
       }
     }
-    document.addEventListener('wheel', handler, { passive: false, capture: true })
-    return () => document.removeEventListener('wheel', handler, true)
+    container.addEventListener('wheel', handler, { passive: false })
+    return () => container.removeEventListener('wheel', handler)
   }, [applyZoom, replaceVideoData, replaceAudioData])
 
   return (
@@ -756,7 +750,6 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
         />
         <div className={styles.timelineWrapper}>
           <PlaybackControls
-            playbackTime={playbackTime}
             totalDuration={totalDuration}
             formatTime={formatTime}
             uploadInputRef={uploadInputRef}

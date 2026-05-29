@@ -1,8 +1,37 @@
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { AudioClass } from '@/app/models/AudioClass'
+import { TextClass } from '@/app/models/TextClass'
 import { ManifestStore, HistoryEntry } from './types'
 import { forgetFileObjectUrlIfRevoked } from '@/app/lib/fileObjectUrlCache'
+
+function snapshotTexts(texts: TextClass[]): TextClass[] {
+  return texts.map((t) => {
+    if (typeof t.copy === 'function') return t.copy({})
+    const createdAt =
+      t.createdAt instanceof Date ? t.createdAt : new Date(String(t.createdAt))
+    return new TextClass(
+      t.id,
+      t.content,
+      t.startTime,
+      t.endTime,
+      t.x,
+      t.y,
+      t.width,
+      t.height,
+      t.opacity,
+      t.fontSize,
+      t.fontFamily,
+      t.color,
+      t.fontWeight,
+      t.textAlign,
+      t.animation,
+      t.style,
+      createdAt,
+      t.row
+    )
+  })
+}
 
 let historyPauseDepth = 0
 
@@ -61,7 +90,7 @@ export const createHistorySlice = (set: any, get: any) => ({
     const entry: HistoryEntry = {
       videos: [...state.videos],
       images: [...state.images],
-      texts: [...state.texts],
+      texts: snapshotTexts(state.texts),
       audios: [...state.audios],
       effects: [...state.effects],
     }
@@ -87,7 +116,7 @@ export const createHistorySlice = (set: any, get: any) => ({
     set({
       videos: [...target.videos],
       images: [...target.images],
-      texts: [...(target.texts ?? [])],
+      texts: snapshotTexts(target.texts ?? []),
       audios: [...(target.audios ?? [])],
       effects: [...(target.effects ?? [])],
       historyIndex: state.historyIndex - 1,
@@ -102,7 +131,7 @@ export const createHistorySlice = (set: any, get: any) => ({
     set({
       videos: [...target.videos],
       images: [...target.images],
-      texts: [...(target.texts ?? [])],
+      texts: snapshotTexts(target.texts ?? []),
       audios: [...(target.audios ?? [])],
       effects: [...(target.effects ?? [])],
       historyIndex: state.historyIndex + 1,

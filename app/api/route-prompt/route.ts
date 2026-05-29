@@ -87,7 +87,7 @@ export interface ManifestMutation {
 }
 
 export interface SplitInstruction {
-  type: 'image' | 'video'
+  type: 'image' | 'video' | 'text'
   id: string
   times: number[]
 }
@@ -120,7 +120,7 @@ export interface AddEffectInstruction {
 export interface TransitionInstruction {
   type: 'image' | 'video'
   id: string
-  animation?: 'none' | 'zoom-in' | 'zoom-out' | 'shake' | 'jitter' | 'slide-shake-left' | 'slide-shake-right' | 'last-frame-hold' | string
+  animation?: 'none' | 'zoom-in' | 'zoom-out' | 'shake' | 'jitter' | 'slide-shake-left' | 'slide-shake-right' | string
   transition?: 'none' | 'split' | 'fade' | 'morph' | 'slide-in' | 'wipe' | 'circle' | 'rotate' | 'flash'
   zoomIntensity?: number
   zoomDistanceIntensity?: number
@@ -416,7 +416,7 @@ export async function POST(request: NextRequest) {
     const filesContext = body.uploadedFiles?.length ? '\n\n' + buildUploadedFilesContext(body.uploadedFiles) : ''
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.1-flash-lite-preview',
+      model: 'gemini-3.1-flash-lite',
       contents: [
         {
           role: 'user',

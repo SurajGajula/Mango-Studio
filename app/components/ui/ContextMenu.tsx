@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useCallback, useState, useLayoutEffect } from 'react'
+import { addVideoFrameCaptureAtPlayhead, isVideoOnScreenAtTime } from '@/app/lib/captureVideoFrame'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { ASPECT_RATIOS, computeMediaCropForAspect } from '@/app/lib/mediaUtils'
@@ -39,6 +40,7 @@ export default function ContextMenu({
   const menuRef = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ x: 0, y: 0 })
   const [activeSubMenu, setActiveSubMenu] = useState<'crop' | 'replace' | 'flip' | null>(null)
+  const [capturingFrame, setCapturingFrame] = useState(false)
   const { contextMenu, closeContextMenu } = useSelectionStore()
   const { isOpen, x, y, itemId, itemType } = contextMenu
 
@@ -131,6 +133,7 @@ export default function ContextMenu({
   useEffect(() => {
     if (!isOpen) {
       setActiveSubMenu(null)
+      setCapturingFrame(false)
     }
   }, [isOpen])
 
@@ -173,6 +176,8 @@ export default function ContextMenu({
   const currentVideo = itemType === 'video' ? videos.find(v => v.id === itemId) : null
   const currentAudio = itemType === 'audio' ? audios.find(a => a.id === itemId) : null
   const currentItem = currentVideo || currentAudio
+  const canCaptureFrame =
+    !!currentVideo && isVideoOnScreenAtTime(currentVideo, playbackTime) && !capturingFrame
 
   const RATIOS = Object.entries(ASPECT_RATIOS).map(([label, [w, h]]) => ({ label, w, h }))
 
@@ -332,10 +337,46 @@ export default function ContextMenu({
       )}
 
       {itemType === 'video' && currentVideo && (
-        <button
-          className={styles.contextMenuItem}
-          onClick={() => handleAction(() => updateVideo(itemId, { muted: !currentVideo.muted }))}
-        >
+        <>
+          <button
+            className={styles.contextMenuItem}
+            disabled={!canCaptureFrame}
+            onClick={() => {
+              if (!canCaptureFrame) return
+              setCapturingFrame(true)
+              addVideoFrameCaptureAtPlayhead(itemId)
+                .then(() => closeContextMenu())
+                .finally(() => setCapturingFrame(false))
+            }}
+          >
+            <div className={styles.contextMenuIcon}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <path d="M21 15l-5-5L5 21" />
+              </svg>
+            </div>
+            Capture frame
+          </button>
+          <button
+            className={styles.contextMenuItem}
+            onClick={() => handleAction(() => {
+              pushHistory()
+              updateVideo(itemId, { reversed: !currentVideo.reversed })
+            })}
+          >
+            <div className={styles.contextMenuIcon}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M7 11L2 6l5-5" />
+                <path d="M17 13l5 5-5-5" />
+              </svg>
+            </div>
+            {currentVideo.reversed ? 'Restore playback direction' : 'Reverse video'}
+          </button>
+          <button
+            className={styles.contextMenuItem}
+            onClick={() => handleAction(() => updateVideo(itemId, { muted: !currentVideo.muted }))}
+          >
           <div className={styles.contextMenuIcon}>
             {currentVideo.muted ? (
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
@@ -344,7 +385,8 @@ export default function ContextMenu({
             )}
           </div>
           {currentVideo.muted ? 'Unmute audio' : 'Mute audio'}
-        </button>
+          </button>
+        </>
       )}
 
       {(itemType === 'video' || itemType === 'image') && (

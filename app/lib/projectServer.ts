@@ -95,12 +95,6 @@ export async function saveProjectSnapshotJson(
     updated_at: updatedAt,
   }
 
-  const { error: upsertError } = await admin
-    .from(SNAPSHOTS_TABLE)
-    .upsert(row, { onConflict: 'user_id,project_id' })
-
-  if (!upsertError) return null
-
   const { data: updated, error: updateError } = await admin
     .from(SNAPSHOTS_TABLE)
     .update({
@@ -143,5 +137,5 @@ export async function saveProjectSnapshotJson(
     return nameUpdateError?.message ?? null
   }
 
-  return insertError.message ?? upsertError.message
+  return insertError.message
 }

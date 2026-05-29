@@ -17,7 +17,7 @@ import { resolveMediaKeyframeTransform } from '@/app/lib/resolveMediaKeyframeTra
 import { runWithPlacementRotation } from '@/app/lib/placementRotation'
 import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
 import { applyEffect } from '@/app/lib/applyEffect'
-import { getKeyboardVisibleWordCount, wrapTextToLines } from '@/app/lib/textUtils'
+import { drawTextOverlay } from '@/app/lib/drawTextOverlay'
 
 export interface RenderState {
   playbackTime: number
@@ -37,7 +37,11 @@ export interface RenderResources {
 }
 
 const PAUSED_SCRUB_SEEK_THRESHOLD = 0.16
+const PLAYING_REVERSED_SEEK_THRESHOLD = 0.06
+const PLAYING_FORWARD_SEEK_THRESHOLD = 0.22
 const PREWARM_LEAD_SEC = 10
+const PREWARM_LEAD_SEC_MANY_CLIPS = 3
+const MANY_TIMELINE_VIDEOS = 3
 const PREVIEW_CHROME_FILL = '#0f0f0f'
 
 const previewVideoPrimeAwaitSeeked = new WeakSet<HTMLVideoElement>()
@@ -130,18 +134,39 @@ function applyPausedPreviewVideoSync(
   if (drift > PAUSED_SCRUB_SEEK_THRESHOLD) {
     vEl.currentTime = clampedTarget
     onUpdate(clampedTarget)
-    return
   }
-  if (drift > 1 / 960) {
+}
+
+function seekPreviewVideoIfDrift(
+  vEl: HTMLVideoElement,
+  clampedTarget: number,
+  threshold: number,
+  onUpdate: (t: number) => void
+) {
+  if (vEl.seeking) return
+  const drift = Math.abs(vEl.currentTime - clampedTarget)
+  if (drift > threshold) {
     vEl.currentTime = clampedTarget
     onUpdate(clampedTarget)
   }
+}
+
+function prewarmLeadForTimeline(videoCount: number): number {
+  return videoCount > MANY_TIMELINE_VIDEOS ? PREWARM_LEAD_SEC_MANY_CLIPS : PREWARM_LEAD_SEC
 }
 
 export class VideoRenderingEngine {
   private lastRenderedTime: number = -1
   private lastStateKey: string = ''
   private frameStallCount: number = 0
+  private cachedVideos: VideoClass[] | null = null
+  private cachedVideoVisualKey = ''
+  private cachedImages: ImageClass[] | null = null
+  private cachedImageVisualKey = ''
+  private cachedTexts: TextClass[] | null = null
+  private cachedTextVisualKey = ''
+  private cachedEffects: EffectClass[] | null = null
+  private cachedEffectsKey = ''
 
   public render(
     canvas: HTMLCanvasElement,
@@ -186,109 +211,10 @@ export class VideoRenderingEngine {
     const bufferCtx = bufferCanvas.getContext('2d', { alpha: false })!
     const visibleCtx = canvas.getContext('2d', { alpha: false })!
 
-    const videoVisualKey = state.videos
-      .map((video) =>
-        [
-          video.id,
-          video.url,
-          video.sourceUrl,
-          video.timestamp,
-          video.duration,
-          video.x,
-          video.y,
-          video.width,
-          video.height,
-          video.cropAspect,
-          video.cropSx,
-          video.cropSy,
-          video.cropSw,
-          video.cropSh,
-          video.opacity,
-          video.row,
-          video.animation,
-          video.transition,
-          video.transitionDuration,
-          video.animationDuration,
-          video.animationZoomEasing,
-          video.transitionColor,
-          video.transitionFlashMode,
-          video.transitionDirection,
-          video.transitionAxis,
-          video.transitionSlideEasing,
-          video.transitionCircleEasing,
-          video.transitionWipeEasing,
-          video.zoomIntensity,
-          video.zoomDistanceIntensity,
-          video.flipHorizontal,
-          video.flipVertical,
-        ].join('|')
-      )
-      .join('~')
-    const imageVisualKey = state.images
-      .map((image) =>
-        [
-          image.id,
-          image.url,
-          image.startTime,
-          image.endTime,
-          image.x,
-          image.y,
-          image.width,
-          image.height,
-          image.cropAspect,
-          image.cropSx,
-          image.cropSy,
-          image.cropSw,
-          image.cropSh,
-          image.opacity,
-          image.row,
-          image.animation,
-          image.transition,
-          image.transitionDuration,
-          image.animationDuration,
-          image.animationZoomEasing,
-          image.transitionColor,
-          image.transitionFlashMode,
-          image.transitionDirection,
-          image.transitionAxis,
-          image.transitionSlideEasing,
-          image.transitionCircleEasing,
-          image.transitionWipeEasing,
-          image.zoomIntensity,
-          image.zoomDistanceIntensity,
-          image.rotation,
-          image.flipHorizontal,
-          image.flipVertical,
-        ].join('|')
-      )
-      .join('~')
-    const textVisualKey = state.texts
-      .map((text) =>
-        [
-          text.id,
-          text.content,
-          text.startTime,
-          text.endTime,
-          text.x,
-          text.y,
-          text.width,
-          text.fontSize,
-          text.color,
-          text.fontWeight,
-          text.textAlign,
-          text.fontFamily,
-          text.opacity,
-          text.style,
-          text.animation,
-          text.row,
-        ].join('|')
-      )
-      .join('~')
-    const effectsKey = effects
-      .map((effect) =>
-        [effect.id, effect.type, effect.startTime, effect.endTime, effect.row, effect.intensity, effect.contrast, effect.flashSpeed].join('|')
-      )
-      .join('~')
+    const videoVisualKey = this.getVideoVisualKey(state.videos)
+    const imageVisualKey = this.getImageVisualKey(state.images)
+    const textVisualKey = this.getTextVisualKey(state.texts)
+    const effectsKey = this.getEffectsKey(effects)
     const imageRuntimeKey = state.images
       .map((image) => {
         const active = image.row >= 0 && newTime >= image.startTime && newTime < image.endTime
@@ -302,19 +228,15 @@ export class VideoRenderingEngine {
     const stateChanged = stateKey !== this.lastStateKey
     const timeChanged = Math.abs(newTime - this.lastRenderedTime) > 0.001
     const shouldSwap = isPlaying || stateChanged
+    const prewarmLead = prewarmLeadForTimeline(state.videos.length)
 
     for (let i = 0; i < state.videos.length; i++) {
       const video = state.videos[i]
       const vEl = videoElements.get(video.id)
       if (!vEl) continue
+
       const span = manifestVideoTimelineSpanSeconds(video)
       const inRange = span > 0 && newTime >= video.timestamp && newTime < video.timestamp + span
-      const elapsed = Math.max(0, newTime - video.timestamp)
-      const vDur = clipTimelineSpanForSourceMap(
-        video.duration != null && video.duration > 0 ? video.duration : span
-      )
-      const tmV = videoTimelineSourceMapping(video, elapsed, vDur)
-      const target = (video.trimStart ?? 0) + tmV.sourceElapsed
 
       let prewarm = false
       const rowTrans = rowTransitionByRow.get(video.row)
@@ -327,25 +249,51 @@ export class VideoRenderingEngine {
         span > 0 &&
         video.row >= 0 &&
         newTime < video.timestamp &&
-        video.timestamp - newTime <= PREWARM_LEAD_SEC
+        video.timestamp - newTime <= prewarmLead
       ) {
         prewarm = true
       }
 
+      if (!inRange && !prewarm) {
+        if (!vEl.paused) onVideoPlayState(video.id, false, 1)
+        continue
+      }
+
+      const elapsed = Math.max(0, newTime - video.timestamp)
+      const vDur = clipTimelineSpanForSourceMap(
+        video.duration != null && video.duration > 0 ? video.duration : span
+      )
+      const tmV = videoTimelineSourceMapping(video, elapsed, vDur)
+      const target = (video.trimStart ?? 0) + tmV.sourceElapsed
+      const clampedTarget = clampVideoSeekTime(vEl, target)
       const decodeOnlyPrewarm = prewarm && !inRange
 
-      if (inRange || prewarm) {
-        if (decodeOnlyPrewarm) {
+      if (decodeOnlyPrewarm) {
+        if (!vEl.paused) onVideoPlayState(video.id, false, 1)
+        if (!vEl.seeking) {
+          seekPreviewVideoIfDrift(vEl, clampedTarget, PAUSED_SCRUB_SEEK_THRESHOLD, (t) =>
+            onVideoTimeUpdate(video.id, t)
+          )
+        }
+        continue
+      }
+
+      if (isPlaying) {
+        if (video.reversed) {
           if (!vEl.paused) onVideoPlayState(video.id, false, 1)
-          const clampedTarget = clampVideoSeekTime(vEl, target)
-          applyPausedPreviewVideoSync(vEl, clampedTarget, (t) => onVideoTimeUpdate(video.id, t))
-        } else if (isPlaying) {
-          const clampedTarget = clampVideoSeekTime(vEl, target)
-          const drift = Math.abs(vEl.currentTime - clampedTarget)
-          if (drift > 0.22 && !vEl.seeking) {
-            vEl.currentTime = clampedTarget
-            onVideoTimeUpdate(video.id, clampedTarget)
-          }
+          seekPreviewVideoIfDrift(
+            vEl,
+            clampedTarget,
+            PLAYING_REVERSED_SEEK_THRESHOLD,
+            (t) => onVideoTimeUpdate(video.id, t)
+          )
+        } else {
+          seekPreviewVideoIfDrift(
+            vEl,
+            clampedTarget,
+            PLAYING_FORWARD_SEEK_THRESHOLD,
+            (t) => onVideoTimeUpdate(video.id, t)
+          )
           if (tmV.inHold) {
             if (!vEl.paused) onVideoPlayState(video.id, false, 1)
           } else {
@@ -356,13 +304,10 @@ export class VideoRenderingEngine {
               f * ((video.speedEnd ?? video.playbackSpeed ?? 1) - (video.speedStart ?? video.playbackSpeed ?? 1))
             onVideoPlayState(video.id, true, rate * inst)
           }
-        } else {
-          if (!vEl.paused) onVideoPlayState(video.id, false, 1)
-          const clampedTarget = clampVideoSeekTime(vEl, target)
-          applyPausedPreviewVideoSync(vEl, clampedTarget, (t) => onVideoTimeUpdate(video.id, t))
         }
       } else {
         if (!vEl.paused) onVideoPlayState(video.id, false, 1)
+        applyPausedPreviewVideoSync(vEl, clampedTarget, (t) => onVideoTimeUpdate(video.id, t))
       }
     }
 
@@ -416,6 +361,140 @@ export class VideoRenderingEngine {
       this.lastStateKey = stateKey
       this.lastRenderedTime = newTime
     }
+  }
+
+  private getVideoVisualKey(videos: VideoClass[]): string {
+    if (videos === this.cachedVideos) return this.cachedVideoVisualKey
+    this.cachedVideos = videos
+    this.cachedVideoVisualKey = videos
+      .map((video) =>
+        [
+          video.id,
+          video.url,
+          video.sourceUrl,
+          video.timestamp,
+          video.duration,
+          video.trimStart,
+          video.trimEnd,
+          video.playbackSpeed,
+          video.speedStart,
+          video.speedEnd,
+          video.speedEasing,
+          video.reversed,
+          video.x,
+          video.y,
+          video.width,
+          video.height,
+          video.cropAspect,
+          video.cropSx,
+          video.cropSy,
+          video.cropSw,
+          video.cropSh,
+          video.opacity,
+          video.row,
+          video.animation,
+          video.transition,
+          video.transitionDuration,
+          video.animationDuration,
+          video.animationZoomEasing,
+          video.transitionColor,
+          video.transitionFlashMode,
+          video.transitionDirection,
+          video.transitionAxis,
+          video.transitionSlideEasing,
+          video.transitionCircleEasing,
+          video.transitionWipeEasing,
+          video.zoomIntensity,
+          video.zoomDistanceIntensity,
+          video.flipHorizontal,
+          video.flipVertical,
+        ].join('|')
+      )
+      .join('~')
+    return this.cachedVideoVisualKey
+  }
+
+  private getImageVisualKey(images: ImageClass[]): string {
+    if (images === this.cachedImages) return this.cachedImageVisualKey
+    this.cachedImages = images
+    this.cachedImageVisualKey = images
+      .map((image) =>
+        [
+          image.id,
+          image.url,
+          image.startTime,
+          image.endTime,
+          image.x,
+          image.y,
+          image.width,
+          image.height,
+          image.cropAspect,
+          image.cropSx,
+          image.cropSy,
+          image.cropSw,
+          image.cropSh,
+          image.opacity,
+          image.row,
+          image.animation,
+          image.transition,
+          image.transitionDuration,
+          image.animationDuration,
+          image.animationZoomEasing,
+          image.transitionColor,
+          image.transitionFlashMode,
+          image.transitionDirection,
+          image.transitionAxis,
+          image.transitionSlideEasing,
+          image.transitionCircleEasing,
+          image.transitionWipeEasing,
+          image.zoomIntensity,
+          image.zoomDistanceIntensity,
+          image.rotation,
+          image.flipHorizontal,
+          image.flipVertical,
+        ].join('|')
+      )
+      .join('~')
+    return this.cachedImageVisualKey
+  }
+
+  private getTextVisualKey(texts: TextClass[]): string {
+    if (texts === this.cachedTexts) return this.cachedTextVisualKey
+    this.cachedTexts = texts
+    this.cachedTextVisualKey = texts
+      .map((text) =>
+        [
+          text.id,
+          text.content,
+          text.startTime,
+          text.endTime,
+          text.x,
+          text.y,
+          text.width,
+          text.fontSize,
+          text.color,
+          text.fontWeight,
+          text.textAlign,
+          text.fontFamily,
+          text.opacity,
+          text.style,
+          text.animation,
+          text.row,
+        ].join('|')
+      )
+      .join('~')
+    return this.cachedTextVisualKey
+  }
+
+  private getEffectsKey(effects: EffectClass[]): string {
+    if (effects === this.cachedEffects) return this.cachedEffectsKey
+    this.cachedEffects = effects
+    this.cachedEffectsKey = effects
+      .map((effect) =>
+        [effect.id, effect.type, effect.startTime, effect.endTime, effect.row, effect.intensity, effect.contrast, effect.flashSpeed].join('|')
+      )
+      .join('~')
+    return this.cachedEffectsKey
   }
 
   private drawOverlays(
@@ -547,105 +626,7 @@ export class VideoRenderingEngine {
           )
           ctx.restore()
         } else {
-          const text = e.text
-          const fontPx = text.fontSize * xScale
-          const lineHeight = fontPx * 1.2
-          ctx.save()
-          ctx.font = `${text.fontWeight} ${fontPx}px ${text.fontFamily}`
-          const content = text.content
-          const words = content.split(/\s+/).filter((w) => w.length > 0)
-          const keyboardVisible =
-            text.animation === 'keyboard' && words.length > 0
-              ? getKeyboardVisibleWordCount(content, text.startTime, text.endTime, currentTime)
-              : null
-          const lines = wrapTextToLines(ctx, content, text.width * xScale)
-          const textX =
-            text.textAlign === 'center'
-              ? cr.x + text.x * xScale + (text.width * xScale) / 2
-              : text.textAlign === 'right'
-                ? cr.x + text.x * xScale + text.width * xScale
-                : cr.x + text.x * xScale
-          const textY = cr.y + text.y * yScale
-          const savedAlign = text.textAlign as CanvasTextAlign
-          ctx.textAlign = savedAlign
-          ctx.textBaseline = 'top'
-          ctx.globalAlpha = text.opacity
-          if (text.style === 'negative') {
-            ctx.globalCompositeOperation = 'difference'
-            ctx.fillStyle = '#ffffff'
-          } else if (text.style === 'highlight') {
-            ctx.globalCompositeOperation = 'source-over'
-            ctx.fillStyle = '#000000'
-            ctx.fillRect(cr.x + text.x * xScale, textY, text.width * xScale, lines.length * lineHeight)
-            ctx.fillStyle = '#ffffff'
-          } else {
-            ctx.shadowColor = '#000000'
-            ctx.shadowBlur = fontPx * 0.12
-            ctx.shadowOffsetX = 0
-            ctx.shadowOffsetY = 0
-            ctx.fillStyle = text.color
-          }
-          const drawTextLines = () => {
-            if (keyboardVisible === null) {
-              lines.forEach((line, i) => ctx.fillText(line, textX, textY + i * lineHeight))
-              return
-            }
-            ctx.textAlign = 'left'
-            let nextWordIndex = 0
-            for (let i = 0; i < lines.length; i++) {
-              const line = lines[i]
-              const y = textY + i * lineHeight
-              const parts = line.split(' ')
-              const partWordIndex = parts.map((w) => (w === '' ? null : nextWordIndex++))
-              const lineWidth = ctx.measureText(line).width
-              const startX =
-                savedAlign === 'center' ? textX - lineWidth / 2 : savedAlign === 'right' ? textX - lineWidth : textX
-              let x = startX
-              for (let p = 0; p < parts.length; p++) {
-                const w = parts[p]
-                if (p > 0) {
-                  let j = p
-                  while (j < parts.length && parts[j] === '') j++
-                  const spVis = j < parts.length && partWordIndex[j] !== null && partWordIndex[j]! < keyboardVisible
-                  const sp = ' '
-                  const spW = ctx.measureText(sp).width
-                  if (spVis) ctx.fillText(sp, x, y)
-                  x += spW
-                }
-                if (w !== '' && partWordIndex[p] !== null) {
-                  if (partWordIndex[p]! < keyboardVisible) {
-                    ctx.fillText(w, x, y)
-                  }
-                  x += ctx.measureText(w).width
-                }
-              }
-            }
-            ctx.textAlign = savedAlign
-          }
-          const drawWithOptionalShake = () => {
-            if (text.animation !== 'shake') {
-              drawTextLines()
-              return
-            }
-            const duration = Math.max(0.001, text.endTime - text.startTime)
-            const localTime = Math.max(0, currentTime - text.startTime)
-            const normalized = Math.min(1, localTime / duration)
-            const envelope = 0.6 + 0.4 * Math.sin(normalized * Math.PI)
-            const angle = localTime * 2 * Math.PI
-            const shiftX = Math.sin(angle * 2.0) * 0.06 * fontPx * envelope
-            const shiftY = Math.cos(angle * 2.3) * 0.04 * fontPx * envelope
-            const rotate = Math.sin(angle * 1.6) * 0.9 * envelope * (Math.PI / 180)
-            const centerX = cr.x + text.x * xScale + (text.width * xScale) / 2
-            const centerY = textY + (lines.length * lineHeight) / 2
-            ctx.save()
-            ctx.translate(centerX + shiftX, centerY + shiftY)
-            ctx.rotate(rotate)
-            ctx.translate(-centerX, -centerY)
-            drawTextLines()
-            ctx.restore()
-          }
-          drawWithOptionalShake()
-          ctx.restore()
+          drawTextOverlay(ctx, e.text, cr, currentTime)
         }
       }
     }

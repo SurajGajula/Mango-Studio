@@ -69,6 +69,18 @@
   overflow: hidden;
 }
 
+.timelineSkeleton {
+  width: 100%;
+  height: 100%;
+  background-color: #141414;
+}
+
+.chatSkeleton {
+  width: 100%;
+  height: 100%;
+  background-color: #141414;
+}
+
 .loadingOverlay {
   position: fixed;
   top: 0;

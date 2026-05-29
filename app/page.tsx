@@ -1,5 +1,5 @@
-import MainView from '@/app/components/MainView'
+import HomeGate from '@/app/components/HomeGate'
 
 export default function Home() {
-  return <MainView />
+  return <HomeGate />
 }

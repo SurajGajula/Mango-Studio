@@ -29,4 +29,12 @@ describe('videoThumbnailKey', () => {
     expect(videoThumbnailCacheKey(v)).toBe('blob:full')
     expect(videoThumbnailSecondIndices(v)).toEqual([3, 4, 5, 6])
   })
+
+  it('caps thumbnail samples for long clips', () => {
+    const v = new VideoClass('v1', 't', 'blob:full', 300, 0)
+    const indices = videoThumbnailSecondIndices(v)
+    expect(indices.length).toBe(72)
+    expect(indices[0]).toBe(0)
+    expect(indices[indices.length - 1]).toBeLessThan(300)
+  })
 })

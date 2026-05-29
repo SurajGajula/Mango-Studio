@@ -64,7 +64,7 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
     deleteFolder,
     deleteAsset,
     moveAsset,
-  } = useAccountMediaLibrary(Boolean(user))
+  } = useAccountMediaLibrary(true)
 
   const endDragVisuals = useCallback(() => {
     setDraggingAssetId(null)
@@ -260,198 +260,190 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
     [activeProjectId, projects]
   )
 
+  if (!user) return null
+
   return (
     <div className={styles.container}>
-      {user ? (
-        <div className={styles.header}>
-          <div className={styles.headerSignedIn}>
-            <div className={styles.userInfo}>
-              <span className={styles.userEmail}>{user.email}</span>
-              {profile?.requests_remaining !== undefined && (
-                <span className={styles.requestCount}>{profile.requests_remaining} requests left</span>
-              )}
-            </div>
-            <div className={styles.headerButtons}>
-              {profile?.is_pro ? (
-                <button type="button" className={styles.manageButton} onClick={handleManageSubscription} title="Manage Subscription">
-                  Pro
-                </button>
-              ) : (
-                <button type="button" className={styles.proButton} onClick={() => setShowPaymentModal(true)}>
-                  Pro
-                </button>
-              )}
-              <button type="button" className={styles.signOutButton} onClick={handleSignOut} title="Sign Out">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                  <polyline points="16 17 21 12 16 7" />
-                  <line x1="21" y1="12" x2="9" y2="12" />
-                </svg>
-                Sign Out
+      <div className={styles.header}>
+        <div className={styles.headerSignedIn}>
+          <div className={styles.userInfo}>
+            <span className={styles.userEmail}>{user.email}</span>
+            {profile?.requests_remaining !== undefined && (
+              <span className={styles.requestCount}>{profile.requests_remaining} requests left</span>
+            )}
+          </div>
+          <div className={styles.headerButtons}>
+            {profile?.is_pro ? (
+              <button type="button" className={styles.manageButton} onClick={handleManageSubscription} title="Manage Subscription">
+                Pro
+              </button>
+            ) : (
+              <button type="button" className={styles.proButton} onClick={() => setShowPaymentModal(true)}>
+                Pro
+              </button>
+            )}
+            <button type="button" className={styles.signOutButton} onClick={handleSignOut} title="Sign Out">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className={styles.mediaSection}>
+        <div className={styles.projectsSection}>
+          <div className={styles.mediaSectionHeader}>
+            <p className={styles.mediaSectionLabel}>Projects</p>
+            <div className={styles.mediaActions}>
+              <button type="button" className={styles.mediaActionButton} onClick={() => setProjectModalOpen(true)} disabled={projects.length === 0}>
+                Open
+              </button>
+              <button type="button" className={styles.mediaActionButton} onClick={handleCreateProject}>
+                New
+              </button>
+              <button type="button" className={styles.mediaActionButton} onClick={handleRenameProject} disabled={!activeProjectId}>
+                Rename
+              </button>
+              <button
+                type="button"
+                className={styles.mediaActionButton}
+                onClick={() => setDeleteModal({ type: 'project' })}
+                disabled={!activeProjectId || projects.length <= 1}
+                title={projects.length === 1 ? 'At least one project must remain' : undefined}
+              >
+                Delete
               </button>
             </div>
           </div>
+          <button type="button" className={styles.projectSelectButton} onClick={() => setProjectModalOpen(true)} disabled={projects.length === 0}>
+            {activeProjectName}
+          </button>
         </div>
-      ) : null}
-
-      <div className={styles.mediaSection}>
-        {user ? (
-          <div className={styles.projectsSection}>
-            <div className={styles.mediaSectionHeader}>
-              <p className={styles.mediaSectionLabel}>Projects</p>
-              <div className={styles.mediaActions}>
-                <button type="button" className={styles.mediaActionButton} onClick={() => setProjectModalOpen(true)} disabled={projects.length === 0}>
-                  Open
-                </button>
-                <button type="button" className={styles.mediaActionButton} onClick={handleCreateProject}>
-                  New
-                </button>
-                <button type="button" className={styles.mediaActionButton} onClick={handleRenameProject} disabled={!activeProjectId}>
+        <div className={styles.mediaSectionHeader}>
+          <p className={styles.mediaSectionLabel}>Media</p>
+          <div className={styles.mediaActions}>
+            <button type="button" className={styles.mediaActionButton} onClick={() => uploadInputRef.current?.click()}>
+              Upload
+            </button>
+            <button type="button" className={styles.mediaActionButton} onClick={() => setNameModal({ type: 'new-folder' })}>
+              Folder
+            </button>
+          </div>
+        </div>
+        <input
+          ref={uploadInputRef}
+          type="file"
+          multiple
+          accept="video/*,image/*,audio/*"
+          style={{ display: 'none' }}
+          onChange={handleAccountUpload}
+        />
+        <input
+          className={styles.searchInput}
+          type="text"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search by item name"
+        />
+        <div className={styles.folderTrail}>
+          {folderTrail.map((entry, index) => (
+            <button
+              type="button"
+              key={`${entry.id ?? 'root'}-${index}`}
+              className={`${styles.trailButton} ${draggingAssetId && dragOverTarget === 'root' && index === 0 ? styles.trailDropTarget : ''}`}
+              onClick={() => handleGoToTrail(index)}
+              onDragOver={(e) => {
+                if (!draggingAssetId || index !== 0) return
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'move'
+                setDragOverTarget('root')
+              }}
+              onDrop={(e) => {
+                if (!draggingAssetId || index !== 0) return
+                e.preventDefault()
+                const id = parseAccountMediaDragData(e.dataTransfer)?.id ?? e.dataTransfer.getData('text/plain')
+                if (id) void handleDropOnFolder(null, id)
+                endDragVisuals()
+              }}
+            >
+              {entry.name}
+            </button>
+          ))}
+        </div>
+        <div className={styles.libraryList}>
+          {loading ? <p className={styles.statusText}>Loading media...</p> : null}
+          {error ? <p className={styles.errorText}>{error}</p> : null}
+          {!loading && !hasEntries ? <p className={styles.statusText}>No media yet.</p> : null}
+          {folders.map((folder) => (
+            <div
+              key={folder.id}
+              className={`${styles.libraryRow} ${draggingAssetId && dragOverTarget === folder.id ? styles.libraryRowDrop : ''}`}
+              onDragOver={(e) => {
+                if (!draggingAssetId) return
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'move'
+                setDragOverTarget(folder.id)
+              }}
+              onDrop={(e) => {
+                if (!draggingAssetId) return
+                e.preventDefault()
+                const id = parseAccountMediaDragData(e.dataTransfer)?.id ?? e.dataTransfer.getData('text/plain')
+                if (id) void handleDropOnFolder(folder.id, id)
+                endDragVisuals()
+              }}
+            >
+              <button
+                type="button"
+                className={styles.libraryPrimaryButton}
+                onClick={(e) => handleOpenFolderRow(e, folder.id, folder.name)}
+              >
+                {folder.name}
+              </button>
+              <div className={styles.libraryRowActions}>
+                <button type="button" className={styles.rowActionButton} onClick={() => setNameModal({ type: 'rename-folder', folderId: folder.id, initialValue: folder.name })}>
                   Rename
                 </button>
-                <button
-                  type="button"
-                  className={styles.mediaActionButton}
-                  onClick={() => setDeleteModal({ type: 'project' })}
-                  disabled={!activeProjectId || projects.length <= 1}
-                  title={projects.length === 1 ? 'At least one project must remain' : undefined}
-                >
+                <button type="button" className={styles.rowActionButton} onClick={() => setDeleteModal({ type: 'folder', folderId: folder.id, name: folder.name })}>
                   Delete
                 </button>
               </div>
             </div>
-            <button type="button" className={styles.projectSelectButton} onClick={() => setProjectModalOpen(true)} disabled={projects.length === 0}>
-              {activeProjectName}
-            </button>
-          </div>
-        ) : null}
-        <div className={styles.mediaSectionHeader}>
-          <p className={styles.mediaSectionLabel}>Media</p>
-          {user ? (
-            <div className={styles.mediaActions}>
-              <button type="button" className={styles.mediaActionButton} onClick={() => uploadInputRef.current?.click()}>
-                Upload
-              </button>
-              <button type="button" className={styles.mediaActionButton} onClick={() => setNameModal({ type: 'new-folder' })}>
-                Folder
-              </button>
-            </div>
-          ) : null}
-        </div>
-        {user ? (
-          <>
-            <input
-              ref={uploadInputRef}
-              type="file"
-              multiple
-              accept="video/*,image/*,audio/*"
-              style={{ display: 'none' }}
-              onChange={handleAccountUpload}
-            />
-            <input
-              className={styles.searchInput}
-              type="text"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search by item name"
-            />
-            <div className={styles.folderTrail}>
-              {folderTrail.map((entry, index) => (
-                <button
-                  type="button"
-                  key={`${entry.id ?? 'root'}-${index}`}
-                  className={`${styles.trailButton} ${draggingAssetId && dragOverTarget === 'root' && index === 0 ? styles.trailDropTarget : ''}`}
-                  onClick={() => handleGoToTrail(index)}
-                  onDragOver={(e) => {
-                    if (!draggingAssetId || index !== 0) return
-                    e.preventDefault()
-                    e.dataTransfer.dropEffect = 'move'
-                    setDragOverTarget('root')
-                  }}
-                  onDrop={(e) => {
-                    if (!draggingAssetId || index !== 0) return
-                    e.preventDefault()
-                    const id = parseAccountMediaDragData(e.dataTransfer)?.id ?? e.dataTransfer.getData('text/plain')
-                    if (id) void handleDropOnFolder(null, id)
-                    endDragVisuals()
-                  }}
-                >
-                  {entry.name}
+          ))}
+          {assets.map((asset) => (
+            <div
+              key={asset.id}
+              className={styles.libraryRow}
+              draggable
+              title="Drag onto the timeline to add"
+              onDragStart={(e) => {
+                setDraggingAssetId(asset.id)
+                setAccountMediaDragData(e.dataTransfer, {
+                  id: asset.id,
+                  kind: asset.kind,
+                  name: asset.name,
+                })
+              }}
+              onDragEnd={endDragVisuals}
+            >
+              <span className={styles.libraryAssetName}>{asset.name}</span>
+              <div className={styles.libraryRowActions}>
+                <button type="button" className={styles.rowActionButton} onClick={() => setMoveModal({ assetId: asset.id, name: asset.name, folderId: asset.folder_id })}>
+                  Move
                 </button>
-              ))}
+                <button type="button" className={styles.rowActionButton} onClick={() => setNameModal({ type: 'rename-asset', assetId: asset.id, initialValue: asset.name })}>
+                  Rename
+                </button>
+                <button type="button" className={styles.rowActionButton} onClick={() => setDeleteModal({ type: 'asset', assetId: asset.id, name: asset.name })}>
+                  Delete
+                </button>
+              </div>
             </div>
-            <div className={styles.libraryList}>
-              {loading ? <p className={styles.statusText}>Loading media...</p> : null}
-              {error ? <p className={styles.errorText}>{error}</p> : null}
-              {!loading && !hasEntries ? <p className={styles.statusText}>No media yet.</p> : null}
-              {folders.map((folder) => (
-                <div
-                  key={folder.id}
-                  className={`${styles.libraryRow} ${draggingAssetId && dragOverTarget === folder.id ? styles.libraryRowDrop : ''}`}
-                  onDragOver={(e) => {
-                    if (!draggingAssetId) return
-                    e.preventDefault()
-                    e.dataTransfer.dropEffect = 'move'
-                    setDragOverTarget(folder.id)
-                  }}
-                  onDrop={(e) => {
-                    if (!draggingAssetId) return
-                    e.preventDefault()
-                    const id = parseAccountMediaDragData(e.dataTransfer)?.id ?? e.dataTransfer.getData('text/plain')
-                    if (id) void handleDropOnFolder(folder.id, id)
-                    endDragVisuals()
-                  }}
-                >
-                  <button
-                    type="button"
-                    className={styles.libraryPrimaryButton}
-                    onClick={(e) => handleOpenFolderRow(e, folder.id, folder.name)}
-                  >
-                    {folder.name}
-                  </button>
-                  <div className={styles.libraryRowActions}>
-                    <button type="button" className={styles.rowActionButton} onClick={() => setNameModal({ type: 'rename-folder', folderId: folder.id, initialValue: folder.name })}>
-                      Rename
-                    </button>
-                    <button type="button" className={styles.rowActionButton} onClick={() => setDeleteModal({ type: 'folder', folderId: folder.id, name: folder.name })}>
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {assets.map((asset) => (
-                <div
-                  key={asset.id}
-                  className={styles.libraryRow}
-                  draggable
-                  title="Drag onto the timeline to add"
-                  onDragStart={(e) => {
-                    setDraggingAssetId(asset.id)
-                    setAccountMediaDragData(e.dataTransfer, {
-                      id: asset.id,
-                      kind: asset.kind,
-                      name: asset.name,
-                    })
-                  }}
-                  onDragEnd={endDragVisuals}
-                >
-                  <span className={styles.libraryAssetName}>{asset.name}</span>
-                  <div className={styles.libraryRowActions}>
-                    <button type="button" className={styles.rowActionButton} onClick={() => setMoveModal({ assetId: asset.id, name: asset.name, folderId: asset.folder_id })}>
-                      Move
-                    </button>
-                    <button type="button" className={styles.rowActionButton} onClick={() => setNameModal({ type: 'rename-asset', assetId: asset.id, initialValue: asset.name })}>
-                      Rename
-                    </button>
-                    <button type="button" className={styles.rowActionButton} onClick={() => setDeleteModal({ type: 'asset', assetId: asset.id, name: asset.name })}>
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
-        ) : null}
+          ))}
+        </div>
         <div className={styles.shapesDropdown}>
           <button
             type="button"

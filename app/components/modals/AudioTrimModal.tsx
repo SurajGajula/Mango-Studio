@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { calculateSourceTime } from '@/app/lib/renderUtils'
 import { decodeAudioWaveformPeaks } from '@/app/lib/audioWaveformPeaks'
-import styles from './VideoReplaceModal.module.css'
+import styles from './AudioTrimModal.module.css'
 
 const PIXELS_PER_SECOND = 60
 const VIRTUALIZATION_BUFFER = 5
@@ -247,19 +247,21 @@ export default function AudioTrimModal({
   }, [maxTrimStart, isPlaying])
 
   useEffect(() => {
+    const root = overlayRef.current
     const container = scrollContainerRef.current
-    if (!container) return
+    if (!root || !container) return
     const handler = (e: WheelEvent) => {
       if (isPlaying) return
-      if (Math.abs(e.deltaY) > 0 || Math.abs(e.deltaX) > 0) {
-        e.preventDefault()
-        e.stopPropagation()
-        const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
-        container.scrollLeft += delta
-      }
+      if (!(e.target instanceof Element) || !root.contains(e.target)) return
+      if (e.target.closest('button')) return
+      if (Math.abs(e.deltaY) === 0 && Math.abs(e.deltaX) === 0) return
+      e.preventDefault()
+      e.stopPropagation()
+      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
+      container.scrollLeft += delta
     }
-    container.addEventListener('wheel', handler, { passive: false })
-    return () => container.removeEventListener('wheel', handler)
+    root.addEventListener('wheel', handler, { passive: false, capture: true })
+    return () => root.removeEventListener('wheel', handler, true)
   }, [isPlaying])
 
   useEffect(() => {
@@ -318,24 +320,17 @@ export default function AudioTrimModal({
           </p>
         </div>
 
-        <div className={styles.videoContainer}>
-          <audio
-            ref={audioRef}
-            src={audioUrl}
-            onClick={handlePlayPause}
-            className={styles.previewVideo}
-            style={{ height: '100%', opacity: 0.35 }}
-            preload="auto"
-          />
-          <button type="button" className={styles.playButton} onClick={handlePlayPause}>
-            {isPlaying ? '⏸' : '▶'}
-          </button>
-        </div>
+        <audio ref={audioRef} src={audioUrl} preload="auto" style={{ display: 'none' }} />
 
         <div className={styles.controls}>
-          <div className={styles.sliderLabel}>
-            <span>Start: {trimStart.toFixed(1)}s</span>
-            <span>End: {(trimStart + sourceWindowDuration).toFixed(1)}s</span>
+          <div className={styles.controlsHeader}>
+            <div className={styles.sliderLabel}>
+              <span>Start: {trimStart.toFixed(1)}s</span>
+              <span>End: {(trimStart + sourceWindowDuration).toFixed(1)}s</span>
+            </div>
+            <button type="button" className={styles.playButton} onClick={handlePlayPause} aria-label={isPlaying ? 'Pause' : 'Play'}>
+              {isPlaying ? '⏸' : '▶'}
+            </button>
           </div>
 
           <div className={styles.timelineContainer} ref={timelineContainerRef}>

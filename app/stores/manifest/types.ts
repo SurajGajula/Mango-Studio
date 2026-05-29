@@ -79,6 +79,7 @@ export interface ManifestStore {
   updateText: (id: string, updates: Partial<TextClass>) => void
   removeText: (id: string) => void
   splitText: (id: string, playbackTime: number) => void
+  splitTextAtTimes: (id: string, times: number[]) => void
   addAudio: (audio: AudioClass) => void
   updateAudio: (id: string, updates: Partial<AudioClass>) => void
   splitAudio: (id: string, playbackTime: number) => void

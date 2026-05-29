@@ -1,4 +1,5 @@
 import { TextClass } from '@/app/models/TextClass'
+import { generateId } from '@/app/lib/idUtils'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { ManifestStore } from './types'
 
@@ -66,6 +67,37 @@ export const createTextSlice = (set: any, get: any) => ({
       texts: s.texts.map((t) => (t.id === id ? firstHalf : t)).concat([secondHalf]),
     }))
     set({ playbackTime })
+    get().pushHistory()
+  },
+
+  splitTextAtTimes: (id: string, times: number[]) => {
+    const state = get()
+    const text = state.texts.find((t: TextClass) => t.id === id)
+    if (!text) return
+
+    const epsilon = 1e-6
+    const validTimes = times
+      .filter((t) => t > text.startTime + epsilon && t < text.endTime - epsilon)
+      .sort((a, b) => a - b)
+      .filter((t, i, arr) => i === 0 || t - arr[i - 1] > epsilon)
+
+    if (validTimes.length === 0) return
+
+    const boundaries = [text.startTime, ...validTimes, text.endTime]
+    const newSegments: TextClass[] = boundaries.slice(0, -1).map((segStart, i) => {
+      const segEnd = boundaries[i + 1]
+      return text.copy({
+        id: i === 0 ? text.id : generateId('text'),
+        startTime: segStart,
+        endTime: segEnd,
+        createdAt: i === 0 ? text.createdAt : new Date(),
+      })
+    })
+
+    useSelectionStore.getState().setSelectedTextId(newSegments[newSegments.length - 1].id)
+    set((s: ManifestStore) => ({
+      texts: s.texts.filter((t) => t.id !== id).concat(newSegments),
+    }))
     get().pushHistory()
   },
 })

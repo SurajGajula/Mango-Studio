@@ -1,10 +1,10 @@
 'use client'
 
-import { memo, useRef, useLayoutEffect } from 'react'
+import { memo, useRef, useLayoutEffect, useEffect, useMemo } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { TextClass } from '@/app/models/TextClass'
-import { getKeyboardVisibleContent } from '@/app/lib/textUtils'
+import { measureTextOverlayLayout, resolveCanvasFont, TEXT_LINE_HEIGHT } from '@/app/lib/drawTextOverlay'
 import styles from './PreviewArea.module.css'
 
 interface TextOverlayProps {
@@ -22,6 +22,7 @@ interface TextOverlayProps {
   handleTextResizeStart: (textId: string, side: 'left' | 'right', e: React.MouseEvent) => void
   playbackTime: number
   textRefs: React.MutableRefObject<Map<string, HTMLDivElement | null>>
+  getMeasureCtx: () => CanvasRenderingContext2D
 }
 
 function TextOverlayComponent({
@@ -39,6 +40,7 @@ function TextOverlayComponent({
   handleTextResizeStart,
   playbackTime,
   textRefs,
+  getMeasureCtx,
 }: TextOverlayProps) {
   const updateText = useManifestStore((state) => state.updateText)
   const pushHistory = useManifestStore((state) => state.pushHistory)
@@ -48,13 +50,15 @@ function TextOverlayComponent({
 
   const isSelected = selectedTextId === text.id
   const isEditing = editingTextId === text.id
-  const rawContent = text.content || 'Text'
-  const displayContent =
-    text.animation === 'keyboard' && !isEditing
-      ? getKeyboardVisibleContent(rawContent, text.startTime, text.endTime, playbackTime)
-      : rawContent
+  const layout = useMemo(() => {
+    if (xScale <= 0) return null
+    const content = isEditing ? editingContent : text.content
+    return measureTextOverlayLayout(getMeasureCtx(), text, xScale, content)
+  }, [text, isEditing, editingContent, xScale, getMeasureCtx])
+  const overlayHeightPx = layout?.totalHeightPx ?? text.height * yScale
+  const firstLineOffsetPx = layout?.firstLineOffsetPx ?? 0
   const shakeTransform =
-    text.animation === 'shake' && !isEditing
+    isEditing && text.animation === 'shake'
       ? (() => {
           const duration = Math.max(0.001, text.endTime - text.startTime)
           const localTime = Math.max(0, playbackTime - text.startTime)
@@ -83,6 +87,12 @@ function TextOverlayComponent({
     el.setSelectionRange(len, len)
   }, [isEditing, text.id])
 
+  useEffect(() => {
+    if (!isEditing) return
+    setEditingContent(text.content)
+    editingContentRef.current = text.content
+  }, [isEditing, text.id, text.content, setEditingContent, editingContentRef])
+
   return (
     <div
       ref={(el) => { textRefs.current.set(text.id, el) }}
@@ -91,18 +101,24 @@ function TextOverlayComponent({
         left: offsetX + text.x * xScale,
         top: offsetY + text.y * yScale,
         width: text.width * xScale,
+        height: overlayHeightPx,
         fontSize: text.fontSize * xScale,
-        color: text.style === 'highlight' ? '#ffffff' : (text.style === 'negative' ? '#ffffff' : text.color),
+        lineHeight: TEXT_LINE_HEIGHT,
+        color: isEditing
+          ? (text.style === 'highlight' ? '#ffffff' : (text.style === 'negative' ? '#ffffff' : text.color))
+          : 'transparent',
         fontWeight: text.fontWeight,
         textAlign: text.textAlign as React.CSSProperties['textAlign'],
-        fontFamily: text.fontFamily,
-        opacity: text.opacity,
+        fontFamily: resolveCanvasFont(text.fontFamily),
+        opacity: isEditing ? text.opacity : 1,
         transform: shakeTransform,
         transformOrigin: 'center',
-        mixBlendMode: text.style === 'negative' ? 'difference' : 'normal',
-        backgroundColor: (text.style === 'negative' || text.style === 'highlight') ? '#000000' : 'transparent',
-        textShadow: (text.style === 'negative' || text.style === 'highlight') ? 'none' : undefined,
-        border: (text.style === 'negative' || text.style === 'highlight') && !isSelected ? 'none' : undefined,
+        mixBlendMode: isEditing && text.style === 'negative' ? 'difference' : 'normal',
+        backgroundColor: isEditing && (text.style === 'negative' || text.style === 'highlight') ? '#000000' : 'transparent',
+        textShadow: isEditing && text.style === 'normal' ? undefined : 'none',
+        border: isEditing && (text.style === 'negative' || text.style === 'highlight') && !isSelected ? 'none' : undefined,
+        boxSizing: 'border-box',
+        overflow: 'visible',
       }}
       onMouseDown={(e) => handleTextMouseDown(text.id, e)}
       onContextMenu={(e) => {
@@ -118,7 +134,13 @@ function TextOverlayComponent({
           itemType: 'text',
         })
       }}
-      onDoubleClick={(e) => { e.stopPropagation(); editingContentRef.current = text.content; setEditingContent(text.content); setEditingTextId(text.id) }}
+      onDoubleClick={(e) => {
+        e.stopPropagation()
+        pushHistory()
+        editingContentRef.current = text.content
+        setEditingContent(text.content)
+        setEditingTextId(text.id)
+      }}
     >
       {isSelected && !isEditing && (
         <>
@@ -134,15 +156,26 @@ function TextOverlayComponent({
       )}
       {isEditing ? (
         <textarea
+          data-text-edit=""
           value={editingContent}
           className={styles.textEditArea}
           style={{
+            fontFamily: resolveCanvasFont(text.fontFamily),
+            fontWeight: text.fontWeight,
+            fontSize: 'inherit',
+            lineHeight: TEXT_LINE_HEIGHT,
+            marginTop: -firstLineOffsetPx,
+            height: overlayHeightPx + firstLineOffsetPx,
             textShadow: (text.style === 'negative' || text.style === 'highlight') ? 'none' : undefined,
           }}
           onChange={(e) => { editingContentRef.current = e.target.value; setEditingContent(e.target.value) }}
           ref={textareaRef}
           onBlur={() => {
-            updateText(text.id, { content: editingContentRef.current })
+            const nextLayout = measureTextOverlayLayout(getMeasureCtx(), text, xScale, editingContentRef.current)
+            updateText(text.id, {
+              content: editingContentRef.current,
+              height: nextLayout.totalHeightPx / xScale,
+            })
             pushHistory()
             setEditingTextId(null)
           }}
@@ -152,7 +185,7 @@ function TextOverlayComponent({
           }}
           onClick={(e) => e.stopPropagation()}
         />
-      ) : displayContent}
+      ) : null}
     </div>
   )
 }

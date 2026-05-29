@@ -1,12 +1,8 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
-import { useRef } from 'react'
-import ChatWindow from './ChatWindow'
-import ChatDisabledPlaceholder from './ChatDisabledPlaceholder'
+import { useState, useCallback, useEffect, useRef } from 'react'
+import dynamic from 'next/dynamic'
 import AccountPanel from './AccountPanel'
-import AuthModal from './modals/AuthModal'
-import Timeline from './Timeline'
 import PreviewArea from './PreviewArea'
 import TransitionsPanel from './panels/TransitionsPanel'
 import FontPanel from './panels/FontPanel'
@@ -14,15 +10,24 @@ import EffectsPanel from './panels/EffectsPanel'
 import SpeedPanel from './panels/SpeedPanel'
 import PitchPanel from './panels/PitchPanel'
 import { useAuth } from './AuthProvider'
+import { enablePreviewEngine } from '@/app/lib/playbackClock'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import {
   hydrateLocalProjectIfNeeded,
-  useGuestProjectPersistence,
   useUserProjectPersistence,
 } from '@/app/lib/projectPersistence'
 import { useProjects } from '@/app/hooks/useProjects'
 import styles from './MainView.module.css'
+
+const Timeline = dynamic(() => import('./Timeline'), {
+  ssr: false,
+  loading: () => <div className={styles.timelineSkeleton} aria-hidden />,
+})
+
+const ChatWindow = dynamic(() => import('./ChatWindow'), {
+  ssr: false,
+})
 
 type RightPanel = 'chat' | 'transitions' | 'animations' | 'font' | 'effects' | 'speed' | 'pitch'
 
@@ -32,7 +37,6 @@ export default function MainView() {
   const [speedItemId, setSpeedItemId] = useState<string | null>(null)
   const [pitchItemId, setPitchItemId] = useState<string | null>(null)
   const [localPersistReady, setLocalPersistReady] = useState(false)
-  const [authModalOpen, setAuthModalOpen] = useState(false)
   const { user, loading } = useAuth()
   const { projects, activeProjectId, setActiveProjectId, ready: projectsReady } = useProjects(user?.id ?? null)
   const videos = useManifestStore((s) => s.videos)
@@ -54,17 +58,13 @@ export default function MainView() {
     let cancelled = false
     const token = ++hydrationTokenRef.current
     void (async () => {
-      if (user) {
-        if (!projectsReady || !activeProjectId) return
-        if (hydratedProjectRef.current !== activeProjectId) {
-          if (!cancelled) setLocalPersistReady(false)
-          useManifestStore.getState().resetStore()
-          useSelectionStore.getState().clearSelection()
-          await hydrateLocalProjectIfNeeded(user, activeProjectId)
-          hydratedProjectRef.current = activeProjectId
-        }
-      } else {
-        await hydrateLocalProjectIfNeeded(null, null)
+      if (!user || !projectsReady || !activeProjectId) return
+      if (hydratedProjectRef.current !== activeProjectId) {
+        if (!cancelled) setLocalPersistReady(false)
+        useManifestStore.getState().resetStore()
+        useSelectionStore.getState().clearSelection()
+        await hydrateLocalProjectIfNeeded(user, activeProjectId)
+        hydratedProjectRef.current = activeProjectId
       }
       if (token !== hydrationTokenRef.current) return
       if (!cancelled) setLocalPersistReady(true)
@@ -74,12 +74,11 @@ export default function MainView() {
     }
   }, [loading, user, projectsReady, activeProjectId])
 
-  useGuestProjectPersistence(!user && localPersistReady)
-  useUserProjectPersistence(user && localPersistReady ? user : null, user ? activeProjectId : null)
-
   useEffect(() => {
-    if (user) setAuthModalOpen(false)
-  }, [user])
+    if (localPersistReady) enablePreviewEngine()
+  }, [localPersistReady])
+
+  useUserProjectPersistence(localPersistReady ? user : null, activeProjectId)
 
   useEffect(() => {
     if (rightPanel === 'chat' || rightPanel === 'effects') return
@@ -174,15 +173,8 @@ export default function MainView() {
     [audios, selectAudio]
   )
 
-  if (loading) {
-    return (
-      <div className={styles.loadingOverlay}>
-        <div className={styles.spinner}></div>
-      </div>
-    )
-  }
-
   const showChatPanel = rightPanel === 'chat'
+  const showChatLoading = loading || !localPersistReady
 
   const renderActivePanel = () => {
     if (rightPanel === 'transitions') {
@@ -232,17 +224,16 @@ export default function MainView() {
         <div className={styles.rightSection}>
           <div className={styles.rightPanelStack}>
             <div className={`${styles.persistentChatPanel} ${showChatPanel ? '' : styles.hiddenPanel}`}>
-              {user ? (
-                <ChatWindow />
+              {showChatLoading ? (
+                <div className={styles.chatSkeleton} aria-busy="true" />
               ) : (
-                <ChatDisabledPlaceholder onOpenAuth={() => setAuthModalOpen(true)} />
+                <ChatWindow />
               )}
             </div>
             {!showChatPanel && <div className={styles.overlayPanel}>{renderActivePanel()}</div>}
           </div>
         </div>
       </div>
-      {authModalOpen && <AuthModal onClose={() => setAuthModalOpen(false)} />}
       <div className={styles.timelineContainer}>
         <Timeline
           onOpenTransitions={onOpenTransitions}

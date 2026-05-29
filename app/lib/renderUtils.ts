@@ -374,20 +374,32 @@ export function clipTimelineSpanForSourceMap(duration: number | undefined | null
   return d > 0 ? d : 0
 }
 
+export function mirrorVideoTimelineElapsed(
+  video: VideoClass,
+  elapsedInClip: number,
+  clipDuration: number
+): number {
+  if (!video.reversed) return elapsedInClip
+  const D = clipDuration > 0 ? clipDuration : 0
+  const clamped = Math.max(0, Math.min(elapsedInClip, D))
+  return Math.max(0, D - clamped)
+}
+
 export function videoTimelineSourceMapping(
   video: VideoClass,
   elapsedInClip: number,
   clipDuration: number
 ): { sourceElapsed: number; playSpan: number; inHold: boolean } {
   const D = clipDuration > 0 ? clipDuration : 0
+  const elapsed = mirrorVideoTimelineElapsed(video, elapsedInClip, D)
   const span = clipTimelineSpanForSourceMap(clipDuration)
   const speedStart = video.speedStart ?? video.playbackSpeed ?? 1
   const speedEnd = video.speedEnd ?? video.playbackSpeed ?? 1
   const baseSpeed = video.playbackSpeed ?? 1
   const easing = video.speedEasing
 
-  if (video.animation !== 'last-frame-hold') {
-    const e = Math.max(0, Math.min(elapsedInClip, D))
+  if ((video.animation as string) !== 'last-frame-hold') {
+    const e = Math.max(0, Math.min(elapsed, D))
     const sourceElapsed = calculateSourceTime(e, span, speedStart, speedEnd, baseSpeed, easing)
     return { sourceElapsed, playSpan: D > 0 ? D : 0.1, inHold: false }
   }
@@ -395,7 +407,7 @@ export function videoTimelineSourceMapping(
   const holdRaw = video.animationDuration ?? 0
   const hold = Math.max(0, Math.min(holdRaw, D))
   const playSpan = D - hold
-  const e = Math.max(0, elapsedInClip)
+  const e = Math.max(0, elapsed)
 
   if (hold <= 0) {
     const sourceElapsed = calculateSourceTime(Math.min(e, D), span, speedStart, speedEnd, baseSpeed, easing)

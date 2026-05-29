@@ -6,19 +6,18 @@ import { TextClass } from '@/app/models/TextClass'
 import { AudioClass } from '@/app/models/AudioClass'
 import { EffectClass, type EffectType } from '@/app/models/EffectClass'
 import type { HistoryEntry } from '@/app/stores/manifest/types'
-import { PERSISTED_BLOB_TOKEN_PREFIX } from '@/app/lib/persistedMediaRefs'
+import { isPersistedBlobTokenRef, PERSISTED_BLOB_TOKEN_PREFIX } from '@/app/lib/persistedMediaRefs'
 import { repairSnapshotMediaFromAccountLibrary } from '@/app/lib/repairSnapshotMediaFromLibrary'
 
-const DB_NAME_GUEST = 'mango-guest-project'
 const DB_VERSION = 1
 const STORE_META = 'meta'
 const STORE_BLOBS = 'blobs'
-const SNAPSHOT_KEY_GUEST = 'guest-snapshot'
-
-const BLOB_TOKEN_PREFIX = PERSISTED_BLOB_TOKEN_PREFIX
 const inflightCloudLoadSnapshot = new Map<string, Promise<ProjectSnapshotPayload | null>>()
 const lastCloudSnapshotHash = new Map<string, string>()
 const inflightCloudSaveSnapshot = new Map<string, Promise<void>>()
+const CLOUD_SNAPSHOT_MAX_BYTES = 6 * 1024 * 1024
+const CLOUD_SAVE_MAX_ATTEMPTS = 3
+const CLOUD_SAVE_RETRY_BASE_MS = 1500
 
 export type ProjectSnapshotPayload = {
   version: 1
@@ -89,14 +88,6 @@ function idbPut(dbName: string, store: string, key: string, value: unknown): Pro
   )
 }
 
-function idbDeleteDatabase(dbName: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.deleteDatabase(dbName)
-    req.onerror = () => reject(req.error)
-    req.onsuccess = () => resolve()
-  })
-}
-
 async function replaceBlobUrlsInValue(
   value: unknown,
   mapTokenToBlob: Map<string, Blob>,
@@ -104,7 +95,7 @@ async function replaceBlobUrlsInValue(
   rawBlobUrlOutcome: Map<string, string>
 ): Promise<unknown> {
   if (typeof value === 'string') {
-    if (value.startsWith(BLOB_TOKEN_PREFIX)) {
+    if (isPersistedBlobTokenRef(value)) {
       const reused = tokenToObjectUrl.get(value)
       if (reused) return reused
       const blob = mapTokenToBlob.get(value)
@@ -159,7 +150,7 @@ async function tokenizeBlobUrls(
   if (typeof value === 'string' && value.startsWith('blob:')) {
     const mapped = blobUrlToToken.get(value)
     if (mapped) return mapped
-    const token = `${BLOB_TOKEN_PREFIX}${blobWrites.size}`
+    const token = `${PERSISTED_BLOB_TOKEN_PREFIX}${blobWrites.size}`
     try {
       const res = await fetch(value)
       const blob = await res.blob()
@@ -244,7 +235,8 @@ function reviveVideo(o: Record<string, unknown>): VideoClass {
     o.zoomDistanceIntensity as number | undefined,
     o.transitionWipeEasing as VideoClass['transitionWipeEasing'],
     o.flipHorizontal as boolean | undefined,
-    o.flipVertical as boolean | undefined
+    o.flipVertical as boolean | undefined,
+    o.reversed as boolean | undefined
   )
 }
 
@@ -437,16 +429,46 @@ async function saveProjectSnapshot(dbName: string, metaKey: string): Promise<voi
   await idbPut(dbName, STORE_META, metaKey, JSON.stringify(payload))
 }
 
-async function saveCloudProjectSnapshot(payload: ProjectSnapshotPayload, projectId: string): Promise<void> {
-  const cloudPayload = {
-    version: 1 as const,
-    videos: payload.videos,
-    images: payload.images,
-    texts: payload.texts,
-    audios: payload.audios,
-    effects: payload.effects,
+async function putCloudProjectSnapshot(
+  requestBody: string,
+  cloudPayloadHash: string,
+  projectId: string
+): Promise<void> {
+  let lastMessage = 'Cloud snapshot save failed'
+  for (let attempt = 1; attempt <= CLOUD_SAVE_MAX_ATTEMPTS; attempt++) {
+    const res = await fetch('/api/project/snapshot', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: requestBody,
+      credentials: 'include',
+    })
+    if (res.ok) {
+      lastCloudSnapshotHash.set(projectId, cloudPayloadHash)
+      return
+    }
+    const errBody = (await res.json().catch(() => null)) as { error?: string } | null
+    lastMessage = errBody?.error ?? res.statusText
+    if (!isCloudSnapshotSaveTimeout(lastMessage) || attempt === CLOUD_SAVE_MAX_ATTEMPTS) {
+      console.warn('Cloud snapshot save failed:', lastMessage)
+      return
+    }
+    await sleep(CLOUD_SAVE_RETRY_BASE_MS * attempt)
   }
-  const cloudPayloadHash = JSON.stringify(cloudPayload)
+  console.warn('Cloud snapshot save failed:', lastMessage)
+}
+
+async function saveCloudProjectSnapshot(payload: ProjectSnapshotPayload, projectId: string): Promise<void> {
+  if (snapshotUsesLocalOnlyMediaRefs(payload)) {
+    return
+  }
+  const requestBody = cloudSnapshotRequestBody(payload, projectId)
+  if (requestBody.length > CLOUD_SNAPSHOT_MAX_BYTES) {
+    console.warn(
+      `Cloud snapshot skipped: payload is ${(requestBody.length / (1024 * 1024)).toFixed(1)}MB (limit ${CLOUD_SNAPSHOT_MAX_BYTES / (1024 * 1024)}MB)`
+    )
+    return
+  }
+  const cloudPayloadHash = cloudSnapshotPayloadHash(payload)
   const previousHash = lastCloudSnapshotHash.get(projectId) ?? null
   if (cloudPayloadHash === previousHash) {
     return
@@ -458,24 +480,9 @@ async function saveCloudProjectSnapshot(payload: ProjectSnapshotPayload, project
       return
     }
   }
-  const nextPromise = fetch('/api/project/snapshot', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ projectId, snapshot: cloudPayload }),
-    credentials: 'include',
+  const nextPromise = putCloudProjectSnapshot(requestBody, cloudPayloadHash, projectId).finally(() => {
+    inflightCloudSaveSnapshot.delete(projectId)
   })
-    .then(async (res) => {
-      if (!res.ok) {
-        const errBody = (await res.json().catch(() => null)) as { error?: string } | null
-        const message = errBody?.error ?? res.statusText
-        console.error('Cloud snapshot save failed:', message)
-        throw new Error(message)
-      }
-      lastCloudSnapshotHash.set(projectId, cloudPayloadHash)
-    })
-    .finally(() => {
-      inflightCloudSaveSnapshot.delete(projectId)
-    })
   inflightCloudSaveSnapshot.set(projectId, nextPromise)
   await nextPromise
 }
@@ -513,7 +520,7 @@ async function loadProjectSnapshot(dbName: string, metaKey: string): Promise<Pro
 function collectBlobTokens(snap: ProjectSnapshotPayload): Set<string> {
   const tokens = new Set<string>()
   const walk = (v: unknown) => {
-    if (typeof v === 'string' && v.startsWith(BLOB_TOKEN_PREFIX)) tokens.add(v)
+    if (typeof v === 'string' && isPersistedBlobTokenRef(v)) tokens.add(v)
     else if (Array.isArray(v)) v.forEach(walk)
     else if (v && typeof v === 'object') Object.values(v as object).forEach(walk)
   }
@@ -521,10 +528,42 @@ function collectBlobTokens(snap: ProjectSnapshotPayload): Set<string> {
   return tokens
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isCloudSnapshotSaveTimeout(message: string): boolean {
+  return /statement timeout|57014|canceling statement/i.test(message)
+}
+
+function cloudSnapshotRequestBody(payload: ProjectSnapshotPayload, projectId: string): string {
+  const cloudPayload = {
+    version: 1 as const,
+    videos: payload.videos,
+    images: payload.images,
+    texts: payload.texts,
+    audios: payload.audios,
+    effects: payload.effects,
+  }
+  return JSON.stringify({ projectId, snapshot: cloudPayload })
+}
+
+function cloudSnapshotPayloadHash(payload: ProjectSnapshotPayload): string {
+  const cloudPayload = {
+    version: 1 as const,
+    videos: payload.videos,
+    images: payload.images,
+    texts: payload.texts,
+    audios: payload.audios,
+    effects: payload.effects,
+  }
+  return JSON.stringify(cloudPayload)
+}
+
 function snapshotUsesLocalOnlyMediaRefs(payload: ProjectSnapshotPayload): boolean {
   const walk = (v: unknown): boolean => {
     if (typeof v === 'string') {
-      return v.startsWith(BLOB_TOKEN_PREFIX) || v.startsWith('blob:')
+      return isPersistedBlobTokenRef(v) || v.startsWith('blob:') || v.startsWith('data:')
     }
     if (Array.isArray(v)) return v.some(walk)
     if (v && typeof v === 'object') return Object.values(v as object).some(walk)
@@ -602,10 +641,6 @@ async function hydrateSnapshotIntoStore(
   return repairSnapshotMediaFromAccountLibrary()
 }
 
-export async function saveGuestProjectSnapshot(): Promise<void> {
-  await saveProjectSnapshot(DB_NAME_GUEST, SNAPSHOT_KEY_GUEST)
-}
-
 export async function saveUserDraftSnapshot(userId: string, projectId: string): Promise<void> {
   const { payload, blobWrites } = await buildProjectSnapshotPayload()
   for (const [token, blob] of blobWrites) {
@@ -613,91 +648,54 @@ export async function saveUserDraftSnapshot(userId: string, projectId: string): 
   }
   const snapshotKey = userSnapshotKey(projectId)
   await idbPut(userDraftDbName(userId), STORE_META, snapshotKey, JSON.stringify(payload))
-  if (!snapshotUsesLocalOnlyMediaRefs(payload)) {
-    await saveCloudProjectSnapshot(payload, projectId)
-  }
 }
 
-export async function clearGuestProjectPersistence(): Promise<void> {
-  await idbDeleteDatabase(DB_NAME_GUEST)
-}
-
-export async function hydrateLocalProjectIfNeeded(user: { id: string } | null, projectId: string | null): Promise<void> {
-  if (user && !isManifestVisuallyEmpty()) {
-    await clearGuestProjectPersistence()
+async function saveUserDraftCloudSnapshot(userId: string, projectId: string): Promise<void> {
+  const snapshotKey = userSnapshotKey(projectId)
+  const raw = await idbGet<string>(userDraftDbName(userId), STORE_META, snapshotKey)
+  if (!raw) return
+  let payload: ProjectSnapshotPayload
+  try {
+    payload = JSON.parse(raw) as ProjectSnapshotPayload
+  } catch {
     return
   }
-
-  if (!isManifestVisuallyEmpty()) return
-
-  if (user) {
-    if (!projectId) return
-    const dbName = userDraftDbName(user.id)
-    const userSnap = await loadProjectSnapshot(dbName, userSnapshotKey(projectId))
-    if (userSnap && userSnap.version === 1 && !isSnapshotPayloadVisuallyEmpty(userSnap)) {
-      const repaired = await hydrateSnapshotIntoStore(userSnap, dbName, true)
-      if (repaired) await saveUserDraftSnapshot(user.id, projectId)
-      return
-    }
-    const cloudSnap = await loadCloudProjectSnapshot(projectId)
-    if (cloudSnap && cloudSnap.version === 1 && !isSnapshotPayloadVisuallyEmpty(cloudSnap)) {
-      const repaired = await hydrateSnapshotIntoStore(cloudSnap, dbName, true)
-      if (repaired) await saveUserDraftSnapshot(user.id, projectId)
-      return
-    }
-  }
-
-  const snap = await loadProjectSnapshot(DB_NAME_GUEST, SNAPSHOT_KEY_GUEST)
-  if (!snap || snap.version !== 1) return
-
-  await hydrateSnapshotIntoStore(snap, DB_NAME_GUEST, false)
-
-  if (user) {
-    await clearGuestProjectPersistence()
-  }
+  if (payload.version !== 1) return
+  await saveCloudProjectSnapshot(payload, projectId)
 }
 
-export function useGuestProjectPersistence(isGuest: boolean) {
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+export async function hydrateLocalProjectIfNeeded(user: { id: string }, projectId: string): Promise<void> {
+  if (!isManifestVisuallyEmpty()) return
 
-  useEffect(() => {
-    if (!isGuest) return
-
-    const schedule = () => {
-      if (timerRef.current) clearTimeout(timerRef.current)
-      timerRef.current = setTimeout(() => {
-        timerRef.current = null
-        void saveGuestProjectSnapshot().catch(() => {})
-      }, 500)
+  const dbName = userDraftDbName(user.id)
+  const userSnap = await loadProjectSnapshot(dbName, userSnapshotKey(projectId))
+  if (userSnap && userSnap.version === 1 && !isSnapshotPayloadVisuallyEmpty(userSnap)) {
+    const repaired = await hydrateSnapshotIntoStore(userSnap, dbName, true)
+    if (repaired) {
+      await saveUserDraftSnapshot(user.id, projectId)
+      await saveUserDraftCloudSnapshot(user.id, projectId)
     }
-
-    const unsub = useManifestStore.subscribe(schedule)
-    const onHide = () => {
-      void saveGuestProjectSnapshot().catch(() => {})
+    return
+  }
+  const cloudSnap = await loadCloudProjectSnapshot(projectId)
+  if (cloudSnap && cloudSnap.version === 1 && !isSnapshotPayloadVisuallyEmpty(cloudSnap)) {
+    const repaired = await hydrateSnapshotIntoStore(cloudSnap, dbName, true)
+    if (repaired) {
+      await saveUserDraftSnapshot(user.id, projectId)
+      await saveUserDraftCloudSnapshot(user.id, projectId)
     }
-    const onVis = () => {
-      if (document.visibilityState === 'hidden') onHide()
-    }
-    document.addEventListener('visibilitychange', onVis)
-    window.addEventListener('pagehide', onHide)
-
-    return () => {
-      unsub()
-      if (timerRef.current) clearTimeout(timerRef.current)
-      document.removeEventListener('visibilitychange', onVis)
-      window.removeEventListener('pagehide', onHide)
-    }
-  }, [isGuest])
+  }
 }
 
 export function useUserProjectPersistence(user: { id: string } | null, projectId: string | null) {
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const localTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cloudTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const userId = user?.id ?? null
 
   useEffect(() => {
     if (!userId || !projectId) return
 
-    const shouldSaveForCloud = (
+    const manifestChanged = (
       state: ReturnType<typeof useManifestStore.getState>,
       prevState: ReturnType<typeof useManifestStore.getState>
     ) =>
@@ -705,22 +703,43 @@ export function useUserProjectPersistence(user: { id: string } | null, projectId
       state.images !== prevState.images ||
       state.texts !== prevState.texts ||
       state.audios !== prevState.audios ||
-      state.effects !== prevState.effects
+      state.effects !== prevState.effects ||
+      state.history !== prevState.history ||
+      state.historyIndex !== prevState.historyIndex ||
+      state.playbackTime !== prevState.playbackTime ||
+      state.isLooping !== prevState.isLooping ||
+      state.playbackRate !== prevState.playbackRate ||
+      state.pendingPrompt !== prevState.pendingPrompt
 
-    const schedule = () => {
-      if (timerRef.current) clearTimeout(timerRef.current)
-      timerRef.current = setTimeout(() => {
-        timerRef.current = null
+    const scheduleLocal = () => {
+      if (localTimerRef.current) clearTimeout(localTimerRef.current)
+      localTimerRef.current = setTimeout(() => {
+        localTimerRef.current = null
         void saveUserDraftSnapshot(userId, projectId).catch(() => {})
       }, 500)
     }
 
+    const scheduleCloud = () => {
+      if (cloudTimerRef.current) clearTimeout(cloudTimerRef.current)
+      cloudTimerRef.current = setTimeout(() => {
+        cloudTimerRef.current = null
+        void saveUserDraftCloudSnapshot(userId, projectId).catch(() => {})
+      }, 2500)
+    }
+
+    const schedule = () => {
+      scheduleLocal()
+      scheduleCloud()
+    }
+
     const unsub = useManifestStore.subscribe((state, prevState) => {
-      if (!shouldSaveForCloud(state, prevState)) return
+      if (!manifestChanged(state, prevState)) return
       schedule()
     })
     const onHide = () => {
-      void saveUserDraftSnapshot(userId, projectId).catch(() => {})
+      void saveUserDraftSnapshot(userId, projectId)
+        .then(() => saveUserDraftCloudSnapshot(userId, projectId))
+        .catch(() => {})
     }
     const onVis = () => {
       if (document.visibilityState === 'hidden') onHide()
@@ -730,7 +749,8 @@ export function useUserProjectPersistence(user: { id: string } | null, projectId
 
     return () => {
       unsub()
-      if (timerRef.current) clearTimeout(timerRef.current)
+      if (localTimerRef.current) clearTimeout(localTimerRef.current)
+      if (cloudTimerRef.current) clearTimeout(cloudTimerRef.current)
       document.removeEventListener('visibilitychange', onVis)
       window.removeEventListener('pagehide', onHide)
     }

@@ -173,7 +173,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'split_at_marks',
-    description: "Split images or videos into multiple segments. Use this when the user asks to split, cut, or divide items at specific positions, or into equal parts like halves or fourths. For equal parts, compute the split times yourself based on the item's startTime and endTime. For splitting at audio marks, use splitAtMarksTimelineSeconds from the manifest (not marksSourceFileSeconds). Include only split times that fall strictly between the target item's startTime and endTime.",
+    description: "Split images, videos, or text overlays into multiple segments. Use this when the user asks to split, cut, or divide items at specific positions, or into equal parts like halves or fourths — e.g. \"split text 1 into 4 parts\" or \"split image 3 in half\". For equal parts, compute the split times yourself: images and texts use startTime/endTime; videos use timestamp and duration (absolute timeline seconds). For splitting at audio marks, use splitAtMarksTimelineSeconds from the manifest (not marksSourceFileSeconds). Include only split times that fall strictly between the item's start and end on the timeline.",
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -185,7 +185,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
             properties: {
               type: {
                 type: Type.STRING,
-                description: 'The type of item: "image" or "video".',
+                description: 'The type of item: "image", "video", or "text".',
               },
               id: {
                 type: Type.STRING,
@@ -194,7 +194,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
               times: {
                 type: Type.ARRAY,
                 description:
-                  "Absolute timeline times in seconds (same coordinate system as image startTime/endTime and video timestamp). For halves, this is the midpoint. For fourths, these are the 25%, 50%, and 75% points. For audio marks, use splitAtMarksTimelineSeconds from the manifest.",
+                  "Absolute timeline times in seconds (same coordinate system as image/text startTime/endTime and video timestamp). For halves, this is the midpoint. For fourths, these are the 25%, 50%, and 75% points. For audio marks, use splitAtMarksTimelineSeconds from the manifest.",
                 items: { type: Type.NUMBER },
               },
             },
@@ -557,7 +557,7 @@ export const systemInstruction =
     '- delete_timeline_items: when the user asks to delete, remove, or clear one or more timeline items (images, videos, texts, audios, or effects). Map phrases like "images 19–31" to the manifest #N order (sorted by start time for images, by timestamp for videos) and include one { type, id } per item in the items array in a SINGLE call.\n' +
     '- duplicate_timeline_range: when the user asks to duplicate, repeat, or copy a range of images or videos so the copy plays immediately after the original block ends. Use kind "image" or "video" and firstNumber/lastNumber inclusive (same #N as the manifest).\n' +
     '- edit_manifest: when the user asks to change timing, duration, position, row/layer, playback speed, mute status, or text typography/style of existing items. You MUST include all affected items as separate entries in the mutations array in a SINGLE call — never call edit_manifest multiple times. For audio mutations (type=updateAudio): ALWAYS use trimStart and trimEnd fields (not endTime). To restore an audio to its full original length set trimStart=0 and trimEnd=0. The active playing duration of an audio is: originalDuration - trimStart - trimEnd. Use playbackSpeed for constant video and audio playback speed changes (e.g. 0.5 for half speed). For speed ramps (e.g. "0.5x start to 0.1x end"), use both speedStart and speedEnd (and optionally speedEasing: "linear" or "ease"). If speedStart/speedEnd are used, they will override any constant playbackSpeed. Use muted for video mute status (true to mute, false to unmute). Use row to move items between timeline rows (e.g. row 0 main visual row). For text mutations (type=updateText), use fontFamily, fontWeight, animation ("none" or "keyboard"), and style ("normal", "negative", or "highlight") as needed. ALWAYS use the exact id strings from the manifest (e.g. "audio-1234-abc") — never make up or shorten ids.\n' +
-  '- split_at_marks: when the user asks to split, cut, or divide images or videos at specific positions, or into equal parts (like halves or fourths). You must compute the absolute timeline split times yourself from the item\'s timing data (halves = 1 split at midpoint, fourths = 3 splits at 25%/50%/75%). For splitting at audio marks, use splitAtMarksTimelineSeconds from each audio line — do not use marksSourceFileSeconds (those are source-file seconds, not timeline positions).\n' +
+  '- split_at_marks: when the user asks to split, cut, or divide images, videos, or text overlays at specific positions, or into equal parts (like halves or fourths). Map "text 1", "image 2", etc. to manifest #N order (texts and images by startTime, videos by timestamp). Compute absolute timeline split times from the item\'s timing (halves = 1 split at midpoint, fourths = 3 splits at 25%/50%/75%). For videos, times are absolute seconds on the timeline (timestamp + offset within duration). For splitting at audio marks, use splitAtMarksTimelineSeconds from each audio line — do not use marksSourceFileSeconds (those are source-file seconds, not timeline positions).\n' +
   '- add_text: when the user asks to add text overlays to the timeline at a computed time range\n' +
   '- add_effect: when the user asks to add visual effects (like "crt-dither", "flashing-black-vignette" / vignette, "black-and-white", "vivid-sharp", or "pixel-glitch-scan") over a specific time range; include intensity (0.0–1.0) if specified; for vignette optionally flashSpeed (0.0 = solid edge, 1.0 = full pulse)\n' +
     '- set_step_growth: when the user asks to make an image grow in equal steps (e.g. "make image #3 grow in 4 steps", "grow selected image to full frame in 4 steps", or "make this image grow in 4 steps"). If the user says "this image", "selected image", or "current image", use target="selected". Use id when available; otherwise use global imageNumber (#N from manifest across all rows). Set steps to the requested count (default 4).\n' +

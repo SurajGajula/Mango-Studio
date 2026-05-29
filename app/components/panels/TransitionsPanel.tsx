@@ -114,17 +114,6 @@ const ANIMATION_OPTIONS: { value: AnimationMode; label: string; icon: React.Reac
       </svg>
     ),
   },
-  {
-    value: 'last-frame-hold',
-    label: 'Last frame hold',
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="4" y="5" width="10" height="10" rx="1" />
-        <path d="M9 9l2 2 4-4" />
-        <line x1="4" y1="19" x2="20" y2="19" />
-      </svg>
-    ),
-  },
 ]
 
 const REVEAL_CURVE_OPTIONS: { value: SlideTransitionEasing; label: string }[] = [
@@ -275,16 +264,9 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
   
   // Max duration depends on transition type
   const isTransitionAffectingPrevious = ['split', 'fade', 'morph', 'slide-in', 'wipe', 'circle', 'rotate', 'flash'].includes(currentTransition)
-  const isLastFrameHold =
-    mode === 'animation' &&
-    currentAnimation === 'last-frame-hold' &&
-    !!selectedItem &&
-    videos.some((v) => v.id === selectedItem.id)
   const maxDuration = (mode === 'transition' && isTransitionAffectingPrevious)
     ? (previousItem?.duration || 1.0)
-    : isLastFrameHold
-      ? Math.max(0.1, safeSelectedItemDuration)
-      : safeSelectedItemDuration
+    : safeSelectedItemDuration
   const durationMin = Math.min(0.1, maxDuration)
   const clampDuration = (v: number) => Math.max(durationMin, Math.min(v, maxDuration))
 
@@ -338,9 +320,6 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
       if (isSlideShakeAnimation(val)) {
         updates.animationDuration = clampDuration(Math.min(1, safeSelectedItemDuration))
         updates.zoomIntensity = 0.1
-      } else if (val === 'last-frame-hold' && videos.some((v) => v.id === selectedItem.id)) {
-        const d = selectedItem.duration ?? 1
-        updates.animationDuration = Math.min(Math.max(0.1, d * 0.25), d)
       } else if (val !== 'none' && (selectedItem?.animationDuration === undefined || selectedItem?.animationDuration === 0)) {
         updates.animationDuration = clampDuration(safeSelectedItemDuration)
       }
@@ -430,9 +409,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
           <>
             <p className={layout.sectionLabel}>{mode === 'animation' ? 'Animation Type' : 'Transition Type'}</p>
             <div className={styles.optionListCompact}>
-              {options
-                .filter((opt) => opt.value !== 'last-frame-hold' || (!!selectedItem && videos.some((v) => v.id === selectedItem.id)))
-                .map((opt) => (
+              {options.map((opt) => (
                 <button
                   key={opt.value}
                   className={`${styles.optionCard} ${currentValue === opt.value ? styles.optionCardActive : ''}`}
@@ -450,7 +427,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
               <div className={styles.durationControl}>
                 <div className={styles.durationHeader}>
                   <label className={styles.durationLabel}>
-                    {isLastFrameHold ? 'Hold duration' : isSlideShakeAnimation(currentAnimation) ? 'Slide duration' : 'Duration'}
+                    {isSlideShakeAnimation(currentAnimation) ? 'Slide duration' : 'Duration'}
                   </label>
                   <span className={styles.durationValue}>{displayDuration.toFixed(1)}s</span>
                 </div>

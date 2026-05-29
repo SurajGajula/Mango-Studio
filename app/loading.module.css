@@ -1,0 +1,14 @@
+.shell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background-color: #0f0f0f;
+}
+
+.logo {
+  font-family: 'Bubble Sans', cursive;
+  font-size: 1.75rem;
+  color: #ffffff;
+  opacity: 0.85;
+}

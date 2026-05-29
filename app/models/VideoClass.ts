@@ -63,6 +63,7 @@ export class VideoClass {
   keyframes: MediaKeyframe[]
   flipHorizontal: boolean
   flipVertical: boolean
+  reversed: boolean
 
   constructor(
     id: string,
@@ -112,7 +113,8 @@ export class VideoClass {
     zoomDistanceIntensity?: number,
     transitionWipeEasing?: WipeTransitionEasing,
     flipHorizontal?: boolean,
-    flipVertical?: boolean
+    flipVertical?: boolean,
+    reversed?: boolean
   ) {
     this.id = id
     this.title = title
@@ -207,6 +209,7 @@ export class VideoClass {
     this.keyframes = keyframes ?? []
     this.flipHorizontal = flipHorizontal ?? false
     this.flipVertical = flipVertical ?? false
+    this.reversed = reversed ?? false
 
     if (this.duration !== undefined && Number.isFinite(this.duration)) {
       this.duration = quantizeTimelineSeconds(this.duration)
@@ -275,7 +278,8 @@ export class VideoClass {
       updates.zoomDistanceIntensity ?? this.zoomDistanceIntensity,
       updates.transitionWipeEasing ?? this.transitionWipeEasing,
       updates.flipHorizontal ?? this.flipHorizontal,
-      updates.flipVertical ?? this.flipVertical
+      updates.flipVertical ?? this.flipVertical,
+      updates.reversed ?? this.reversed
     )
   }
 }

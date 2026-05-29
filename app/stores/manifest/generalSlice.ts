@@ -9,6 +9,8 @@ import { overlapsAny, occupancyIntervalsOnRow, quantizeTimelineSeconds } from '@
 import { calculateTotalDuration } from '@/app/lib/timeUtils'
 import { calculateSourceTime } from '@/app/lib/renderUtils'
 import { generateId } from '@/app/lib/idUtils'
+import { isPreviewEngineEnabled, livePlaybackTimeRef, wakePreviewLoop } from '@/app/lib/playbackClock'
+
 export const createGeneralSlice = (set: any, get: any) => ({
   playbackTime: 0,
   isPlaying: false,
@@ -23,7 +25,13 @@ export const createGeneralSlice = (set: any, get: any) => ({
     set({ pendingVideoReplaceSpeed: value }),
   setVideoReplaceFilePickerRequest: (value: ManifestStore['videoReplaceFilePickerRequest']) =>
     set({ videoReplaceFilePickerRequest: value }),
-  setPlaybackTime: (time: number) => set({ playbackTime: Math.max(0, time) }),
+  setPlaybackTime: (time: number) => {
+    const next = Math.max(0, time)
+    livePlaybackTimeRef.current = next
+    if (Math.abs(get().playbackTime - next) < 0.0005) return
+    set({ playbackTime: next })
+    if (isPreviewEngineEnabled()) wakePreviewLoop()
+  },
   setIsPlaying: (playing: boolean) => set({ isPlaying: playing }),
   setIsLooping: (looping: boolean) => set({ isLooping: looping }),
   setPlaybackRate: (rate: number) => set({ playbackRate: rate }),

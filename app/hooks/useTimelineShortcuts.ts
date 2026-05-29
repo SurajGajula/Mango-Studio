@@ -416,6 +416,10 @@ export function useTimelineShortcuts({
         applyZoom(Math.min(MAX_VISIBLE, visibleDurationRef.current * 1.4))
       }
       
+      if (isEditing && (e.key === 'z' || e.key === 'y')) {
+        return
+      }
+
       if (e.key === 'z') {
         e.preventDefault()
         undo()
