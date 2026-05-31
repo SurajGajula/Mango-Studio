@@ -13,11 +13,16 @@ import {
   renderClipTransitionPair,
 } from '@/app/lib/renderUtils'
 import { manifestVideoTimelineSpanSeconds } from '@/app/lib/timeUtils'
+import { quantizeTimelineSeconds } from '@/app/lib/timeline/timelineQuantize'
 import { resolveMediaKeyframeTransform } from '@/app/lib/resolveMediaKeyframeTransform'
 import { runWithPlacementRotation } from '@/app/lib/placementRotation'
 import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
 import { applyEffect } from '@/app/lib/applyEffect'
 import { drawTextOverlay } from '@/app/lib/drawTextOverlay'
+import {
+  primePreviewVideoFrame,
+  resolvePreviewVideoDrawSource,
+} from '@/app/lib/previewVideoFrameCache'
 
 export interface RenderState {
   playbackTime: number
@@ -37,8 +42,7 @@ export interface RenderResources {
 }
 
 const PAUSED_SCRUB_SEEK_THRESHOLD = 0.16
-const PLAYING_REVERSED_SEEK_THRESHOLD = 0.06
-const PLAYING_FORWARD_SEEK_THRESHOLD = 0.22
+const PLAYBACK_SEEK_SYNC_THRESHOLD = 0.02
 const PREWARM_LEAD_SEC = 10
 const PREWARM_LEAD_SEC_MANY_CLIPS = 3
 const MANY_TIMELINE_VIDEOS = 3
@@ -46,32 +50,31 @@ const PREVIEW_CHROME_FILL = '#0f0f0f'
 
 const previewVideoPrimeAwaitSeeked = new WeakSet<HTMLVideoElement>()
 
-function fillCanvasGuttersOutsideContentRect(
-  ctx: CanvasRenderingContext2D,
-  cr: { x: number; y: number; width: number; height: number }
-) {
-  const cw = ctx.canvas.width
-  const ch = ctx.canvas.height
-  ctx.save()
-  ctx.fillStyle = PREVIEW_CHROME_FILL
-  if (cr.y > 0) ctx.fillRect(0, 0, cw, cr.y)
-  if (cr.y + cr.height < ch) ctx.fillRect(0, cr.y + cr.height, cw, ch - cr.y - cr.height)
-  if (cr.x > 0) ctx.fillRect(0, cr.y, cr.x, cr.height)
-  if (cr.x + cr.width < cw) ctx.fillRect(cr.x + cr.width, cr.y, cw - cr.x - cr.width, cr.height)
-  ctx.restore()
-}
-
 function clampVideoSeekTime(el: HTMLVideoElement, requestedTime: number): number {
   if (!Number.isFinite(requestedTime)) return 0
   const clampedMin = Math.max(0, requestedTime)
   const duration = el.duration
-  if (!Number.isFinite(duration) || duration <= 0) return clampedMin
-  return Math.min(clampedMin, Math.max(0, duration - 0.04))
+  if (!Number.isFinite(duration) || duration <= 0) return quantizeTimelineSeconds(clampedMin)
+  return quantizeTimelineSeconds(Math.min(clampedMin, Math.max(0, duration - 0.04)))
 }
 
-function videoElementCanDrawToCanvas(el: HTMLVideoElement): boolean {
-  if (el.videoWidth <= 0 || el.videoHeight <= 0) return false
-  return el.readyState >= HTMLMediaElement.HAVE_METADATA
+function clampVideoSourceSeekTime(
+  video: VideoClass,
+  el: HTMLVideoElement,
+  requestedTime: number
+): number {
+  if (!Number.isFinite(requestedTime)) return quantizeTimelineSeconds(video.trimStart ?? 0)
+  const trimStart = quantizeTimelineSeconds(video.trimStart ?? 0)
+  const trimEnd = quantizeTimelineSeconds(video.trimEnd ?? 0)
+  const orig = video.originalDuration ?? el.duration
+  let maxT = trimStart
+  if (Number.isFinite(orig) && orig > 0) {
+    maxT = Math.max(trimStart, orig - trimEnd - 0.001)
+  } else {
+    maxT = clampVideoSeekTime(el, requestedTime)
+    return maxT
+  }
+  return quantizeTimelineSeconds(Math.max(trimStart, Math.min(requestedTime, maxT)))
 }
 
 function videoElementHasDecodedFrame(el: HTMLVideoElement): boolean {
@@ -151,6 +154,48 @@ function seekPreviewVideoIfDrift(
   }
 }
 
+function syncPreviewVideoToTimeline(
+  vEl: HTMLVideoElement,
+  clampedTarget: number,
+  onUpdate: (t: number) => void,
+  seekThreshold = PAUSED_SCRUB_SEEK_THRESHOLD
+) {
+  if (vEl.seeking) return
+  if (!videoElementHasDecodedFrame(vEl)) {
+    applyPausedPreviewVideoSync(vEl, clampedTarget, onUpdate)
+    return
+  }
+  seekPreviewVideoIfDrift(vEl, clampedTarget, seekThreshold, onUpdate)
+}
+
+function resolveOverlayVideoDrawSource(
+  vEl: HTMLVideoElement,
+  sameVideoHold: HTMLCanvasElement | undefined
+): HTMLVideoElement | HTMLCanvasElement | null {
+  if (!vEl.seeking && videoElementHasDecodedFrame(vEl)) {
+    return vEl
+  }
+  if (sameVideoHold) {
+    return sameVideoHold
+  }
+  return null
+}
+
+function isActiveMorphVideo(
+  videoId: string,
+  rowTrans:
+    | { active: MainItem; next: MainItem; transitionActive: boolean; transProgress: number }
+    | undefined
+): boolean {
+  return !!(
+    rowTrans &&
+    rowTrans.transitionActive &&
+    rowTrans.transProgress < 1 &&
+    rowTrans.next.item.transition === 'morph' &&
+    (rowTrans.active.id === videoId || rowTrans.next.id === videoId)
+  )
+}
+
 function prewarmLeadForTimeline(videoCount: number): number {
   return videoCount > MANY_TIMELINE_VIDEOS ? PREWARM_LEAD_SEC_MANY_CLIPS : PREWARM_LEAD_SEC
 }
@@ -167,6 +212,7 @@ export class VideoRenderingEngine {
   private cachedTextVisualKey = ''
   private cachedEffects: EffectClass[] | null = null
   private cachedEffectsKey = ''
+  private videoHoldFrame = new Map<string, HTMLCanvasElement>()
 
   public render(
     canvas: HTMLCanvasElement,
@@ -225,9 +271,6 @@ export class VideoRenderingEngine {
       })
       .join('~')
     const stateKey = `${cr.width}-${cr.height}-${videoVisualKey}-${imageVisualKey}-${textVisualKey}-${effectsKey}-${imageRuntimeKey}`
-    const stateChanged = stateKey !== this.lastStateKey
-    const timeChanged = Math.abs(newTime - this.lastRenderedTime) > 0.001
-    const shouldSwap = isPlaying || stateChanged
     const prewarmLead = prewarmLeadForTimeline(state.videos.length)
 
     for (let i = 0; i < state.videos.length; i++) {
@@ -242,7 +285,8 @@ export class VideoRenderingEngine {
       const rowTrans = rowTransitionByRow.get(video.row)
       if (rowTrans && rowTrans.next.type === 'video' && rowTrans.next.id === video.id) {
         const timeUntilNext = rowTrans.next.startTime - newTime
-        prewarm = rowTrans.transitionActive || (timeUntilNext > 0 && timeUntilNext < 1.0)
+        const transDur = Math.max(0.1, rowTrans.next.item.transitionDuration ?? 1.0)
+        prewarm = rowTrans.transitionActive || (timeUntilNext > 0 && timeUntilNext <= transDur + 0.5)
       }
       if (
         !prewarm &&
@@ -264,103 +308,74 @@ export class VideoRenderingEngine {
         video.duration != null && video.duration > 0 ? video.duration : span
       )
       const tmV = videoTimelineSourceMapping(video, elapsed, vDur)
-      const target = (video.trimStart ?? 0) + tmV.sourceElapsed
-      const clampedTarget = clampVideoSeekTime(vEl, target)
+      const sourceSpan = Math.max(0, (video.originalDuration ?? 0) - (video.trimStart ?? 0) - (video.trimEnd ?? 0))
+      const cappedSourceElapsed = Math.min(tmV.sourceElapsed, sourceSpan)
+      const target = (video.trimStart ?? 0) + cappedSourceElapsed
+      const clampedTarget = clampVideoSourceSeekTime(video, vEl, target)
+      const onVideoUpdate = (t: number) => onVideoTimeUpdate(video.id, t)
       const decodeOnlyPrewarm = prewarm && !inRange
+      const morphSync = isActiveMorphVideo(video.id, rowTrans)
+      const seekThreshold =
+        isPlaying && inRange && !decodeOnlyPrewarm && !morphSync && !video.reversed && !tmV.inHold
+          ? PLAYBACK_SEEK_SYNC_THRESHOLD
+          : PAUSED_SCRUB_SEEK_THRESHOLD
 
-      if (decodeOnlyPrewarm) {
-        if (!vEl.paused) onVideoPlayState(video.id, false, 1)
-        if (!vEl.seeking) {
-          seekPreviewVideoIfDrift(vEl, clampedTarget, PAUSED_SCRUB_SEEK_THRESHOLD, (t) =>
-            onVideoTimeUpdate(video.id, t)
-          )
-        }
-        continue
+      if (!vEl.paused) onVideoPlayState(video.id, false, 1)
+      if (!vEl.seeking) {
+        syncPreviewVideoToTimeline(vEl, clampedTarget, onVideoUpdate, seekThreshold)
       }
 
-      if (isPlaying) {
-        if (video.reversed) {
-          if (!vEl.paused) onVideoPlayState(video.id, false, 1)
-          seekPreviewVideoIfDrift(
-            vEl,
-            clampedTarget,
-            PLAYING_REVERSED_SEEK_THRESHOLD,
-            (t) => onVideoTimeUpdate(video.id, t)
-          )
-        } else {
-          seekPreviewVideoIfDrift(
-            vEl,
-            clampedTarget,
-            PLAYING_FORWARD_SEEK_THRESHOLD,
-            (t) => onVideoTimeUpdate(video.id, t)
-          )
-          if (tmV.inHold) {
-            if (!vEl.paused) onVideoPlayState(video.id, false, 1)
-          } else {
-            const x = tmV.playSpan > 0 ? Math.min(elapsed, tmV.playSpan) / tmV.playSpan : 1
-            const f = video.speedEasing === 'ease' ? 3 * Math.pow(x, 2) - 2 * Math.pow(x, 3) : x
-            const inst =
-              (video.speedStart ?? video.playbackSpeed ?? 1) +
-              f * ((video.speedEnd ?? video.playbackSpeed ?? 1) - (video.speedStart ?? video.playbackSpeed ?? 1))
-            onVideoPlayState(video.id, true, rate * inst)
-          }
-        }
-      } else {
-        if (!vEl.paused) onVideoPlayState(video.id, false, 1)
-        applyPausedPreviewVideoSync(vEl, clampedTarget, (t) => onVideoTimeUpdate(video.id, t))
+      primePreviewVideoFrame(vEl)
+    }
+
+    bufferCtx.fillStyle = PREVIEW_CHROME_FILL
+    bufferCtx.fillRect(0, 0, bufferCanvas.width, bufferCanvas.height)
+    bufferCtx.fillStyle = '#000000'
+    bufferCtx.fillRect(cr.x, cr.y, cr.width, cr.height)
+    this.drawOverlays(
+      bufferCtx,
+      cr,
+      newTime,
+      state.images,
+      state.videos,
+      state.texts,
+      videoElements,
+      imageBitmaps,
+      isPlaying,
+      rowTransitionByRow
+    )
+
+    if (effects && effects.length > 0) {
+      const activeEffects = effects
+        .filter((eff) => newTime >= eff.startTime && newTime < eff.endTime)
+        .sort((a, b) => a.row - b.row || a.startTime - b.startTime)
+      for (let i = 0; i < activeEffects.length; i++) {
+        const eff = activeEffects[i]
+        applyEffect(
+          bufferCtx,
+          eff.type,
+          cr.x,
+          cr.y,
+          cr.width,
+          cr.height,
+          newTime,
+          eff.intensity,
+          eff.contrast,
+          eff.flashSpeed
+        )
       }
     }
 
-    if (shouldSwap || timeChanged) {
-      bufferCtx.fillStyle = PREVIEW_CHROME_FILL
-      bufferCtx.fillRect(0, 0, bufferCanvas.width, bufferCanvas.height)
-      bufferCtx.fillStyle = '#000000'
-      bufferCtx.fillRect(cr.x, cr.y, cr.width, cr.height)
-      this.drawOverlays(
-        bufferCtx,
-        cr,
-        newTime,
-        state.images,
-        state.videos,
-        state.texts,
-        videoElements,
-        imageBitmaps,
-        isPlaying,
-        rowTransitionByRow
-      )
-
-      if (effects && effects.length > 0) {
-        const activeEffects = effects
-          .filter((eff) => newTime >= eff.startTime && newTime < eff.endTime)
-          .sort((a, b) => a.row - b.row || a.startTime - b.startTime)
-        for (let i = 0; i < activeEffects.length; i++) {
-          const eff = activeEffects[i]
-          applyEffect(
-            bufferCtx,
-            eff.type,
-            cr.x,
-            cr.y,
-            cr.width,
-            cr.height,
-            newTime,
-            eff.intensity,
-            eff.contrast,
-            eff.flashSpeed
-          )
-        }
-      }
-
-      if (this.frameStallCount > 10) {
-        bufferCtx.save()
-        bufferCtx.fillStyle = 'rgba(255, 0, 0, 0.3)'
-        bufferCtx.fillRect(cr.x, cr.y, 4, 20)
-        bufferCtx.restore()
-      }
-
-      visibleCtx.drawImage(bufferCanvas, 0, 0)
-      this.lastStateKey = stateKey
-      this.lastRenderedTime = newTime
+    if (this.frameStallCount > 10) {
+      bufferCtx.save()
+      bufferCtx.fillStyle = 'rgba(255, 0, 0, 0.3)'
+      bufferCtx.fillRect(cr.x, cr.y, 4, 20)
+      bufferCtx.restore()
     }
+
+    visibleCtx.drawImage(bufferCanvas, 0, 0)
+    this.lastStateKey = stateKey
+    this.lastRenderedTime = newTime
   }
 
   private getVideoVisualKey(videos: VideoClass[]): string {
@@ -567,7 +582,7 @@ export class VideoRenderingEngine {
           transitionState.transProgress,
           (id) => {
             const el = videoElements.get(id)
-            return el instanceof HTMLVideoElement ? el : undefined
+            return el instanceof HTMLVideoElement && videoElementHasDecodedFrame(el) ? el : undefined
           },
           (id) => imageBitmaps.get(id) ?? undefined
         )
@@ -605,7 +620,9 @@ export class VideoRenderingEngine {
           const video = e.video
           const elapsed = currentTime - video.timestamp
           const vEl = videoElements.get(video.id)
-          if (!vEl || !videoElementCanDrawToCanvas(vEl)) continue
+          if (!vEl) continue
+          const source = resolveOverlayVideoDrawSource(vEl, this.videoHoldFrame.get(video.id))
+          if (!source) continue
           const span = manifestVideoTimelineSpanSeconds(video)
           const progress = span > 0 ? Math.max(0, Math.min(1, elapsed / span)) : 0
           const kOvVid = resolveMediaKeyframeTransform(video, elapsed, span)
@@ -619,12 +636,18 @@ export class VideoRenderingEngine {
             kOvVid.height * yScale,
             0,
             (px, py) => {
-              applyZoomTransform(ctx, video.animation, video.transition, progress, vEl, px, py, kOvVid.width * xScale, kOvVid.height * yScale, kOvVid.cropSx, kOvVid.cropSy, kOvVid.cropSw, kOvVid.cropSh, kOvVid.zoomIntensity, span, video.animationDuration, currentTime - video.timestamp, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, video.transitionColor, video.transitionFlashMode, video.transitionDirection, video.transitionAxis, video.transitionSlideEasing, video.transitionCircleEasing, video.transitionWipeEasing, video.animationZoomEasing, undefined, video.zoomDistanceIntensity, undefined)
+              applyZoomTransform(ctx, video.animation, video.transition, progress, source, px, py, kOvVid.width * xScale, kOvVid.height * yScale, kOvVid.cropSx, kOvVid.cropSy, kOvVid.cropSw, kOvVid.cropSh, kOvVid.zoomIntensity, span, video.animationDuration, currentTime - video.timestamp, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, video.transitionColor, video.transitionFlashMode, video.transitionDirection, video.transitionAxis, video.transitionSlideEasing, video.transitionCircleEasing, video.transitionWipeEasing, video.animationZoomEasing, undefined, video.zoomDistanceIntensity, undefined)
             },
             video.flipHorizontal,
             video.flipVertical
           )
           ctx.restore()
+          if (!vEl.seeking && videoElementHasDecodedFrame(vEl)) {
+            const cached = resolvePreviewVideoDrawSource(vEl)
+            if (cached) {
+              this.videoHoldFrame.set(video.id, cached)
+            }
+          }
         } else {
           drawTextOverlay(ctx, e.text, cr, currentTime)
         }

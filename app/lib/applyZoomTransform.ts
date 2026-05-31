@@ -22,7 +22,7 @@ export function applyZoomTransform(
   animation: AnimationMode | undefined,
   transition: TransitionMode | undefined,
   progress: number,
-  imgEl: HTMLImageElement | HTMLVideoElement | ImageBitmap,
+  imgEl: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement | ImageBitmap,
   x: number,
   y: number,
   w: number,
@@ -35,7 +35,7 @@ export function applyZoomTransform(
   itemDuration?: number,
   animationDuration?: number,
   elapsedTime = 0,
-  prevEl?: HTMLImageElement | HTMLVideoElement | ImageBitmap,
+  prevEl?: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement | ImageBitmap,
   prevAnimation?: AnimationMode,
   prevAnimationProgress?: number,
   prevElapsedTime?: number,
@@ -76,6 +76,9 @@ export function applyZoomTransform(
   } else if (imgEl instanceof HTMLVideoElement) {
     nw = imgEl.videoWidth
     nh = imgEl.videoHeight
+  } else if (imgEl instanceof HTMLCanvasElement) {
+    nw = imgEl.width
+    nh = imgEl.height
   } else {
     nw = imgEl.width
     nh = imgEl.height

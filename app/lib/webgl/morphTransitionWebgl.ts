@@ -1,4 +1,9 @@
 import type { TransformParams } from '@/app/lib/transforms/types'
+import {
+  capturePreviewVideoFrame,
+  previewVideoFrameReady,
+  primePreviewVideoFrame,
+} from '@/app/lib/previewVideoFrameCache'
 
 const SHADER_VERSION = 10
 
@@ -7,8 +12,8 @@ const SIM_SIZE = 28
 let simCanvas: HTMLCanvasElement | null = null
 
 function computeFrameSimilarity(
-  a: HTMLImageElement | HTMLVideoElement | ImageBitmap,
-  b: HTMLImageElement | HTMLVideoElement | ImageBitmap,
+  a: MorphTextureSource,
+  b: MorphTextureSource,
   atlasA: { sx: number; sy: number; sw: number; sh: number },
   atlasB: { sx: number; sy: number; sw: number; sh: number }
 ): number | null {
@@ -169,15 +174,34 @@ function compile(gl: WebGLRenderingContext, type: number, src: string): WebGLSha
   return sh
 }
 
-function texDims(el: HTMLImageElement | HTMLVideoElement | ImageBitmap): { w: number; h: number } {
+type MorphMediaEl = HTMLImageElement | HTMLVideoElement | ImageBitmap
+
+type MorphTextureSource = HTMLCanvasElement | HTMLImageElement | HTMLVideoElement | ImageBitmap
+
+function texDims(el: MorphMediaEl | HTMLCanvasElement): { w: number; h: number } {
+  if (el instanceof HTMLCanvasElement) return { w: el.width, h: el.height }
   if (el instanceof HTMLImageElement) return { w: el.naturalWidth, h: el.naturalHeight }
   if (el instanceof HTMLVideoElement) return { w: el.videoWidth, h: el.videoHeight }
   return { w: el.width, h: el.height }
 }
 
-function hasDecodedVideoFrame(el: HTMLImageElement | HTMLVideoElement | ImageBitmap): boolean {
-  if (!(el instanceof HTMLVideoElement)) return true
-  return el.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && el.videoWidth > 0 && el.videoHeight > 0
+function resolveMorphTextureSource(el: MorphMediaEl | HTMLCanvasElement): MorphTextureSource | null {
+  if (el instanceof HTMLCanvasElement) return el
+  if (el instanceof HTMLVideoElement) return capturePreviewVideoFrame(el)
+  return el
+}
+
+export function getMorphTextureSource(el: MorphMediaEl | HTMLCanvasElement): MorphTextureSource | null {
+  return resolveMorphTextureSource(el)
+}
+
+export function morphTransitionMediaReady(el: MorphMediaEl): boolean {
+  if (el instanceof HTMLVideoElement) return previewVideoFrameReady(el)
+  return true
+}
+
+export function primeMorphVideoSnapshot(el: HTMLVideoElement): void {
+  primePreviewVideoFrame(el)
 }
 
 type GLCache = {
@@ -308,7 +332,7 @@ function bindTexture(
   gl: WebGLRenderingContext,
   unit: number,
   tex: WebGLTexture,
-  el: HTMLImageElement | HTMLVideoElement | ImageBitmap
+  source: MorphTextureSource
 ): boolean {
   gl.activeTexture(unit)
   gl.bindTexture(gl.TEXTURE_2D, tex)
@@ -318,7 +342,7 @@ function bindTexture(
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
   try {
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, el as TexImageSource)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source)
   } catch {
     return false
   }
@@ -346,7 +370,10 @@ export function tryApplyMorphWebgl(params: TransformParams): boolean {
 
   if (!prevEl || !prevParams || progress >= 1) return false
   if ((animation ?? 'none') !== 'none' || (prevAnimation ?? 'none') !== 'none') return false
-  if (!hasDecodedVideoFrame(prevEl) || !hasDecodedVideoFrame(imgEl)) return false
+
+  const texSourceA = resolveMorphTextureSource(prevEl)
+  const texSourceB = resolveMorphTextureSource(imgEl)
+  if (!texSourceA || !texSourceB) return false
 
   const dw = Math.max(1, Math.floor(w))
   const dh = Math.max(1, Math.floor(h))
@@ -373,8 +400,8 @@ export function tryApplyMorphWebgl(params: TransformParams): boolean {
   if (dimA.w < 1 || dimA.h < 1 || dimB.w < 1 || dimB.h < 1) return false
 
   const simRaw = computeFrameSimilarity(
-    prevEl,
-    imgEl,
+    texSourceA,
+    texSourceB,
     { sx: psx, sy: psy, sw: psw, sh: psh },
     { sx, sy, sw, sh }
   )
@@ -383,8 +410,8 @@ export function tryApplyMorphWebgl(params: TransformParams): boolean {
   const lumaBoost = 1 + sim * 0.38
   distortAmp *= 1 - sim * 0.44
 
-  if (!bindTexture(gl, gl.TEXTURE0, texA, prevEl)) return false
-  if (!bindTexture(gl, gl.TEXTURE1, texB, imgEl)) return false
+  if (!bindTexture(gl, gl.TEXTURE0, texA, texSourceA)) return false
+  if (!bindTexture(gl, gl.TEXTURE1, texB, texSourceB)) return false
 
   gl.useProgram(program)
   gl.bindBuffer(gl.ARRAY_BUFFER, buf)

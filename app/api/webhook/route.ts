@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/app/utils/supabase/admin'
+import { PRO_MONTHLY_REQUESTS } from '@/app/lib/planLimits'
 import Stripe from 'stripe'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
@@ -50,7 +51,7 @@ export async function POST(req: NextRequest) {
           .from('profiles')
           .update({
             is_pro: true,
-            requests_remaining: 1000,
+            requests_remaining: PRO_MONTHLY_REQUESTS,
             stripe_customer_id: session.customer as string,
             stripe_subscription_id: session.subscription as string,
           })

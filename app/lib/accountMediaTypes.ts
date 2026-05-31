@@ -11,6 +11,7 @@ export type AccountMediaAsset = {
   size_bytes: number
   duration_seconds: number | null
   object_key: string
+  content_hash: string | null
   created_at: string
   updated_at: string
 }

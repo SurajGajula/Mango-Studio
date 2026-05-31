@@ -5,6 +5,7 @@ import { createClient } from '@/app/utils/supabase/client'
 import type { User, SupabaseClient } from '@supabase/supabase-js'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
+import { PRO_MONTHLY_REQUESTS } from '@/app/lib/planLimits'
 
 interface Profile {
   id: string
@@ -65,6 +66,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const data = await request
       
       if (data) {
+        if (
+          !data.is_pro &&
+          !data.stripe_subscription_id &&
+          data.requests_remaining === PRO_MONTHLY_REQUESTS
+        ) {
+          await fetch('/api/profile/ensure', { method: 'POST' })
+          const { data: corrected, error: correctedError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', userId)
+            .single()
+          if (!correctedError && corrected) {
+            setProfile(corrected as Profile)
+            return
+          }
+        }
         setProfile(data)
       }
     } catch (err) {

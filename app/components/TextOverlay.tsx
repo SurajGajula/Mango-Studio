@@ -104,18 +104,13 @@ function TextOverlayComponent({
         height: overlayHeightPx,
         fontSize: text.fontSize * xScale,
         lineHeight: TEXT_LINE_HEIGHT,
-        color: isEditing
-          ? (text.style === 'highlight' ? '#ffffff' : (text.style === 'negative' ? '#ffffff' : text.color))
-          : 'transparent',
+        color: 'transparent',
         fontWeight: text.fontWeight,
         textAlign: text.textAlign as React.CSSProperties['textAlign'],
         fontFamily: resolveCanvasFont(text.fontFamily),
-        opacity: isEditing ? text.opacity : 1,
         transform: shakeTransform,
         transformOrigin: 'center',
-        mixBlendMode: isEditing && text.style === 'negative' ? 'difference' : 'normal',
-        backgroundColor: isEditing && (text.style === 'negative' || text.style === 'highlight') ? '#000000' : 'transparent',
-        textShadow: isEditing && text.style === 'normal' ? undefined : 'none',
+        textShadow: 'none',
         border: isEditing && (text.style === 'negative' || text.style === 'highlight') && !isSelected ? 'none' : undefined,
         boxSizing: 'border-box',
         overflow: 'visible',
@@ -166,7 +161,10 @@ function TextOverlayComponent({
             lineHeight: TEXT_LINE_HEIGHT,
             marginTop: -firstLineOffsetPx,
             height: overlayHeightPx + firstLineOffsetPx,
-            textShadow: (text.style === 'negative' || text.style === 'highlight') ? 'none' : undefined,
+            color: 'transparent',
+            WebkitTextFillColor: 'transparent',
+            caretColor: text.style === 'highlight' || text.style === 'negative' ? '#ffffff' : text.color,
+            textShadow: 'none',
           }}
           onChange={(e) => { editingContentRef.current = e.target.value; setEditingContent(e.target.value) }}
           ref={textareaRef}

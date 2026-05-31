@@ -15,6 +15,7 @@ function asset(overrides: Partial<AccountMediaAsset> & Pick<AccountMediaAsset, '
     size_bytes: 1,
     duration_seconds: 120,
     object_key: 'k',
+    content_hash: null,
     created_at: '',
     updated_at: '',
     ...overrides,

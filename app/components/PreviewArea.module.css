@@ -123,11 +123,6 @@
   border-radius: 2px;
   border: 1px solid transparent;
   transition: border-color 0.15s ease;
-  text-shadow:
-    -0.04em -0.04em 0.08em rgba(0,0,0,0.8),
-     0.04em -0.04em 0.08em rgba(0,0,0,0.8),
-    -0.04em  0.04em 0.08em rgba(0,0,0,0.8),
-     0.04em  0.04em 0.08em rgba(0,0,0,0.8);
 }
 
 .textOverlay:hover {
@@ -185,9 +180,4 @@
   margin: 0;
   overflow: hidden;
   vertical-align: top;
-  text-shadow:
-    -0.04em -0.04em 0.08em rgba(0,0,0,0.8),
-     0.04em -0.04em 0.08em rgba(0,0,0,0.8),
-    -0.04em  0.04em 0.08em rgba(0,0,0,0.8),
-     0.04em  0.04em 0.08em rgba(0,0,0,0.8);
 }

@@ -1,5 +1,10 @@
 import { create } from 'zustand'
 import { useManifestStore } from '@/app/stores/manifestStore'
+import {
+  manifestVideoTimelineSpanSeconds,
+  videoTrimmedSourceSpanSeconds,
+} from '@/app/lib/timeUtils'
+import { quantizeTimelineSeconds } from '@/app/lib/timeline/timelineQuantize'
 
 interface ContextMenuState {
   isOpen: boolean
@@ -76,12 +81,32 @@ export const useSelectionStore = create<SelectionStore>((set) => ({
     if (id) {
       const manifest = useManifestStore.getState()
       const v = manifest.videos.find((vv) => vv.id === id)
+      const timelineSpan = v ? manifestVideoTimelineSpanSeconds(v) : 0
+      const sourceSpan = v ? videoTrimmedSourceSpanSeconds(v) : 0
+      const clipEnd = v ? quantizeTimelineSeconds(v.timestamp + timelineSpan) : null
+      const sameRow = manifest.videos
+        .filter((vv) => vv.row === (v?.row ?? 0) && vv.id !== id)
+        .sort((a, b) => a.timestamp - b.timestamp)
+      const prev = sameRow
+        .filter((vv) => quantizeTimelineSeconds(vv.timestamp + manifestVideoTimelineSpanSeconds(vv)) <= (v?.timestamp ?? 0))
+        .pop()
+      const prevEnd = prev
+        ? quantizeTimelineSeconds(prev.timestamp + manifestVideoTimelineSpanSeconds(prev))
+        : null
+      const gapToPrev =
+        prevEnd != null && v ? quantizeTimelineSeconds(v.timestamp - prevEnd) : null
       const payload = {
         id,
         keyframeId,
         playbackTime: manifest.playbackTime,
         timestamp: v?.timestamp,
         duration: v?.duration,
+        timelineSpan,
+        sourceSpan,
+        clipEnd,
+        gapToPrev,
+        prevClipId: prev?.id ?? null,
+        prevClipUrl: prev?.url ?? prev?.sourceUrl ?? null,
         originalDuration: v?.originalDuration,
         trimStart: v?.trimStart,
         trimEnd: v?.trimEnd,

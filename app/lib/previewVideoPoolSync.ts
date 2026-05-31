@@ -1,5 +1,6 @@
 import type { MutableRefObject } from 'react'
 import { isTimelineScrubbingRef } from '@/app/lib/playbackClock'
+import { attachPreviewVideoFrameListeners, invalidatePreviewVideoFrameCache } from '@/app/lib/previewVideoFrameCache'
 import { setVideoCrossOriginForUrl } from '@/app/lib/mediaUtils'
 import { manifestVideoTimelineSpanSeconds } from '@/app/lib/timeUtils'
 import type { VideoClass } from '@/app/models/VideoClass'
@@ -208,7 +209,9 @@ export function syncManifestVideoPool(
 
       if (video) {
         removedElements.delete(video.src)
+        invalidatePreviewVideoFrameCache(video)
         setVideoCrossOriginForUrl(video, clipSrc)
+        attachPreviewVideoFrameListeners(video)
       } else {
         video = document.createElement('video')
         video.preload = inTimelineRange ? 'auto' : 'metadata'
@@ -227,8 +230,10 @@ export function syncManifestVideoPool(
         }
       }
       videoElementsRef.current.set(clip.id, video)
+      attachPreviewVideoFrameListeners(video)
     } else if (video && clipSrc && !videoElementSrcMatches(video, clipSrc) && isNearPlayhead) {
       video.pause()
+      invalidatePreviewVideoFrameCache(video)
       setVideoCrossOriginForUrl(video, clipSrc)
       video.src = clipSrc
       video.load()

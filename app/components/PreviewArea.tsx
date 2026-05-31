@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback, useState, useMemo, memo, type CSSProper
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useVideoPlayback } from '@/app/lib/useVideoPlayback'
+import { wakePreviewLoop } from '@/app/lib/playbackClock'
 import { useLivePlaybackTime } from '@/app/hooks/useLivePlaybackTime'
 import { usePreviewInteractions } from '@/app/hooks/preview/usePreviewInteractions'
 import { ImageClass } from '@/app/models/ImageClass'
@@ -112,7 +113,12 @@ export default function PreviewArea() {
     return measureCanvas.current.getContext('2d')!
   }, [])
 
-  const { contentRect } = useVideoPlayback(canvasRef, containerRef, editingTextId, true)
+  const textEditOverride = editingTextId ? { id: editingTextId, content: editingContent } : null
+  const { contentRect } = useVideoPlayback(canvasRef, containerRef, textEditOverride, true)
+
+  useEffect(() => {
+    if (editingTextId) wakePreviewLoop()
+  }, [editingTextId, editingContent])
 
   const videos = useManifestStore((state) => state.videos)
   const images = useManifestStore((state) => state.images)

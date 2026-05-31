@@ -1,0 +1,2 @@
+export const FREE_MONTHLY_REQUESTS = 100
+export const PRO_MONTHLY_REQUESTS = 1000

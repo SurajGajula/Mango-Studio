@@ -1,6 +1,8 @@
 import { PutObjectCommand } from '@aws-sdk/client-s3'
+import { randomUUID } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { getNextAccountMediaName } from '@/app/lib/accountMediaNaming'
+import { computeMediaContentHash, findExistingUploadedImage } from '@/app/lib/accountMediaDedup'
 import { ensureBgRemovedFolderId, findSystemFolderIds } from '@/app/lib/accountMediaSystemFolders'
 import { AccountMediaKind } from '@/app/lib/accountMediaTypes'
 import { getR2Client } from '@/app/lib/r2Client'
@@ -101,11 +103,39 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const arrayBuffer = await file.arrayBuffer()
+  const contentHash = kind === 'image' ? computeMediaContentHash(arrayBuffer) : null
+
+  if (kind === 'image' && storageScope === 'default') {
+    try {
+      const existingAsset = await findExistingUploadedImage(user.id, {
+        contentHash: contentHash!,
+        originalFilename: file.name,
+        mimeType: file.type,
+        sizeBytes: file.size,
+      })
+      if (existingAsset) {
+        return NextResponse.json({ asset: existingAsset, deduplicated: true })
+      }
+    } catch (error: any) {
+      return NextResponse.json({ error: error?.message ?? 'Failed to check for duplicate image' }, { status: 500 })
+    }
+  }
+
   const admin = createAdminClient()
-  const defaultName = await getNextAccountMediaName(user.id, kind)
+  let defaultName: string
+  try {
+    defaultName = await getNextAccountMediaName(user.id, kind)
+  } catch (error: any) {
+    return NextResponse.json({ error: error?.message ?? 'Failed to allocate media name' }, { status: 500 })
+  }
+
+  const assetId = randomUUID()
+  const objectKey = `${user.id}/${assetId}/${sanitizeFileName(file.name)}`
   const { data: insertedAsset, error: insertError } = await admin
     .from('media_assets')
     .insert({
+      id: assetId,
       user_id: user.id,
       folder_id: folderId,
       kind,
@@ -114,7 +144,8 @@ export async function POST(req: NextRequest) {
       mime_type: file.type,
       size_bytes: file.size,
       duration_seconds: durationSeconds,
-      object_key: 'pending',
+      object_key: objectKey,
+      content_hash: contentHash,
     })
     .select('*')
     .single()
@@ -123,10 +154,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: insertError?.message ?? 'Insert failed' }, { status: 500 })
   }
 
-  const objectKey = `${user.id}/${insertedAsset.id}/${sanitizeFileName(file.name)}`
-
   try {
-    const arrayBuffer = await file.arrayBuffer()
     await r2.client.send(
       new PutObjectCommand({
         Bucket: r2.bucketName,
@@ -140,20 +168,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error?.message ?? 'R2 upload failed' }, { status: 500 })
   }
 
-  const { data: updatedAsset, error: updateError } = await admin
-    .from('media_assets')
-    .update({
-      object_key: objectKey,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', insertedAsset.id)
-    .eq('user_id', user.id)
-    .select('*')
-    .single()
-
-  if (updateError || !updatedAsset) {
-    return NextResponse.json({ error: updateError?.message ?? 'Finalize failed' }, { status: 500 })
-  }
-
-  return NextResponse.json({ asset: updatedAsset })
+  return NextResponse.json({ asset: insertedAsset })
 }

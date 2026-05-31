@@ -32,6 +32,19 @@
   gap: 0.75rem;
 }
 
+.pricingLink {
+  color: rgba(255, 255, 255, 0.72);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 0.55rem 0.75rem;
+  transition: color 0.2s;
+}
+
+.pricingLink:hover {
+  color: #ffffff;
+}
+
 .signInButton {
   background: transparent;
   color: #ffffff;
@@ -71,14 +84,46 @@
   margin: 0 auto;
 }
 
+.taglineBlock {
+  text-align: center;
+  margin: 2rem 0 4.5rem;
+}
+
 .tagline {
   font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: clamp(2rem, 5vw, 3rem);
   font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1.15;
-  text-align: center;
-  margin: 2rem 0 4.5rem;
+  margin: 0;
+}
+
+.taglineFor {
+  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: clamp(1.25rem, 3vw, 1.75rem);
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.55);
+  margin: 0.35rem 0 0.15rem;
+}
+
+.priceRevealShell {
+  overflow: hidden;
+  height: clamp(3.25rem, 10vw, 5.5rem);
+  margin: 0.25rem 0 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.priceReveal {
+  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: clamp(3.25rem, 10vw, 5.5rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  margin: 0;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
 }
 
 .featureGrid {
@@ -156,7 +201,7 @@
     padding: 0.75rem 1.25rem 2.5rem;
   }
 
-  .tagline {
+  .taglineBlock {
     margin: 1.5rem 0 4rem;
   }
 

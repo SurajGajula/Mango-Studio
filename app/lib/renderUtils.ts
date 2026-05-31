@@ -2,6 +2,11 @@ import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
 import { resolveMediaKeyframeTransform } from '@/app/lib/resolveMediaKeyframeTransform'
+import {
+  previewVideoFrameReady,
+  resolvePreviewVideoDrawSource,
+  videoHasDecodedPreviewFrame,
+} from '@/app/lib/previewVideoFrameCache'
 import { manifestVideoTimelineSpanSeconds } from '@/app/lib/timeUtils'
 
 export interface MainItem {
@@ -70,8 +75,16 @@ export function getSortedRowItems(row: number, videos: VideoClass[], images: Ima
 }
 
 function videoHasDrawableFrame(el: HTMLVideoElement): boolean {
-  if (el.videoWidth <= 0 || el.videoHeight <= 0) return false
-  return el.readyState >= 1
+  return previewVideoFrameReady(el)
+}
+
+function resolveVideoDrawSource(
+  el: HTMLVideoElement
+): HTMLVideoElement | HTMLCanvasElement | null {
+  if (!el.seeking && videoHasDecodedPreviewFrame(el)) {
+    return el
+  }
+  return resolvePreviewVideoDrawSource(el)
 }
 
 function bitmapOrImageSize(el: HTMLImageElement | ImageBitmap): { w: number; h: number } {
@@ -149,8 +162,6 @@ export function renderClipTransitionPair(
     }
   }
 
-  if (!nextEl || !nextParams) return false
-
   let curEl: HTMLVideoElement | HTMLImageElement | ImageBitmap | null = null
   let curParams: typeof nextParams | undefined
 
@@ -193,6 +204,72 @@ export function renderClipTransitionPair(
 
   if (!curEl || !curParams) return false
 
+  const curDraw =
+    activeClip.type === 'video'
+      ? resolveVideoDrawSource(curEl as HTMLVideoElement)
+      : curEl
+  if (!curDraw) return false
+
+  const nextDraw =
+    nextEl && nextClip.type === 'video'
+      ? resolveVideoDrawSource(nextEl as HTMLVideoElement)
+      : nextEl
+
+  if (!nextEl || !nextParams || !nextDraw) {
+    if (nextClip.item.transition === 'morph') {
+      const activeItem = activeClip.item
+      const progA = calculateAnimationProgress(activeItem, t, activeClip.startTime)
+      const ka =
+        activeClip.type === 'video'
+          ? resolveMediaKeyframeTransform(activeItem as VideoClass, elapsedA, (activeItem as VideoClass).duration ?? 0)
+          : resolveMediaKeyframeTransform(activeItem as ImageClass, elapsedA, (activeItem as ImageClass).duration)
+      applyZoomTransform(
+        ctx,
+        activeItem.animation,
+        'none',
+        progA,
+        curDraw,
+        curParams.x,
+        curParams.y,
+        curParams.w,
+        curParams.h,
+        ka.cropSx,
+        ka.cropSy,
+        ka.cropSw,
+        ka.cropSh,
+        ka.zoomIntensity,
+        activeItem.duration,
+        activeItem.animationDuration,
+        elapsedA,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        activeItem.transitionColor,
+        activeItem.transitionFlashMode,
+        activeItem.transitionDirection,
+        activeItem.transitionAxis,
+        activeItem.transitionSlideEasing,
+        activeItem.transitionCircleEasing,
+        activeItem.transitionWipeEasing,
+        activeItem.animationZoomEasing,
+        undefined,
+        activeItem.zoomDistanceIntensity,
+        undefined,
+        activeItem.flipHorizontal,
+        activeItem.flipVertical,
+        false,
+        false
+      )
+      return true
+    }
+    return false
+  }
+
   const nextItem = nextClip.item
   const activeItem = activeClip.item
   const progB = calculateAnimationProgress(nextItem, t, nextClip.startTime)
@@ -230,7 +307,7 @@ export function renderClipTransitionPair(
       activeItem.animation,
       'none',
       progA,
-      curEl,
+      curDraw,
       curParams.x,
       curParams.y,
       curParams.w,
@@ -277,7 +354,7 @@ export function renderClipTransitionPair(
       nextItem.animation,
       'none',
       progB,
-      nextEl,
+      nextDraw,
       nextParams.x,
       nextParams.y,
       nextParams.w,
@@ -323,7 +400,7 @@ export function renderClipTransitionPair(
     nextItem.animation,
     nextItem.transition,
     transProgress,
-    nextEl,
+    nextDraw!,
     nextParams.x,
     nextParams.y,
     nextParams.w,
@@ -336,7 +413,7 @@ export function renderClipTransitionPair(
     nextItem.duration,
     nextItem.animationDuration,
     elapsedB,
-    curEl,
+    curDraw,
     activeItem.animation,
     progA,
     elapsedA,

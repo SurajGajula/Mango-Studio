@@ -29,7 +29,7 @@ function withFlipAroundRect(
   ctx.restore()
 }
 
-export function drawWithAnimation(params: TransformParams, imgEl: HTMLImageElement | HTMLVideoElement | ImageBitmap, animation: AnimationMode, progress: number, elapsedTime: number, zoomIntensity: number, itemDuration?: number, animationDuration?: number, zoomDistanceIntensity = 1): void {
+export function drawWithAnimation(params: TransformParams, imgEl: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement | ImageBitmap, animation: AnimationMode, progress: number, elapsedTime: number, zoomIntensity: number, itemDuration?: number, animationDuration?: number, zoomDistanceIntensity = 1): void {
   const animationParams: TransformParams = {
     ...params,
     imgEl,

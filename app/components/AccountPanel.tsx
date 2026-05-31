@@ -15,6 +15,8 @@ import { UserProject } from '@/app/lib/projectTypes'
 import styles from './AccountPanel.module.css'
 
 type NameModalState =
+  | { type: 'new-project' }
+  | { type: 'rename-project'; initialValue: string }
   | { type: 'new-folder' }
   | { type: 'rename-folder'; folderId: string; initialValue: string }
   | { type: 'rename-asset'; assetId: string; initialValue: string }
@@ -91,47 +93,6 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
   const handleSignOut = async () => {
     if (supabase) {
       await supabase.auth.signOut()
-    }
-  }
-
-  const handleCreateProject = async () => {
-    const name = window.prompt('Project name')
-    if (!name || name.trim().length === 0) return
-    try {
-      const response = await fetch('/api/projects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim() }),
-      })
-      const body = await response.json().catch(() => null)
-      if (!response.ok || !body?.project?.id) {
-        throw new Error(body?.error ?? 'Failed to create project')
-      }
-      window.dispatchEvent(new Event('projects-updated'))
-      onSelectProject(body.project.id)
-    } catch (err: any) {
-      alert(err?.message ?? 'Failed to create project')
-    }
-  }
-
-  const handleRenameProject = async () => {
-    if (!activeProjectId) return
-    const current = projects.find((project) => project.id === activeProjectId)
-    const name = window.prompt('Rename project', current?.name ?? '')
-    if (!name || name.trim().length === 0) return
-    try {
-      const response = await fetch('/api/projects', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: activeProjectId, name: name.trim() }),
-      })
-      const body = await response.json().catch(() => null)
-      if (!response.ok || !body?.project?.id) {
-        throw new Error(body?.error ?? 'Failed to rename project')
-      }
-      window.dispatchEvent(new Event('projects-updated'))
-    } catch (err: any) {
-      alert(err?.message ?? 'Failed to rename project')
     }
   }
 
@@ -302,10 +263,20 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
               <button type="button" className={styles.mediaActionButton} onClick={() => setProjectModalOpen(true)} disabled={projects.length === 0}>
                 Open
               </button>
-              <button type="button" className={styles.mediaActionButton} onClick={handleCreateProject}>
+              <button type="button" className={styles.mediaActionButton} onClick={() => setNameModal({ type: 'new-project' })}>
                 New
               </button>
-              <button type="button" className={styles.mediaActionButton} onClick={handleRenameProject} disabled={!activeProjectId}>
+              <button
+                type="button"
+                className={styles.mediaActionButton}
+                onClick={() =>
+                  setNameModal({
+                    type: 'rename-project',
+                    initialValue: projects.find((project) => project.id === activeProjectId)?.name ?? '',
+                  })
+                }
+                disabled={!activeProjectId}
+              >
                 Rename
               </button>
               <button
@@ -510,6 +481,50 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
           itemName={deleteModal.name}
           onClose={() => setDeleteModal(null)}
           onConfirm={() => deleteAsset(deleteModal.assetId)}
+        />
+      ) : null}
+
+      {nameModal?.type === 'new-project' ? (
+        <MediaNameModal
+          title="New project"
+          initialValue=""
+          confirmLabel="Create"
+          onClose={() => setNameModal(null)}
+          onConfirm={async (name) => {
+            const response = await fetch('/api/projects', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name }),
+            })
+            const body = await response.json().catch(() => null)
+            if (!response.ok || !body?.project?.id) {
+              throw new Error(body?.error ?? 'Failed to create project')
+            }
+            window.dispatchEvent(new Event('projects-updated'))
+            onSelectProject(body.project.id)
+          }}
+        />
+      ) : null}
+
+      {nameModal?.type === 'rename-project' ? (
+        <MediaNameModal
+          title="Rename project"
+          initialValue={nameModal.initialValue}
+          confirmLabel="Save"
+          onClose={() => setNameModal(null)}
+          onConfirm={async (name) => {
+            if (!activeProjectId) throw new Error('No project selected')
+            const response = await fetch('/api/projects', {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ projectId: activeProjectId, name }),
+            })
+            const body = await response.json().catch(() => null)
+            if (!response.ok || !body?.project?.id) {
+              throw new Error(body?.error ?? 'Failed to rename project')
+            }
+            window.dispatchEvent(new Event('projects-updated'))
+          }}
         />
       ) : null}
 

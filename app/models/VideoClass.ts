@@ -121,8 +121,8 @@ export class VideoClass {
     this.url = url
     this.duration = duration
     this.originalDuration = originalDuration ?? duration
-    this.trimStart = trimStart ?? 0
-    this.trimEnd = trimEnd ?? 0
+    this.trimStart = quantizeTimelineSeconds(trimStart ?? 0)
+    this.trimEnd = quantizeTimelineSeconds(trimEnd ?? 0)
     this.timestamp = timestamp ?? 0
     this.prompt = prompt
     this.createdAt = createdAt || new Date()
@@ -239,8 +239,8 @@ export class VideoClass {
       updates.createdAt ?? this.createdAt,
       updates.updatedAt ?? this.updatedAt,
       quantizeOptionalTimelineSeconds(updates.originalDuration ?? this.originalDuration),
-      updates.trimStart ?? this.trimStart,
-      updates.trimEnd ?? this.trimEnd,
+      quantizeTimelineSeconds(updates.trimStart ?? this.trimStart),
+      quantizeTimelineSeconds(updates.trimEnd ?? this.trimEnd),
       updates.prompt ?? this.prompt,
       typeof updates.x === 'number' && Number.isFinite(updates.x) ? updates.x : this.x,
       typeof updates.y === 'number' && Number.isFinite(updates.y) ? updates.y : this.y,

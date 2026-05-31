@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/app/utils/supabase/server'
 import { getGenAIClient } from '@/app/lib/genaiClient'
+import { PRO_MONTHLY_REQUESTS } from '@/app/lib/planLimits'
 import { audioMarksAbsoluteTimelinePositions } from '@/app/lib/audioMarkTimeline'
 import { tools, systemInstruction, FunctionCallingConfigMode } from '@/app/lib/routePromptConfig'
 
@@ -399,7 +400,7 @@ export async function POST(request: NextRequest) {
     if (profile.requests_remaining <= 0) {
       return NextResponse.json({ 
         error: profile.is_pro 
-          ? 'Pro request limit reached (1000). Please contact support for more.' 
+          ? `Pro request limit reached (${PRO_MONTHLY_REQUESTS}). Please contact support for more.` 
           : 'Request limit reached. Please upgrade to Pro for more requests.',
         limitReached: true 
       }, { status: 403 })

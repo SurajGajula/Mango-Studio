@@ -1,7 +1,9 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import AuthModal from './modals/AuthModal'
+import PriceReveal from './PriceReveal'
 import styles from './SplashPage.module.css'
 
 const FEATURES = [
@@ -86,6 +88,9 @@ export default function SplashPage() {
       <header className={styles.header}>
         <h1 className={styles.logo}>Mango Studio</h1>
         <div className={styles.headerActions}>
+          <Link href="/pricing" className={styles.pricingLink}>
+            Pricing
+          </Link>
           <button type="button" className={styles.signInButton} onClick={openSignIn}>
             Sign in
           </button>
@@ -96,7 +101,11 @@ export default function SplashPage() {
       </header>
 
       <main className={styles.features}>
-        <h2 className={styles.tagline}>Make Viral Videos for Free</h2>
+        <div className={styles.taglineBlock}>
+          <h2 className={styles.tagline}>Make Viral Videos</h2>
+          <p className={styles.taglineFor}>for</p>
+          <PriceReveal />
+        </div>
         <div className={styles.featureGrid}>
           {FEATURES.map((feature) => (
             <article

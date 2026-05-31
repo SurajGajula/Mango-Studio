@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/app/utils/supabase/server'
+import { ensureUserProfile } from '@/app/lib/ensureUserProfile'
 
 function getPostAuthRedirectOrigin(request: Request): string {
   const url = new URL(request.url)
@@ -32,8 +33,9 @@ export async function GET(request: Request) {
 
   if (code) {
     const supabase = await createClient()
-    const { error } = await supabase.auth.exchangeCodeForSession(code)
-    if (!error) {
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code)
+    if (!error && data.user) {
+      await ensureUserProfile(data.user.id)
       return NextResponse.redirect(`${redirectOrigin}${next}`)
     }
   }

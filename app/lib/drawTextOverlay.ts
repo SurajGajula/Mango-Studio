@@ -24,6 +24,51 @@ export interface TextOverlayLayout {
   firstLineOffsetPx: number
 }
 
+const TEXT_OUTLINE_SHADOW_OFFSET_EM = 0.04
+const TEXT_OUTLINE_SHADOW_BLUR_EM = 0.08
+const TEXT_OUTLINE_SHADOW_COLOR = 'rgba(0,0,0,0.8)'
+
+function drawTextWithOutlineShadow(
+  ctx: CanvasRenderingContext2D,
+  fontPx: number,
+  fillStyle: string,
+  draw: () => void
+): void {
+  const blur = fontPx * TEXT_OUTLINE_SHADOW_BLUR_EM
+  const offset = fontPx * TEXT_OUTLINE_SHADOW_OFFSET_EM
+  const offsets: [number, number][] = [
+    [-offset, -offset],
+    [offset, -offset],
+    [-offset, offset],
+    [offset, offset],
+  ]
+
+  ctx.save()
+  if (typeof ctx.filter === 'string') {
+    ctx.filter = `blur(${blur}px)`
+    ctx.fillStyle = TEXT_OUTLINE_SHADOW_COLOR
+    for (const [ox, oy] of offsets) {
+      ctx.save()
+      ctx.translate(ox, oy)
+      draw()
+      ctx.restore()
+    }
+    ctx.filter = 'none'
+  } else {
+    ctx.shadowColor = TEXT_OUTLINE_SHADOW_COLOR
+    ctx.shadowBlur = blur * 2
+    ctx.shadowOffsetX = 0
+    ctx.shadowOffsetY = 0
+    ctx.fillStyle = fillStyle
+    draw()
+    ctx.shadowColor = 'transparent'
+    ctx.shadowBlur = 0
+  }
+  ctx.fillStyle = fillStyle
+  draw()
+  ctx.restore()
+}
+
 export function measureTextOverlayLayout(
   ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   text: TextClass,
@@ -84,10 +129,6 @@ export function drawTextOverlay(
     ctx.fillRect(cr.x + text.x * xScale, textY, text.width * xScale, lines.length * lineHeight)
     ctx.fillStyle = '#ffffff'
   } else {
-    ctx.shadowColor = '#000000'
-    ctx.shadowBlur = fontPx * 0.12
-    ctx.shadowOffsetX = 0
-    ctx.shadowOffsetY = 0
     ctx.fillStyle = text.color
   }
   const drawTextLines = () => {
@@ -127,9 +168,16 @@ export function drawTextOverlay(
     }
     ctx.textAlign = savedAlign
   }
+  const drawStyledText = () => {
+    if (text.style === 'normal') {
+      drawTextWithOutlineShadow(ctx, fontPx, text.color, drawTextLines)
+      return
+    }
+    drawTextLines()
+  }
   const drawWithOptionalShake = () => {
     if (text.animation !== 'shake') {
-      drawTextLines()
+      drawStyledText()
       return
     }
     const duration = Math.max(0.001, text.endTime - text.startTime)
@@ -146,7 +194,7 @@ export function drawTextOverlay(
     ctx.translate(centerX + shiftX, centerY + shiftY)
     ctx.rotate(rotate)
     ctx.translate(-centerX, -centerY)
-    drawTextLines()
+    drawStyledText()
     ctx.restore()
   }
   drawWithOptionalShake()

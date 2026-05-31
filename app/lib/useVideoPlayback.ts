@@ -74,12 +74,19 @@ function isAudioElementReady(el: HTMLAudioElement): boolean {
 
 type PersistenceCanvasMap = Map<string, { current: HTMLCanvasElement; accumulation: HTMLCanvasElement }>
 
+export interface TextEditOverride {
+  id: string
+  content: string
+}
+
 export function useVideoPlayback(
   canvasRef: React.RefObject<HTMLCanvasElement>,
   containerRef: React.RefObject<HTMLDivElement>,
-  hiddenTextId?: string | null,
+  textEditOverride?: TextEditOverride | null,
   renderTextsInCanvas: boolean = true
 ) {
+  const textEditOverrideRef = useRef(textEditOverride)
+  textEditOverrideRef.current = textEditOverride
   const engineRef = useRef<VideoRenderingEngine | null>(null)
   if (!engineRef.current) engineRef.current = new VideoRenderingEngine()
 
@@ -245,9 +252,8 @@ export function useVideoPlayback(
 
     const currentIds = new Set(images.map((o) => o.id))
 
-    imageBitmapsRef.current.forEach((bitmap, id) => {
+    imageBitmapsRef.current.forEach((_bitmap, id) => {
       if (!currentIds.has(id)) {
-        bitmap.close()
         imageBitmapsRef.current.delete(id)
         imageUrlsRef.current.delete(id)
       }
@@ -855,7 +861,13 @@ export function useVideoPlayback(
             videos: state.videos,
             images: state.images,
             texts: renderTextsInCanvas
-              ? (hiddenTextId ? state.texts.filter((text) => text.id !== hiddenTextId) : state.texts)
+              ? (() => {
+                  const override = textEditOverrideRef.current
+                  if (!override) return state.texts
+                  return state.texts.map((text) =>
+                    text.id === override.id ? text.copy({ content: override.content }) : text
+                  )
+                })()
               : [],
             effects: state.effects
           }
@@ -947,7 +959,7 @@ export function useVideoPlayback(
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
       rafRef.current = null
     }
-  }, [getState, canvasRef, containerRef, getAudioCtx, hiddenTextId, renderTextsInCanvas, rebuildAllPreviewAudios, prefetchImagesNearPlayhead, purgePreviewVideoPool])
+  }, [getState, canvasRef, containerRef, getAudioCtx, renderTextsInCanvas, rebuildAllPreviewAudios, prefetchImagesNearPlayhead, purgePreviewVideoPool])
 
   useEffect(() => { return () => { 
     videoElementsRef.current.forEach((_, id) => {
@@ -959,7 +971,6 @@ export function useVideoPlayback(
       )
     })
     videoReleaseDeadlinesRef.current.clear()
-    imageBitmapsRef.current.forEach((bitmap) => bitmap.close())
     imageBitmapsRef.current.clear()
     urlCacheRef.current.forEach((bitmap) => bitmap.close())
     urlCacheRef.current.clear()

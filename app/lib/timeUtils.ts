@@ -2,17 +2,70 @@ import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { TextClass } from '@/app/models/TextClass'
 import { AudioClass } from '@/app/models/AudioClass'
+import { quantizeTimelineSeconds } from '@/app/lib/timeline/timelineQuantize'
 
 const PROVISIONAL_VIDEO_TIMELINE_SPAN_SEC = 120
 
-export function manifestVideoTimelineSpanSeconds(video: VideoClass): number {
-  const d = video.duration
-  if (d != null && d > 1e-9) return d
-  const od = video.originalDuration
-  if (od != null && od > 1e-9) {
-    const avail = od - (video.trimStart ?? 0) - (video.trimEnd ?? 0)
-    if (avail > 1e-9) return avail / (video.playbackSpeed ?? 1)
+export function videoTrimmedSourceSpanSeconds(video: VideoClass): number {
+  const od = quantizeTimelineSeconds(video.originalDuration ?? 0)
+  if (od <= 1e-9) return 0
+  const trimStart = quantizeTimelineSeconds(video.trimStart ?? 0)
+  const trimEnd = quantizeTimelineSeconds(video.trimEnd ?? 0)
+  return quantizeTimelineSeconds(Math.max(0, od - trimStart - trimEnd))
+}
+
+type VideoTrimSyncFields = Pick<
+  VideoClass,
+  'originalDuration' | 'trimStart' | 'trimEnd' | 'playbackSpeed' | 'duration' | 'sourceDuration'
+>
+
+export function syncVideoTrimDerivedFields(
+  video: VideoTrimSyncFields,
+  updates: Partial<VideoTrimSyncFields>
+): Partial<VideoTrimSyncFields> {
+  const orig = quantizeTimelineSeconds(
+    updates.originalDuration ?? video.originalDuration ?? video.duration ?? 0
+  )
+  const trimStart = quantizeTimelineSeconds(updates.trimStart ?? video.trimStart ?? 0)
+  const playbackSpeed = updates.playbackSpeed ?? video.playbackSpeed ?? 1
+  const trimTouched =
+    updates.trimStart !== undefined ||
+    updates.trimEnd !== undefined ||
+    updates.originalDuration !== undefined
+  const durationTouched = updates.duration !== undefined
+  const speedTouched = updates.playbackSpeed !== undefined
+
+  if (trimTouched && !durationTouched) {
+    const trimEnd = quantizeTimelineSeconds(updates.trimEnd ?? video.trimEnd ?? 0)
+    const sourceDuration = quantizeTimelineSeconds(Math.max(0, orig - trimStart - trimEnd))
+    const duration = quantizeTimelineSeconds(sourceDuration / playbackSpeed)
+    return { ...updates, originalDuration: orig, trimStart, trimEnd, sourceDuration, duration }
   }
+
+  if (durationTouched) {
+    const duration = quantizeTimelineSeconds(updates.duration ?? video.duration ?? 0)
+    const sourceDuration = quantizeTimelineSeconds(duration * playbackSpeed)
+    const trimEnd = quantizeTimelineSeconds(Math.max(0, orig - trimStart - sourceDuration))
+    return { ...updates, originalDuration: orig, trimStart, trimEnd, sourceDuration, duration }
+  }
+
+  if (speedTouched) {
+    const trimEnd = quantizeTimelineSeconds(updates.trimEnd ?? video.trimEnd ?? 0)
+    const sourceDuration = quantizeTimelineSeconds(Math.max(0, orig - trimStart - trimEnd))
+    const duration = quantizeTimelineSeconds(sourceDuration / playbackSpeed)
+    return { ...updates, originalDuration: orig, trimStart, trimEnd, sourceDuration, duration }
+  }
+
+  return updates
+}
+
+export function manifestVideoTimelineSpanSeconds(video: VideoClass): number {
+  const fromTrims = videoTrimmedSourceSpanSeconds(video)
+  if (fromTrims > 1e-9) {
+    return quantizeTimelineSeconds(fromTrims / (video.playbackSpeed ?? 1))
+  }
+  const d = video.duration
+  if (d != null && d > 1e-9) return quantizeTimelineSeconds(d)
   if (video.url || video.sourceUrl) return PROVISIONAL_VIDEO_TIMELINE_SPAN_SEC
   return 0
 }

@@ -658,6 +658,8 @@ export default function ChatWindow() {
   }
 
   const applyReplacements = async (replacements: ReplaceInstruction[], files: UploadedFile[]) => {
+    const uploadedUrlByFileIndex = new Map<number, string>()
+
     for (const r of replacements) {
       const file = files[r.fileIndex]
       if (!file) continue
@@ -681,14 +683,18 @@ export default function ChatWindow() {
         }
         await applyVideoReplacement(r.targetId, file, sourceUrl)
       } else {
-        const blob = new Blob(
-          [Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0))],
-          { type: file.mimeType }
-        )
-        const uploadFile = new File([blob], file.name, { type: file.mimeType })
-        void uploadToAccountLibrary(uploadFile)
-        const url = URL.createObjectURL(blob)
-        await applyReplacementWithUrl(r.targetId, url, file.name)
+        let sourceUrl = uploadedUrlByFileIndex.get(r.fileIndex)
+        if (!sourceUrl) {
+          const blob = new Blob(
+            [Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0))],
+            { type: file.mimeType }
+          )
+          const uploadFile = new File([blob], file.name, { type: file.mimeType })
+          const assetId = await uploadToAccountLibrary(uploadFile)
+          sourceUrl = assetId ? accountMediaAssetPlaybackUrl(assetId) : URL.createObjectURL(blob)
+          uploadedUrlByFileIndex.set(r.fileIndex, sourceUrl)
+        }
+        await applyReplacementWithUrl(r.targetId, sourceUrl, file.name)
       }
     }
   }

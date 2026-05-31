@@ -43,11 +43,14 @@ export default function AuthModal({ onClose, initialSignUp = false }: AuthModalP
         if (signUpError) throw signUpError
         setShowConfirmation(true)
       } else {
-        const { error: signInError } = await supabase.auth.signInWithPassword({
+        const { data, error: signInError } = await supabase.auth.signInWithPassword({
           email,
           password,
         })
         if (signInError) throw signInError
+        if (data.session) {
+          onClose()
+        }
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'An error occurred during authentication.'

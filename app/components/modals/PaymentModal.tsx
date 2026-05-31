@@ -3,6 +3,12 @@
 import { useState } from 'react'
 import { useAuth } from '../AuthProvider'
 import { CenteredModal } from '@/app/components/ui/CenteredModal'
+import {
+  PRO_MONTHLY_PRICE_ID,
+  PRO_YEARLY_PRICE_ID,
+  PRO_PLAN_FEATURES,
+  startProCheckout,
+} from '@/app/lib/pricingPlans'
 import styles from './PaymentModal.module.css'
 
 interface PaymentModalProps {
@@ -18,20 +24,7 @@ export default function PaymentModal({ onClose }: PaymentModalProps) {
 
     setLoading(priceId)
     try {
-      const response = await fetch('/api/checkout', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ priceId }),
-      })
-
-      const data = await response.json()
-      if (data.url) {
-        window.location.href = data.url
-      } else {
-        throw new Error(data.error || 'Failed to create checkout session')
-      }
+      await startProCheckout(priceId)
     } catch (error) {
       console.error('Checkout error:', error)
       alert('Checkout failed. Please try again later.')
@@ -40,14 +33,11 @@ export default function PaymentModal({ onClose }: PaymentModalProps) {
     }
   }
 
-  const MONTHLY_PRICE_ID = 'price_1TDHic3IV9DJPgcHmATr9iJ5'
-  const YEARLY_PRICE_ID = 'price_1TDHim3IV9DJPgcHJwCEcKuh'
-
   return (
     <CenteredModal onClose={onClose} size="wide">
       <div className={styles.header}>
         <h2>Upgrade to Pro</h2>
-        <p>Unleash the full potential of Mango Studio with unlimited AI editing.</p>
+        <p>Unleash the full potential of Mango Studio with more AI editing power.</p>
       </div>
 
       <div className={styles.plansGrid}>
@@ -57,27 +47,17 @@ export default function PaymentModal({ onClose }: PaymentModalProps) {
             $0.99<span>/month</span>
           </div>
           <ul className={styles.features}>
-            <li className={styles.featureItem}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              Unlimited AI editing requests
-            </li>
-            <li className={styles.featureItem}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              Priority processing
-            </li>
-            <li className={styles.featureItem}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              1080p 60fps exports
-            </li>
+            {PRO_PLAN_FEATURES.map((feature) => (
+              <li key={feature} className={styles.featureItem}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                {feature}
+              </li>
+            ))}
           </ul>
-          <button className={styles.subscribeButton} onClick={() => handleCheckout(MONTHLY_PRICE_ID)} disabled={!!loading}>
-            {loading === MONTHLY_PRICE_ID ? 'Processing...' : 'Subscribe Now'}
+          <button className={styles.subscribeButton} onClick={() => handleCheckout(PRO_MONTHLY_PRICE_ID)} disabled={!!loading}>
+            {loading === PRO_MONTHLY_PRICE_ID ? 'Processing...' : 'Subscribe Now'}
           </button>
         </div>
 
@@ -107,8 +87,8 @@ export default function PaymentModal({ onClose }: PaymentModalProps) {
               First to get new features
             </li>
           </ul>
-          <button className={styles.subscribeButton} onClick={() => handleCheckout(YEARLY_PRICE_ID)} disabled={!!loading}>
-            {loading === YEARLY_PRICE_ID ? 'Processing...' : 'Subscribe Now'}
+          <button className={styles.subscribeButton} onClick={() => handleCheckout(PRO_YEARLY_PRICE_ID)} disabled={!!loading}>
+            {loading === PRO_YEARLY_PRICE_ID ? 'Processing...' : 'Subscribe Now'}
           </button>
         </div>
       </div>

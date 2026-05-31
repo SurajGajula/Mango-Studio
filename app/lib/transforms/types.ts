@@ -12,7 +12,7 @@ export interface TransformParams {
   animation: AnimationMode;
   transition: TransitionMode;
   progress: number;
-  imgEl: HTMLImageElement | HTMLVideoElement | ImageBitmap;
+  imgEl: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement | ImageBitmap;
   x: number;
   y: number;
   w: number;
@@ -27,7 +27,7 @@ export interface TransformParams {
   animationDuration?: number;
   animationZoomEasing?: AnimationZoomEasing;
   elapsedTime: number;
-  prevEl?: HTMLImageElement | HTMLVideoElement | ImageBitmap;
+  prevEl?: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement | ImageBitmap;
   prevAnimation?: AnimationMode;
   prevAnimationProgress?: number;
   prevElapsedTime?: number;
