@@ -2,7 +2,7 @@ import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { randomUUID } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { getNextAccountMediaName } from '@/app/lib/accountMediaNaming'
-import { computeMediaContentHash, findExistingUploadedImage } from '@/app/lib/accountMediaDedup'
+import { computeMediaContentHash, findExistingUploadedAsset } from '@/app/lib/accountMediaDedup'
 import { ensureBgRemovedFolderId, findSystemFolderIds } from '@/app/lib/accountMediaSystemFolders'
 import { AccountMediaKind } from '@/app/lib/accountMediaTypes'
 import { getR2Client } from '@/app/lib/r2Client'
@@ -104,12 +104,13 @@ export async function POST(req: NextRequest) {
   }
 
   const arrayBuffer = await file.arrayBuffer()
-  const contentHash = kind === 'image' ? computeMediaContentHash(arrayBuffer) : null
+  const contentHash = computeMediaContentHash(arrayBuffer)
 
-  if (kind === 'image' && storageScope === 'default') {
+  if (storageScope === 'default') {
     try {
-      const existingAsset = await findExistingUploadedImage(user.id, {
-        contentHash: contentHash!,
+      const existingAsset = await findExistingUploadedAsset(user.id, {
+        kind,
+        contentHash,
         originalFilename: file.name,
         mimeType: file.type,
         sizeBytes: file.size,
@@ -118,7 +119,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ asset: existingAsset, deduplicated: true })
       }
     } catch (error: any) {
-      return NextResponse.json({ error: error?.message ?? 'Failed to check for duplicate image' }, { status: 500 })
+      return NextResponse.json({ error: error?.message ?? 'Failed to check for duplicate media' }, { status: 500 })
     }
   }
 
