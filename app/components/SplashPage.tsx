@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import AuthModal from './modals/AuthModal'
 import PriceReveal from './PriceReveal'
+import { useIsMobileViewport } from '@/app/hooks/useIsMobileViewport'
 import styles from './SplashPage.module.css'
 
 const FEATURES = [
@@ -70,8 +71,16 @@ const FEATURES = [
 ] as const
 
 export default function SplashPage() {
+  const isMobile = useIsMobileViewport()
   const [authOpen, setAuthOpen] = useState(false)
   const [signUpMode, setSignUpMode] = useState(false)
+  const [linkCopied, setLinkCopied] = useState(false)
+
+  const copySiteLink = async () => {
+    await navigator.clipboard.writeText(window.location.origin)
+    setLinkCopied(true)
+    window.setTimeout(() => setLinkCopied(false), 2000)
+  }
 
   const openSignIn = () => {
     setSignUpMode(false)
@@ -85,6 +94,16 @@ export default function SplashPage() {
 
   return (
     <div className={styles.page}>
+      {isMobile ? (
+        <div className={styles.mobileNotice}>
+          <p className={styles.mobileNoticeText}>
+            Mango Studio is built for desktop. Open this page on your computer to edit.
+          </p>
+          <button type="button" className={styles.mobileNoticeButton} onClick={copySiteLink}>
+            {linkCopied ? 'Link copied' : 'Copy link'}
+          </button>
+        </div>
+      ) : null}
       <header className={styles.header}>
         <h1 className={styles.logo}>Mango Studio</h1>
         <div className={styles.headerActions}>
