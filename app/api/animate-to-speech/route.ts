@@ -31,7 +31,7 @@ interface AnimateToSpeechRequest {
 
 export async function POST(request: NextRequest) {
   try {
-    const auth = await requireProUser()
+    const auth = await requireProUser({ consumeQuota: true })
     if ('error' in auth) return auth.error
 
     const body: AnimateToSpeechRequest = await request.json()

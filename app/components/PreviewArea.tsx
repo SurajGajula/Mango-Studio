@@ -112,7 +112,12 @@ export default function PreviewArea() {
     return measureCanvas.current.getContext('2d')!
   }, [])
 
-  const { contentRect } = useVideoPlayback(canvasRef, containerRef, null, false)
+  const textEditOverride = useMemo(
+    () => (editingTextId ? { id: editingTextId, content: editingContent } : null),
+    [editingTextId, editingContent]
+  )
+
+  const { contentRect } = useVideoPlayback(canvasRef, containerRef, textEditOverride)
 
   const videos = useManifestStore((state) => state.videos)
   const images = useManifestStore((state) => state.images)

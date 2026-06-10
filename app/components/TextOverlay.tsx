@@ -4,7 +4,6 @@ import { memo, useRef, useLayoutEffect, useEffect, useMemo } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { TextClass } from '@/app/models/TextClass'
-import { getAnimatedVisibleContent } from '@/app/lib/textUtils'
 import { measureTextOverlayLayout, resolveCanvasFont, TEXT_LINE_HEIGHT } from '@/app/lib/drawTextOverlay'
 import styles from './PreviewArea.module.css'
 
@@ -51,18 +50,6 @@ function TextOverlayComponent({
 
   const isSelected = selectedTextId === text.id
   const isEditing = editingTextId === text.id
-  const rawContent = text.content || 'Text'
-  const displayContent =
-    (text.animation === 'keyboard' || text.animation === 'speech') && !isEditing
-      ? getAnimatedVisibleContent(
-          rawContent,
-          text.startTime,
-          text.endTime,
-          playbackTime,
-          text.animation,
-          text.wordTimings
-        )
-      : rawContent
   const layout = useMemo(() => {
     if (xScale <= 0) return null
     const content = isEditing ? editingContent : text.content
@@ -70,8 +57,8 @@ function TextOverlayComponent({
   }, [text, isEditing, editingContent, xScale, getMeasureCtx])
   const overlayHeightPx = layout?.totalHeightPx ?? text.height * yScale
   const firstLineOffsetPx = layout?.firstLineOffsetPx ?? 0
-  const textColor =
-    text.style === 'highlight' ? '#ffffff' : text.style === 'negative' ? '#ffffff' : text.color
+  const editTextColor =
+    text.style === 'highlight' || text.style === 'negative' ? '#ffffff' : text.color
   const shakeTransform =
     text.animation === 'shake' && !isEditing
       ? (() => {
@@ -119,17 +106,17 @@ function TextOverlayComponent({
         height: overlayHeightPx,
         fontSize: text.fontSize * xScale,
         lineHeight: TEXT_LINE_HEIGHT,
-        color: textColor,
+        color: isEditing ? editTextColor : 'transparent',
         fontWeight: text.fontWeight,
         textAlign: text.textAlign as React.CSSProperties['textAlign'],
         fontFamily: resolveCanvasFont(text.fontFamily),
-        opacity: text.opacity,
+        opacity: isEditing ? text.opacity : 1,
         transform: shakeTransform,
         transformOrigin: 'center',
-        mixBlendMode: text.style === 'negative' ? 'difference' : 'normal',
-        backgroundColor: text.style === 'negative' || text.style === 'highlight' ? '#000000' : 'transparent',
-        textShadow: text.style === 'negative' || text.style === 'highlight' ? 'none' : undefined,
-        border: (text.style === 'negative' || text.style === 'highlight') && !isSelected ? 'none' : undefined,
+        mixBlendMode: isEditing && text.style === 'negative' ? 'difference' : 'normal',
+        backgroundColor:
+          isEditing && (text.style === 'negative' || text.style === 'highlight') ? '#000000' : 'transparent',
+        textShadow: isEditing ? undefined : 'none',
         boxSizing: 'border-box',
         overflow: 'visible',
       }}
@@ -179,7 +166,7 @@ function TextOverlayComponent({
             lineHeight: TEXT_LINE_HEIGHT,
             marginTop: -firstLineOffsetPx,
             height: overlayHeightPx + firstLineOffsetPx,
-            caretColor: text.style === 'highlight' || text.style === 'negative' ? '#ffffff' : text.color,
+            caretColor: editTextColor,
             textShadow: text.style === 'negative' || text.style === 'highlight' ? 'none' : undefined,
           }}
           onChange={(e) => { editingContentRef.current = e.target.value; setEditingContent(e.target.value) }}
@@ -199,7 +186,7 @@ function TextOverlayComponent({
           }}
           onClick={(e) => e.stopPropagation()}
         />
-      ) : displayContent}
+      ) : null}
     </div>
   )
 }

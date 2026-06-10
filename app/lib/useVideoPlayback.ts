@@ -863,10 +863,10 @@ export function useVideoPlayback(
             texts: renderTextsInCanvas
               ? (() => {
                   const override = textEditOverrideRef.current
-                  if (!override) return state.texts
-                  return state.texts.map((text) =>
-                    text.id === override.id ? text.copy({ content: override.content }) : text
-                  )
+                  const visibleTexts = override
+                    ? state.texts.filter((text) => text.id !== override.id)
+                    : state.texts
+                  return visibleTexts
                 })()
               : [],
             effects: state.effects

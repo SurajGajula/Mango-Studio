@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/app/utils/supabase/server'
 import { getGenAIClient } from '@/app/lib/genaiClient'
 import { PRO_MONTHLY_REQUESTS } from '@/app/lib/planLimits'
+import { quotaConsumingGenerationActions } from '@/app/lib/requireProUser'
 import { GEMINI_ROUTE_MODEL } from '@/app/lib/geminiModels'
 import { audioMarksAbsoluteTimelinePositions } from '@/app/lib/audioMarkTimeline'
 import {
@@ -543,11 +544,12 @@ export async function POST(request: NextRequest) {
     const { name, args } = functionCallPart.functionCall
     const action = name as RoutedAction
 
-    // Decrement request count
-    await supabase
-      .from('profiles')
-      .update({ requests_remaining: profile.requests_remaining - 1 })
-      .eq('id', user.id)
+    if (!quotaConsumingGenerationActions.has(action)) {
+      await supabase
+        .from('profiles')
+        .update({ requests_remaining: profile.requests_remaining - 1 })
+        .eq('id', user.id)
+    }
 
     let result: RoutePromptResponse
 
