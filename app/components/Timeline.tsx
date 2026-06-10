@@ -89,7 +89,6 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
   const visibleDurationRef = useRef(8)
   const totalTimelineWidth = totalDuration > 0 ? ((totalDuration + effectivePadding * 2) / visibleDuration) * 100 : 100
 
-  const [timelineScrollPortWidth, setTimelineScrollPortWidth] = useState(0)
   const [replaceLibraryTarget, setReplaceLibraryTarget] = useState<{ id: string; media: 'visual' | 'audio' } | null>(null)
   const [bgRemoveTargetId, setBgRemoveTargetId] = useState<string | null>(null)
   const [multiSelectedItems, setMultiSelectedItems] = useState<TimelineSelectionItem[]>([])
@@ -100,17 +99,6 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
     originY: number
     containerRect: DOMRect
   } | null>(null)
-  useLayoutEffect(() => {
-    const el = scrollContainerRef.current
-    if (!el) return
-    const measure = () => setTimelineScrollPortWidth(el.clientWidth)
-    measure()
-    const ro = new ResizeObserver(measure)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
-  const timelineInnerWidthPx = timelineScrollPortWidth * (totalTimelineWidth / 100)
-
   const { handleScroll, isScrollingProgrammatically } = useTimelineScroll({
     scrollContainerRef,
     totalDuration,
@@ -795,8 +783,6 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
                     handleVideoDoubleClick={handleVideoDoubleClick}
                     handleAudioDoubleClick={handleAudioDoubleClick}
                     videoThumbnails={videoThumbnails}
-                    scrollContainerRef={scrollContainerRef}
-                    timelineInnerWidthPx={timelineInnerWidthPx}
                     onOpenTransitions={onOpenTransitions}
                     onOpenEffects={onOpenEffects}
                     multiSelectedItems={multiSelectedItems}

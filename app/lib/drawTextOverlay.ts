@@ -1,5 +1,5 @@
 import { TextClass } from '@/app/models/TextClass'
-import { getKeyboardVisibleWordCount, wrapTextToLines } from '@/app/lib/textUtils'
+import { getVisibleWordCount, wrapTextToLines } from '@/app/lib/textUtils'
 
 export const TEXT_LINE_HEIGHT = 1.2
 const LOGICAL_W = 1080
@@ -105,8 +105,15 @@ export function drawTextOverlay(
   const content = text.content
   const words = content.split(/\s+/).filter((w) => w.length > 0)
   const keyboardVisible =
-    text.animation === 'keyboard' && words.length > 0
-      ? getKeyboardVisibleWordCount(content, text.startTime, text.endTime, currentTime)
+    (text.animation === 'keyboard' || text.animation === 'speech') && words.length > 0
+      ? getVisibleWordCount(
+          content,
+          text.startTime,
+          text.endTime,
+          currentTime,
+          text.animation,
+          text.wordTimings
+        )
       : null
   const lines = wrapTextToLines(ctx, content, text.width * xScale)
   const textX =

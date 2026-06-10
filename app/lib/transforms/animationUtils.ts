@@ -4,6 +4,8 @@ import { applyJitter } from './jitter'
 import { applyShake } from './shake'
 import { applySlideShake } from './slideShake'
 import { applyStandardZoom } from './zoom'
+import { applyRotateAnimation } from './rotateAnimation'
+import { applyStretchOutAnimation } from './stretchOutAnimation'
 
 function withFlipAroundRect(
   ctx: CanvasRenderingContext2D,
@@ -55,6 +57,12 @@ export function drawWithAnimation(params: TransformParams, imgEl: HTMLImageEleme
         break
       case 'shake':
         applyShake(animationParams)
+        break
+      case 'rotate':
+        applyRotateAnimation(animationParams)
+        break
+      case 'stretch-out':
+        applyStretchOutAnimation(animationParams)
         break
       case 'slide-shake-left':
       case 'slide-shake-right':

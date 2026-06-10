@@ -265,9 +265,11 @@ export class VideoClass {
       updates.cropSy ?? this.cropSy,
       updates.cropSw ?? this.cropSw,
       updates.cropSh ?? this.cropSh,
-      updates.sourceUrl ?? this.sourceUrl,
-      updates.sourceTrimStart ?? this.sourceTrimStart,
-      quantizeOptionalTimelineSeconds(updates.sourceDuration ?? this.sourceDuration),
+      'sourceUrl' in updates ? updates.sourceUrl : this.sourceUrl,
+      'sourceTrimStart' in updates ? updates.sourceTrimStart : this.sourceTrimStart,
+      quantizeOptionalTimelineSeconds(
+        'sourceDuration' in updates ? updates.sourceDuration : this.sourceDuration
+      ),
       updates.playbackSpeed ?? this.playbackSpeed,
       updates.speedStart ?? this.speedStart,
       updates.speedEnd ?? this.speedEnd,

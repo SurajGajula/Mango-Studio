@@ -23,6 +23,7 @@ import {
   uploadToAccountLibrary,
   videoCropOverlayFromPatch,
 } from '@/app/lib/timeline'
+import { requestPreviewVideoPoolPurge, wakePreviewLoop } from '@/app/lib/playbackClock'
 
 interface UseTimelineReplaceProps {
   videos: VideoClass[]
@@ -288,6 +289,8 @@ export function useTimelineReplace({
                 trimEnd: 0,
                 duration: timelineDur,
                 sourceDuration: span,
+                sourceUrl: undefined,
+                sourceTrimStart: undefined,
                 playbackSpeed: ps,
                 speedStart: ss,
                 speedEnd: se,
@@ -378,6 +381,7 @@ export function useTimelineReplace({
         let sourceUrl: string | undefined = undefined
         let sourceTrimStart: number | undefined = undefined
         let sourceDuration: number | undefined = undefined
+        let extractedClip = false
 
         if (replaceVideoData.duration > 60) {
           try {
@@ -390,10 +394,17 @@ export function useTimelineReplace({
             sourceUrl = originalSourceUrl
             sourceTrimStart = trimStart
             sourceDuration = replaceVideoData.duration
+            extractedClip = true
           } catch (err) {
             console.error('Failed to extract clip:', err)
             alert('Failed to process video clip. Using original source instead.')
           }
+        }
+
+        if (!extractedClip) {
+          sourceUrl = undefined
+          sourceTrimStart = undefined
+          sourceDuration = undefined
         }
 
         if (replaceVideoData.targetType === 'image') {
@@ -475,9 +486,9 @@ export function useTimelineReplace({
               title: replaceVideoData.title,
               originalDuration: finalOriginalDuration,
               trimStart: finalTrimStart,
-              trimEnd: finalTrimEnd,
+              trimEnd: extractedClip ? 0 : finalTrimEnd,
               duration: W,
-              sourceDuration: spanForClip,
+              sourceDuration: extractedClip ? replaceVideoData.duration : spanForClip,
               playbackSpeed: ps,
               speedStart: ss,
               speedEnd: se,
@@ -493,6 +504,8 @@ export function useTimelineReplace({
           })
         }
         clearReplaceFlow()
+        requestPreviewVideoPoolPurge()
+        wakePreviewLoop()
       } finally {
         setIsReplacingClip(false)
       }

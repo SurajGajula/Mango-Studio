@@ -3,6 +3,7 @@ import { VideoClass } from '@/app/models/VideoClass'
 import {
   videoThumbnailCacheKey,
   videoThumbnailTimeBase,
+  videoThumbnailPrioritySecondIndices,
   videoThumbnailSecondIndices,
 } from '@/app/lib/videoThumbnailKey'
 
@@ -28,6 +29,13 @@ describe('videoThumbnailKey', () => {
     const v = new VideoClass('v1', 't', 'blob:full', 4, 0, undefined, undefined, 10, 3, 0)
     expect(videoThumbnailCacheKey(v)).toBe('blob:full')
     expect(videoThumbnailSecondIndices(v)).toEqual([3, 4, 5, 6])
+  })
+
+  it('subsamples priority indices for long clips', () => {
+    const v = new VideoClass('v1', 't', 'blob:full', 300, 0)
+    const priority = videoThumbnailPrioritySecondIndices(v)
+    expect(priority.length).toBe(6)
+    expect(priority[0]).toBe(0)
   })
 
   it('caps thumbnail samples for long clips', () => {

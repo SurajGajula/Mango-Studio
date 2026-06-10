@@ -45,6 +45,10 @@ const ANIMATION_OPTIONS: { value: TextAnimation; label: string }[] = [
     label: 'Keyboard',
   },
   {
+    value: 'speech',
+    label: 'Speech',
+  },
+  {
     value: 'shake',
     label: 'Shake',
   },

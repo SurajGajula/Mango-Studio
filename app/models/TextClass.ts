@@ -1,5 +1,11 @@
-export type TextAnimation = 'none' | 'keyboard' | 'shake'
+export type TextAnimation = 'none' | 'keyboard' | 'speech' | 'shake'
 export type TextStyle = 'normal' | 'negative' | 'highlight'
+
+export interface TextWordTiming {
+  text: string
+  startTime: number
+  endTime: number
+}
 
 export class TextClass {
   id: string
@@ -18,6 +24,7 @@ export class TextClass {
   textAlign: string
   animation: TextAnimation
   style: TextStyle
+  wordTimings?: TextWordTiming[]
   createdAt: Date
   row: number
 
@@ -39,13 +46,14 @@ export class TextClass {
     animation?: TextAnimation,
     style?: TextStyle,
     createdAt?: Date,
-    row?: number
+    row?: number,
+    wordTimings?: TextWordTiming[]
   ) {
     this.id = id
     this.content = content
     this.startTime = startTime
     this.endTime = endTime
-    this.x = x ?? 560
+    this.x = x ?? 140
     this.y = y ?? 497
     this.width = width ?? 800
     this.height = height ?? 120
@@ -59,6 +67,7 @@ export class TextClass {
     this.style = style ?? 'normal'
     this.createdAt = createdAt || new Date()
     this.row = row ?? 0
+    this.wordTimings = wordTimings
   }
 
   copy(updates: Partial<TextClass>): TextClass {
@@ -80,7 +89,8 @@ export class TextClass {
       updates.animation ?? this.animation,
       updates.style ?? this.style,
       updates.createdAt ?? this.createdAt,
-      updates.row ?? this.row
+      updates.row ?? this.row,
+      updates.wordTimings !== undefined ? updates.wordTimings : this.wordTimings
     )
   }
 

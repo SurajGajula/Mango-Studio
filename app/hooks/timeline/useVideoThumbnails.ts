@@ -1,7 +1,54 @@
 import { useState, useEffect, useRef } from 'react'
 import { generateVideoThumbnails } from '@/app/lib/mediaUtils'
 import { VideoClass } from '@/app/models/VideoClass'
-import { videoThumbnailCacheKey, videoThumbnailSecondIndices } from '@/app/lib/videoThumbnailKey'
+import {
+  videoThumbnailCacheKey,
+  videoThumbnailPrioritySecondIndices,
+  videoThumbnailSecondIndices,
+} from '@/app/lib/videoThumbnailKey'
+
+type ThumbnailWork = {
+  cacheKey: string
+  seconds: number[]
+}
+
+function collectThumbnailWork(videos: VideoClass[]): ThumbnailWork[] {
+  const neededByKey = new Map<string, Set<number>>()
+  videos.forEach((v) => {
+    const key = videoThumbnailCacheKey(v)
+    if (!key) return
+    const seconds = videoThumbnailSecondIndices(v)
+    if (seconds.length === 0) return
+    if (!neededByKey.has(key)) neededByKey.set(key, new Set())
+    const set = neededByKey.get(key)!
+    for (const s of seconds) {
+      set.add(s)
+    }
+  })
+  return Array.from(neededByKey.entries()).map(([cacheKey, seconds]) => ({
+    cacheKey,
+    seconds: Array.from(seconds).sort((a, b) => a - b),
+  }))
+}
+
+function priorityWorkForVideos(videos: VideoClass[]): ThumbnailWork[] {
+  const neededByKey = new Map<string, Set<number>>()
+  videos.forEach((v) => {
+    const key = videoThumbnailCacheKey(v)
+    if (!key) return
+    const seconds = videoThumbnailPrioritySecondIndices(v)
+    if (seconds.length === 0) return
+    if (!neededByKey.has(key)) neededByKey.set(key, new Set())
+    const set = neededByKey.get(key)!
+    for (const s of seconds) {
+      set.add(s)
+    }
+  })
+  return Array.from(neededByKey.entries()).map(([cacheKey, seconds]) => ({
+    cacheKey,
+    seconds: Array.from(seconds).sort((a, b) => a - b),
+  }))
+}
 
 export function useVideoThumbnails(videos: VideoClass[]) {
   const [videoThumbnails, setVideoThumbnails] = useState<Map<string, Map<number, string>>>(new Map())
@@ -14,66 +61,96 @@ export function useVideoThumbnails(videos: VideoClass[]) {
     let idleId = 0
     let timeoutId = 0
 
-    const run = () => {
-      if (cancelled) return
-    const neededByKey = new Map<string, Set<number>>()
-    videos.forEach((v) => {
-      const key = videoThumbnailCacheKey(v)
-      if (!key) return
-      const seconds = videoThumbnailSecondIndices(v)
-      if (seconds.length === 0) return
-      if (!neededByKey.has(key)) neededByKey.set(key, new Set())
-      const set = neededByKey.get(key)!
-      for (const s of seconds) {
-        set.add(s)
-      }
-    })
-
-    setVideoThumbnails((prev) => {
-      const activeKeys = new Set(neededByKey.keys())
-      let changed = false
-      const next = new Map(prev)
-      for (const key of next.keys()) {
-        if (!activeKeys.has(key)) {
-          next.delete(key)
-          changed = true
+    const pruneInactiveKeys = (activeKeys: Set<string>) => {
+      setVideoThumbnails((prev) => {
+        let changed = false
+        const next = new Map(prev)
+        for (const key of next.keys()) {
+          if (!activeKeys.has(key)) {
+            next.delete(key)
+            changed = true
+          }
         }
-      }
-      return changed ? next : prev
-    })
-
-    neededByKey.forEach(async (neededSeconds, cacheKey) => {
-      const existing = videoThumbnailsRef.current.get(cacheKey)
-      const missing = Array.from(neededSeconds).filter((s) => !existing || !existing.has(s))
-
-      if (missing.length === 0) return
-      if (processingKeysRef.current.has(cacheKey)) return
-      processingKeysRef.current.add(cacheKey)
-
-      try {
-        await generateVideoThumbnails(cacheKey, missing, (time, data) => {
-          setVideoThumbnails((prev) => {
-            const next = new Map(prev)
-            const urlMap = new Map(next.get(cacheKey) || [])
-            urlMap.set(time, data)
-            next.set(cacheKey, urlMap)
-            return next
-          })
-        })
-      } finally {
-        processingKeysRef.current.delete(cacheKey)
-      }
-    })
+        return changed ? next : prev
+      })
     }
 
-    if (typeof requestIdleCallback === 'function') {
-      idleId = requestIdleCallback(run, { timeout: 2500 })
+    const missingSeconds = (cacheKey: string, seconds: number[]) => {
+      const existing = videoThumbnailsRef.current.get(cacheKey)
+      return seconds.filter((s) => !existing?.has(s))
+    }
+
+    const generateForWork = async (work: ThumbnailWork[]) => {
+      for (const { cacheKey, seconds } of work) {
+        if (cancelled) return
+        const missing = missingSeconds(cacheKey, seconds)
+        if (missing.length === 0) continue
+        if (processingKeysRef.current.has(cacheKey)) continue
+        processingKeysRef.current.add(cacheKey)
+        try {
+          await generateVideoThumbnails(cacheKey, missing, (time, data) => {
+            if (cancelled) return
+            setVideoThumbnails((prev) => {
+              const next = new Map(prev)
+              const urlMap = new Map(next.get(cacheKey) || [])
+              urlMap.set(time, data)
+              next.set(cacheKey, urlMap)
+              return next
+            })
+          })
+        } finally {
+          processingKeysRef.current.delete(cacheKey)
+        }
+      }
+    }
+
+    const run = async () => {
+      if (cancelled) return
+
+      const fullWork = collectThumbnailWork(videos)
+      const activeKeys = new Set(fullWork.map((w) => w.cacheKey))
+      pruneInactiveKeys(activeKeys)
+
+      const priorityWork = priorityWorkForVideos(videos)
+      await generateForWork(priorityWork)
+      if (cancelled) return
+
+      const deferFull = () => {
+        if (cancelled) return
+        const remaining = fullWork
+          .map(({ cacheKey, seconds }) => ({
+            cacheKey,
+            seconds: missingSeconds(cacheKey, seconds),
+          }))
+          .filter((w) => w.seconds.length > 0)
+        void generateForWork(remaining)
+      }
+
+      if (typeof requestIdleCallback === 'function') {
+        requestIdleCallback(deferFull, { timeout: 8000 })
+      } else {
+        window.setTimeout(deferFull, 2000)
+      }
+    }
+
+    const schedule = () => {
+      if (cancelled) return
+      if (typeof requestIdleCallback === 'function') {
+        idleId = requestIdleCallback(() => void run(), { timeout: 4000 })
+      } else {
+        timeoutId = window.setTimeout(() => void run(), 1500)
+      }
+    }
+
+    if (document.readyState === 'complete') {
+      schedule()
     } else {
-      timeoutId = window.setTimeout(run, 800)
+      window.addEventListener('load', schedule, { once: true })
     }
 
     return () => {
       cancelled = true
+      window.removeEventListener('load', schedule)
       if (idleId) cancelIdleCallback(idleId)
       if (timeoutId) clearTimeout(timeoutId)
     }

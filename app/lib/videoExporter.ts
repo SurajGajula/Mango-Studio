@@ -21,6 +21,8 @@ import {
 } from '@/app/lib/renderUtils'
 import { resolveMediaKeyframeTransform } from '@/app/lib/resolveMediaKeyframeTransform'
 import { alignTimeToFrame, calculateTotalDuration, manifestVideoTimelineSpanSeconds } from '@/app/lib/timeUtils'
+import { isVideoActiveAtTimelineTime, videoElapsedForMapping } from '@/app/lib/adjacentSplitVideo'
+import { videoPlaybackMediaUrl, videoSourceTrimBase } from '@/app/lib/videoPlaybackSource'
 import { audioBufferToWav } from '@/app/lib/audioUtils'
 
 let ffmpegInstance: FFmpeg | null = null
@@ -115,8 +117,9 @@ export async function exportVideo(
       await Promise.all(allVideos.map((clip) =>
         new Promise<void>((resolve, reject) => {
           const video = document.createElement('video'); video.preload = 'auto'; video.playsInline = true; video.muted = true
-          if (clip.url) setVideoCrossOriginForUrl(video, clip.url)
-          video.src = clip.url || ''
+          const clipSrc = videoPlaybackMediaUrl(clip)
+          if (clipSrc) setVideoCrossOriginForUrl(video, clipSrc)
+          video.src = clipSrc
           video.onloadeddata = () => { videoElements.set(clip.id, video); resolve() }
           video.onerror = () => reject(new Error(`Failed to load video: ${clip.title}`))
           video.load()
@@ -288,13 +291,13 @@ export async function exportVideo(
       }
 
       const videosToReady: { el: HTMLVideoElement; time: number }[] = []
-      const ovs = allVideos.filter((v) => t >= v.timestamp && t < v.timestamp + manifestVideoTimelineSpanSeconds(v))
+      const ovs = allVideos.filter((v) => isVideoActiveAtTimelineTime(v, allVideos, t))
       for (const v of ovs) {
         const vEl = videoElements.get(v.id); if (vEl) {
-          const elapsed = Math.max(0, t - v.timestamp)
+          const elapsed = videoElapsedForMapping(v, t)
           const ovDur = clipTimelineSpanForSourceMap(manifestVideoTimelineSpanSeconds(v))
           const tmOvEx = videoTimelineSourceMapping(v, elapsed, ovDur)
-          const localTime = (v.trimStart ?? 0) + tmOvEx.sourceElapsed
+          const localTime = videoSourceTrimBase(v) + tmOvEx.sourceElapsed
           videosToReady.push({ el: vEl, time: localTime })
         }
       }
@@ -314,7 +317,7 @@ export async function exportVideo(
         if (pr.nextItem.type === 'video') {
           const nv = pr.nextItem.item as VideoClass
           const nextEl = videoElements.get(nv.id)
-          if (nextEl) videosToReady.push({ el: nextEl, time: nv.trimStart ?? 0 })
+          if (nextEl) videosToReady.push({ el: nextEl, time: videoSourceTrimBase(nv) })
         }
         if (pr.activeItem.type === 'video') {
           const av = pr.activeItem.item as VideoClass
@@ -323,7 +326,7 @@ export async function exportVideo(
             const elapsed = Math.max(0, t - pr.activeItem.startTime)
             const avDur = clipTimelineSpanForSourceMap(manifestVideoTimelineSpanSeconds(av))
             const tmA = videoTimelineSourceMapping(av, elapsed, avDur)
-            videosToReady.push({ el: currentEl, time: (av.trimStart ?? 0) + tmA.sourceElapsed })
+            videosToReady.push({ el: currentEl, time: videoSourceTrimBase(av) + tmA.sourceElapsed })
           }
         }
       }
@@ -375,7 +378,7 @@ export async function exportVideo(
         if (pr.activeItem && pr.nextItem && tr.transitionActive && tr.progress < 1) {
           const renderedPair = renderClipTransitionPair(ctx, exportCr, t, pr.activeItem, pr.nextItem, tr.progress, (id) => {
             const el = videoElements.get(id)
-            return el && videoElementHasDecodedFrame(el) ? el : undefined
+            return el instanceof HTMLVideoElement ? el : undefined
           }, (id) => imageElements.get(id) ?? undefined)
           if (renderedPair) {
             skipOverlayExportIdsByRow.set(row, new Set([pr.activeItem.id, pr.nextItem.id]))
@@ -404,9 +407,10 @@ export async function exportVideo(
         } else if (entry.kind === 'video') {
           const v = entry.video
           const vEl = videoElements.get(v.id); if (!vEl || !videoElementHasDecodedFrame(vEl)) continue
+          const span = manifestVideoTimelineSpanSeconds(v)
+          const elV = videoElapsedForMapping(v, t)
           const prog = calculateAnimationProgress(v, t, v.timestamp)
-          const elV = Math.max(0, t - v.timestamp)
-          const kvx = resolveMediaKeyframeTransform(v, elV, manifestVideoTimelineSpanSeconds(v))
+          const kvx = resolveMediaKeyframeTransform(v, elV, span)
           ctx.save(); ctx.globalAlpha = v.opacity
           runWithPlacementRotation(
             ctx,
@@ -524,6 +528,67 @@ export async function exportVideo(
       })()
     })
   } finally { ffmpegLock = false }
+}
+
+export async function replaceVideoAudioTrack(
+  videoBlob: Blob,
+  audioBlob: Blob,
+  options?: { trimStartSeconds?: number; durationSeconds?: number },
+  onProgress?: (msg: string) => void
+): Promise<Blob> {
+  while (ffmpegLock) {
+    onProgress?.('Waiting for engine...')
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  ffmpegLock = true
+  try {
+    const ff = await getFFmpeg()
+    for (const f of ['input.mp4', 'input-audio', 'output.mp4']) {
+      try {
+        await ff.deleteFile(f)
+      } catch {}
+    }
+    await ff.writeFile('input.mp4', new Uint8Array(await videoBlob.arrayBuffer()))
+    await ff.writeFile('input-audio', new Uint8Array(await audioBlob.arrayBuffer()))
+    const trimStart = options?.trimStartSeconds ?? 0
+    const duration = options?.durationSeconds
+    const audioInputArgs =
+      trimStart > 0 || duration !== undefined
+        ? [
+            '-ss',
+            trimStart.toFixed(3),
+            '-i',
+            'input-audio',
+            ...(duration !== undefined ? ['-t', duration.toFixed(3)] : []),
+          ]
+        : ['-i', 'input-audio']
+    await ff.exec([
+      '-i',
+      'input.mp4',
+      ...audioInputArgs,
+      '-map',
+      '0:v:0',
+      '-map',
+      '1:a:0',
+      '-c:v',
+      'copy',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '192k',
+      '-shortest',
+      'output.mp4',
+    ])
+    const data = await ff.readFile('output.mp4')
+    for (const f of ['input.mp4', 'input-audio', 'output.mp4']) {
+      try {
+        await ff.deleteFile(f)
+      } catch {}
+    }
+    return new Blob([new Uint8Array(data as Uint8Array)], { type: 'video/mp4' })
+  } finally {
+    ffmpegLock = false
+  }
 }
 
 export async function extractVideoClip(url: string, startTime: number, duration: number, onProgress?: (msg: string) => void): Promise<Blob> {

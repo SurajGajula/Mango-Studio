@@ -1,6 +1,8 @@
 import { AudioClass } from '@/app/models/AudioClass'
+import type { AudioMark } from '@/app/models/mediaKeyframe'
 import { ManifestStore } from './types'
 import { partitionAudioMarksAtSplit } from '@/app/lib/splitClipKeyframes'
+import { generateId } from '@/app/lib/idUtils'
 
 export const createAudioSlice = (set: any, get: any) => ({
   addAudio: (audio: AudioClass) => {
@@ -53,6 +55,54 @@ export const createAudioSlice = (set: any, get: any) => ({
 
     set((s: ManifestStore) => ({
       audios: s.audios.map((a) => (a.id === id ? firstHalf : a)).concat([secondHalf])
+    }))
+    get().pushHistory()
+  },
+
+  splitAudioAtTimes: (id: string, times: number[]) => {
+    const state = get()
+    const audio = state.audios.find((a: AudioClass) => a.id === id)
+    if (!audio) return
+
+    const epsilon = 1e-6
+    const speed = audio.playbackSpeed ?? 1
+    const sourceEnd = audio.originalDuration - audio.trimEnd
+    const validTimes = times
+      .filter((t) => t > audio.startTime + epsilon && t < audio.endTime - epsilon)
+      .sort((a, b) => a - b)
+      .filter((t, i, arr) => i === 0 || t - arr[i - 1] > epsilon)
+
+    if (validTimes.length === 0) return
+
+    const timelineBoundaries = [audio.startTime, ...validTimes, audio.endTime]
+    const sourceBoundaries = timelineBoundaries.map((t, i) => {
+      if (i === 0) return audio.trimStart
+      if (i === timelineBoundaries.length - 1) return sourceEnd
+      return audio.trimStart + (t - audio.startTime) * speed
+    })
+
+    const newSegments: AudioClass[] = timelineBoundaries.slice(0, -1).map((segStart, i) => {
+      const segEnd = timelineBoundaries[i + 1]
+      const segSourceStart = sourceBoundaries[i]
+      const segSourceEnd = sourceBoundaries[i + 1]
+      const isLast = i === timelineBoundaries.length - 2
+      const segMarks = audio.marks
+        .filter((m: AudioMark) => m.t >= segSourceStart && (isLast ? m.t <= segSourceEnd : m.t < segSourceEnd))
+        .map((m: AudioMark) => (i === 0 ? m : { ...m, id: generateId('amark') }))
+
+      return audio.copy({
+        id: i === 0 ? audio.id : generateId('audio'),
+        startTime: segStart,
+        endTime: segEnd,
+        trimStart: segSourceStart,
+        trimEnd: audio.originalDuration - segSourceEnd,
+        createdAt: i === 0 ? audio.createdAt : new Date(),
+        marks: segMarks,
+      })
+    })
+
+    set((s: ManifestStore) => ({
+      audios: s.audios.filter((a) => a.id !== id).concat(newSegments),
     }))
     get().pushHistory()
   },

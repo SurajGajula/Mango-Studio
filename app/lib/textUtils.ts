@@ -1,3 +1,19 @@
+import type { TextWordTiming } from '@/app/models/TextClass'
+
+export const SPEECH_CAPTION_HOLD_SECONDS = 0.35
+
+export function captionClipEndTime(
+  clipStartTime: number,
+  segmentEndTime: number,
+  wordTimings?: TextWordTiming[]
+): number {
+  const lastWordEnd =
+    wordTimings && wordTimings.length > 0
+      ? clipStartTime + wordTimings[wordTimings.length - 1].endTime
+      : segmentEndTime
+  return Math.max(segmentEndTime, lastWordEnd) + SPEECH_CAPTION_HOLD_SECONDS
+}
+
 export function getKeyboardVisibleWordCount(
   content: string,
   startTime: number,
@@ -13,6 +29,46 @@ export function getKeyboardVisibleWordCount(
   return Math.max(1, Math.min(words.length, Math.floor(elapsed / wordDuration) + 1))
 }
 
+export function getSpeechVisibleWordCount(
+  wordTimings: TextWordTiming[],
+  clipStartTime: number,
+  t: number,
+  contentWordCount?: number
+): number {
+  if (wordTimings.length === 0) return 0
+  let count = 0
+  for (const word of wordTimings) {
+    if (t >= clipStartTime + word.startTime) count++
+    else break
+  }
+  if (contentWordCount !== undefined && count >= wordTimings.length) {
+    return contentWordCount
+  }
+  return count
+}
+
+export function getVisibleWordCount(
+  content: string,
+  startTime: number,
+  endTime: number,
+  t: number,
+  animation: 'none' | 'keyboard' | 'speech' | 'shake',
+  wordTimings?: TextWordTiming[]
+): number | null {
+  const words = content.split(/\s+/).filter((w) => w.length > 0)
+  if (words.length === 0) return null
+  if (animation === 'speech') {
+    if (wordTimings && wordTimings.length > 0) {
+      return getSpeechVisibleWordCount(wordTimings, startTime, t, words.length)
+    }
+    return getKeyboardVisibleWordCount(content, startTime, endTime, t)
+  }
+  if (animation === 'keyboard') {
+    return getKeyboardVisibleWordCount(content, startTime, endTime, t)
+  }
+  return null
+}
+
 export function getKeyboardVisibleContent(
   content: string,
   startTime: number,
@@ -23,6 +79,45 @@ export function getKeyboardVisibleContent(
   if (words.length === 0) return content
   const visibleCount = getKeyboardVisibleWordCount(content, startTime, endTime, t)
   return words.slice(0, visibleCount).join(' ')
+}
+
+export function getAnimatedVisibleContent(
+  content: string,
+  startTime: number,
+  endTime: number,
+  t: number,
+  animation: 'none' | 'keyboard' | 'speech' | 'shake',
+  wordTimings?: TextWordTiming[]
+): string {
+  const visibleCount = getVisibleWordCount(content, startTime, endTime, t, animation, wordTimings)
+  if (visibleCount === null) return content
+  const words = content.split(/\s+/).filter((w) => w.length > 0)
+  if (words.length === 0) return content
+  return words.slice(0, visibleCount).join(' ')
+}
+
+export function sliceWordTimingsForClip(
+  wordTimings: TextWordTiming[] | undefined,
+  clipStart: number,
+  clipEnd: number,
+  originalClipStart: number
+): TextWordTiming[] | undefined {
+  if (!wordTimings || wordTimings.length === 0) return undefined
+  const sliced = wordTimings
+    .filter((w) => {
+      const absoluteStart = originalClipStart + w.startTime
+      return absoluteStart >= clipStart && absoluteStart < clipEnd
+    })
+    .map((w) => {
+      const absoluteStart = originalClipStart + w.startTime
+      const absoluteEnd = originalClipStart + w.endTime
+      return {
+        text: w.text,
+        startTime: absoluteStart - clipStart,
+        endTime: Math.min(absoluteEnd, clipEnd) - clipStart,
+      }
+    })
+  return sliced.length > 0 ? sliced : undefined
 }
 
 function breakWordToFit(

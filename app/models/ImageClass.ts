@@ -8,8 +8,10 @@ export type AnimationMode =
   | 'none'
   | 'zoom-in'
   | 'zoom-out'
+  | 'stretch-out'
   | 'shake'
   | 'jitter'
+  | 'rotate'
   | 'slide-shake-left'
   | 'slide-shake-right'
 
@@ -30,7 +32,7 @@ export function migrateAnimationValue(raw: string | AnimationMode | undefined | 
   if (raw === undefined || raw === null || raw === '') return 'none'
   const s = raw as string
   if (LEGACY_ANIMATION[s]) return LEGACY_ANIMATION[s]
-  const allowed: AnimationMode[] = ['none', 'zoom-in', 'zoom-out', 'shake', 'jitter', 'slide-shake-left', 'slide-shake-right']
+  const allowed: AnimationMode[] = ['none', 'zoom-in', 'zoom-out', 'stretch-out', 'shake', 'jitter', 'rotate', 'slide-shake-left', 'slide-shake-right']
   if (allowed.includes(s as AnimationMode)) return s as AnimationMode
   return 'none'
 }

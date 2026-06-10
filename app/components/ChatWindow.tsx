@@ -14,8 +14,16 @@ import type {
   CropInstruction,
   DeleteTimelineItemInstruction,
   NormalizeAudioVolumesInstruction,
+  GenerateImageInstruction,
+  EditImageInstruction,
+  GenerateVideoInstruction,
+  GenerateSpeechInstruction,
+  TranscribeAudioInstruction,
+  AnimateToSpeechInstruction,
 } from '@/app/api/route-prompt/route'
+import type { TranscribeSegment } from '@/app/api/transcribe-audio/route'
 import { TextClass } from '@/app/models/TextClass'
+import { captionClipEndTime } from '@/app/lib/textUtils'
 import { EffectClass } from '@/app/models/EffectClass'
 import {
   ImageClass,
@@ -40,7 +48,30 @@ import { FIXED_ASPECT_RATIO } from '@/app/lib/aspectRatio'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { AudioClass } from '@/app/models/AudioClass'
 import { VideoClass as VideoModel } from '@/app/models/VideoClass'
-import { resolveAudioDurationFromUrl } from '@/app/lib/timelineMediaInsert'
+import {
+  resolveAudioDurationFromUrl,
+  addVideoToTimelineAtPlayhead,
+  addVideoToTimelineAtTime,
+  addAudioToTimelineAtPlayhead,
+} from '@/app/lib/timelineMediaInsert'
+import { addImageAtCurrentPlayhead } from '@/app/lib/addImageAtPlayhead'
+import {
+  imageEditPrompt,
+  imagePromptWithReferences,
+  resolveAttachedImageReferences,
+  resolveAttachedAudioReference,
+  resolveImageUrlReference,
+  dataUrlToReferenceImage,
+  videoPromptWithReferences,
+} from '@/app/lib/chatGenerationReferences'
+import {
+  captureVideoFrameDataUrl,
+  captureTimeForVideoFramePosition,
+  type VideoFramePosition,
+  videoTimelineEndSeconds,
+} from '@/app/lib/captureVideoFrame'
+import { replaceVideoAudioTrack } from '@/app/lib/videoExporter'
+import { VEO_MAX_SPEECH_SECONDS } from '@/app/lib/veoDurationSeconds'
 import {
   AUDIO_VOLUME_SLIDER_MAX,
   decodeAudioFromUrl,
@@ -72,6 +103,27 @@ interface EqualSplitRequest {
 }
 
 const AUDIO_RMS_FLOOR = 1e-7
+
+function base64ToBlob(base64: string, mimeType: string): Blob {
+  const byteCharacters = atob(base64)
+  const byteNumbers = new Array(byteCharacters.length)
+  for (let i = 0; i < byteCharacters.length; i++) {
+    byteNumbers[i] = byteCharacters.charCodeAt(i)
+  }
+  return new Blob([new Uint8Array(byteNumbers)], { type: mimeType })
+}
+
+async function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result as string
+      resolve(result.split(',')[1] ?? '')
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
+  })
+}
 
 async function runNormalizeAudioVolumes(
   instruction: NormalizeAudioVolumesInstruction,
@@ -148,7 +200,10 @@ export default function ChatWindow() {
   const splitVideoAtTimes = useManifestStore((state) => state.splitVideoAtTimes)
   const splitImageAtTimes = useManifestStore((state) => state.splitImageAtTimes)
   const splitTextAtTimes = useManifestStore((state) => state.splitTextAtTimes)
+  const splitAudioAtTimes = useManifestStore((state) => state.splitAudioAtTimes)
   const replaceVideoWithImage = useManifestStore((state) => state.replaceVideoWithImage)
+  const replaceImageWithVideo = useManifestStore((state) => state.replaceImageWithVideo)
+  const replaceVideoSource = useManifestStore((state) => state.replaceVideoSource)
   const addText = useManifestStore((state) => state.addText)
   const addEffect = useManifestStore((state) => state.addEffect)
   const pauseHistory = useManifestStore((state) => state.pauseHistory)
@@ -176,7 +231,7 @@ export default function ChatWindow() {
   const applyMutations = (mutations: ManifestMutation[]) => {
     for (const m of mutations) {
       if (m.type === 'updateImage') {
-        const updates: any = { startTime: m.startTime, endTime: m.endTime, row: m.row }
+        const updates: any = { startTime: m.startTime, endTime: m.endTime, row: m.row, opacity: m.opacity }
         if (m.duration !== undefined) {
           const image = useManifestStore.getState().images.find((i) => i.id === m.id)
           if (image) {
@@ -190,12 +245,13 @@ export default function ChatWindow() {
         } else if (m.playbackSpeed !== undefined) {
           if (!setItemPlaybackSpeed(m.id, m.playbackSpeed)) continue
         }
-        updateVideo(m.id, { timestamp: m.timestamp, duration: m.duration, muted: m.muted, row: m.row })
+        updateVideo(m.id, { timestamp: m.timestamp, duration: m.duration, muted: m.muted, row: m.row, opacity: m.opacity })
       } else if (m.type === 'updateText') {
         updateText(m.id, {
           startTime: m.startTime,
           endTime: m.endTime,
           row: m.row,
+          opacity: m.opacity,
           fontFamily: m.fontFamily,
           fontWeight: m.fontWeight,
           animation: m.animation,
@@ -231,6 +287,7 @@ export default function ChatWindow() {
       if (s.type === 'image') splitImageAtTimes(s.id, s.times)
       else if (s.type === 'video') splitVideoAtTimes(s.id, s.times)
       else if (s.type === 'text') splitTextAtTimes(s.id, s.times)
+      else if (s.type === 'audio') splitAudioAtTimes(s.id, s.times)
     }
   }
 
@@ -250,6 +307,552 @@ export default function ChatWindow() {
       const row = findFreeVisualOverlayRow(t.startTime, t.endTime)
       addText(new TextClass(id, t.content, t.startTime, t.endTime).copy({ row }))
     }
+  }
+
+  const applyTranscriptionSegments = (
+    segments: TranscribeSegment[],
+    audioTimelineStart: number,
+    playbackSpeed: number
+  ) => {
+    for (const segment of segments) {
+      const startTime = audioTimelineStart + segment.startTime / playbackSpeed
+      const segmentEndTime = audioTimelineStart + segment.endTime / playbackSpeed
+      const wordTimings =
+        segment.words.length > 0
+          ? segment.words.map((word) => ({
+              text: word.text,
+              startTime: (word.startTime - segment.startTime) / playbackSpeed,
+              endTime: (word.endTime - segment.startTime) / playbackSpeed,
+            }))
+          : undefined
+      const endTime = captionClipEndTime(startTime, segmentEndTime, wordTimings)
+      const id = `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      const row = findFreeVisualOverlayRow(startTime, endTime)
+      const animation = wordTimings ? 'speech' : 'keyboard'
+      addText(
+        new TextClass(id, segment.text.trim(), startTime, endTime).copy({
+          row,
+          animation,
+          wordTimings,
+        })
+      )
+    }
+  }
+
+  const runGenerateImage = async (
+    spec: GenerateImageInstruction,
+    files: UploadedFile[],
+    updateStatus: (text: string, loading: boolean) => void
+  ) => {
+    updateStatus('Generating image...', true)
+    const refImages = await resolveAttachedImageReferences(files)
+    const response = await fetch('/api/generate-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: imagePromptWithReferences(spec.prompt, refImages.length),
+        referenceImages: refImages.length > 0 ? refImages : undefined,
+      }),
+    })
+    const data = await response.json()
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || 'Failed to generate image')
+    }
+    if (!data.image_base64) {
+      throw new Error('No image was returned')
+    }
+    const mimeType = data.image_mime_type || 'image/png'
+    const blob = base64ToBlob(data.image_base64, mimeType)
+    const name = spec.prompt.substring(0, 50) + (spec.prompt.length > 50 ? '...' : '')
+    const uploadFile = new File([blob], `generated-${Date.now()}.png`, { type: mimeType })
+    const assetId = await uploadToAccountLibrary(uploadFile)
+    const sourceUrl = assetId ? accountMediaAssetPlaybackUrl(assetId) : URL.createObjectURL(blob)
+    pauseHistory()
+    try {
+      await addImageAtCurrentPlayhead(sourceUrl, name)
+    } finally {
+      resumeHistory()
+      pushHistory()
+    }
+    if (refImages.length > 0) setUploadedFiles([])
+    updateStatus('Image generated and added to the timeline.', false)
+  }
+
+  const resolveEditTargetImage = (spec: EditImageInstruction) => {
+    const { images } = useManifestStore.getState()
+    if (spec.target === 'selected') {
+      const selectedImageId = useSelectionStore.getState().selectedImageId
+      if (!selectedImageId) {
+        throw new Error('No image is selected. Select an image or specify an image number.')
+      }
+      const image = images.find((i) => i.id === selectedImageId)
+      if (!image) throw new Error('Selected image was not found on the timeline.')
+      return image
+    }
+    const imageNumber = spec.imageNumber
+    if (imageNumber === undefined || !Number.isFinite(imageNumber)) {
+      throw new Error('Missing image number to edit.')
+    }
+    const sorted = [...images].sort((a, b) => a.startTime - b.startTime)
+    if (imageNumber < 1 || imageNumber > sorted.length) {
+      throw new Error(`Image #${imageNumber} is out of range (1–${sorted.length}).`)
+    }
+    return sorted[imageNumber - 1]
+  }
+
+  const runEditImage = async (
+    spec: EditImageInstruction,
+    files: UploadedFile[],
+    updateStatus: (text: string, loading: boolean) => void
+  ) => {
+    updateStatus('Editing image...', true)
+    const targetImage = resolveEditTargetImage(spec)
+    if (!targetImage.url) {
+      throw new Error('Target image has no source URL.')
+    }
+    const sourceRef = await resolveImageUrlReference(targetImage.url)
+    if (!sourceRef) {
+      throw new Error('Failed to load the timeline image to edit.')
+    }
+    const attachedRefs = await resolveAttachedImageReferences(files)
+    const referenceImages = [sourceRef, ...attachedRefs]
+    const response = await fetch('/api/generate-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: imageEditPrompt(spec.prompt, true, attachedRefs.length),
+        referenceImages,
+      }),
+    })
+    const data = await response.json()
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || 'Failed to edit image')
+    }
+    if (!data.image_base64) {
+      throw new Error('No edited image was returned')
+    }
+    const mimeType = data.image_mime_type || 'image/png'
+    const blob = base64ToBlob(data.image_base64, mimeType)
+    const name = spec.prompt.substring(0, 50) + (spec.prompt.length > 50 ? '...' : '')
+    const uploadFile = new File([blob], `edited-${Date.now()}.png`, { type: mimeType })
+    const assetId = await uploadToAccountLibrary(uploadFile)
+    const sourceUrl = assetId ? accountMediaAssetPlaybackUrl(assetId) : URL.createObjectURL(blob)
+    pauseHistory()
+    try {
+      await applyReplacementWithUrl(targetImage.id, sourceUrl, name)
+    } finally {
+      resumeHistory()
+      pushHistory()
+    }
+    if (attachedRefs.length > 0) setUploadedFiles([])
+    updateStatus('Image updated in place on the timeline.', false)
+  }
+
+  const runGenerateVideo = async (
+    spec: GenerateVideoInstruction,
+    files: UploadedFile[],
+    updateStatus: (text: string, loading: boolean) => void
+  ) => {
+    updateStatus('Generating video...', true)
+    const refImages = await resolveAttachedImageReferences(files)
+    const response = await fetch('/api/generate-video', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: videoPromptWithReferences(spec.prompt, refImages.length),
+        negativePrompt: spec.negativePrompt,
+        referenceImages: refImages.length > 0 ? refImages.slice(0, 3) : undefined,
+      }),
+    })
+    const data = await response.json()
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || 'Failed to generate video')
+    }
+    if (!data.video_base64) {
+      throw new Error('No video was returned')
+    }
+    const mimeType = data.video_mime_type || 'video/mp4'
+    const blob = base64ToBlob(data.video_base64, mimeType)
+    const title = spec.prompt.substring(0, 50) + (spec.prompt.length > 50 ? '...' : '')
+    const uploadFile = new File([blob], `generated-${Date.now()}.mp4`, { type: mimeType })
+    const { duration } = await resolveVideoMetadata(URL.createObjectURL(blob))
+    if (!validateMediaDuration(duration, 'Video')) {
+      throw new Error('Generated video exceeds upload duration limit.')
+    }
+    const assetId = await uploadToAccountLibrary(uploadFile, duration)
+    const sourceUrl = assetId ? accountMediaAssetPlaybackUrl(assetId) : URL.createObjectURL(blob)
+    pauseHistory()
+    try {
+      await addVideoToTimelineAtPlayhead(sourceUrl, title)
+    } finally {
+      resumeHistory()
+      pushHistory()
+    }
+    if (refImages.length > 0) setUploadedFiles([])
+    updateStatus('Video generated and added to the timeline.', false)
+  }
+
+  const runGenerateSpeech = async (
+    spec: GenerateSpeechInstruction,
+    updateStatus: (text: string, loading: boolean) => void
+  ) => {
+    updateStatus('Generating speech...', true)
+    const response = await fetch('/api/generate-speech', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: spec.prompt,
+        voiceName: spec.voiceName,
+        multiSpeaker: spec.multiSpeaker,
+        speakers: spec.speakers,
+      }),
+    })
+    const data = await response.json()
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || 'Failed to generate speech')
+    }
+    if (!data.audio_base64) {
+      throw new Error('No speech audio was returned')
+    }
+    const mimeType = data.audio_mime_type || 'audio/wav'
+    const blob = base64ToBlob(data.audio_base64, mimeType)
+    const name = spec.prompt.substring(0, 50) + (spec.prompt.length > 50 ? '...' : '')
+    const uploadFile = new File([blob], `speech-${Date.now()}.wav`, { type: mimeType })
+    const blobUrl = URL.createObjectURL(blob)
+    const duration = await resolveAudioDurationFromUrl(blobUrl)
+    if (!validateMediaDuration(duration, 'Audio')) {
+      throw new Error('Generated speech exceeds upload duration limit.')
+    }
+    const assetId = await uploadToAccountLibrary(uploadFile, duration)
+    const sourceUrl = assetId ? accountMediaAssetPlaybackUrl(assetId) : blobUrl
+    pauseHistory()
+    try {
+      await addAudioToTimelineAtPlayhead(sourceUrl, name, duration)
+    } finally {
+      resumeHistory()
+      pushHistory()
+    }
+    updateStatus('Speech generated and added to the timeline.', false)
+  }
+
+  const runTranscribeAudio = async (
+    spec: TranscribeAudioInstruction,
+    updateStatus: (text: string, loading: boolean) => void
+  ) => {
+    updateStatus('Transcribing audio...', true)
+    const { audios } = useManifestStore.getState()
+    const sorted = [...audios].sort((a, b) => a.startTime - b.startTime)
+    const audioNumber = spec.audioNumber
+    if (audioNumber < 1 || audioNumber > sorted.length) {
+      throw new Error(`Audio #${audioNumber} is out of range (1–${sorted.length}).`)
+    }
+    const audio = sorted[audioNumber - 1]
+    if (!audio.url) {
+      throw new Error(`Audio #${audioNumber} has no source URL.`)
+    }
+    const response = await fetch(audio.url)
+    if (!response.ok) {
+      throw new Error(`Failed to load audio #${audioNumber}.`)
+    }
+    const blob = await response.blob()
+    const audioBase64 = await blobToBase64(blob)
+    const transcribeResponse = await fetch('/api/transcribe-audio', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        audioBase64,
+        mimeType: blob.type || 'audio/mpeg',
+        trimStart: audio.trimStart ?? 0,
+        trimEnd: audio.trimEnd ?? 0,
+        originalDuration: audio.originalDuration,
+      }),
+    })
+    const data = await transcribeResponse.json()
+    if (!transcribeResponse.ok || !data.success) {
+      throw new Error(data.error || 'Failed to transcribe audio')
+    }
+    const segments = (data.segments ?? []) as TranscribeSegment[]
+    if (segments.length === 0) {
+      throw new Error('No speech detected in the audio.')
+    }
+    const playbackSpeed = audio.playbackSpeed ?? 1
+    pauseHistory()
+    try {
+      applyTranscriptionSegments(segments, audio.startTime, playbackSpeed)
+    } finally {
+      resumeHistory()
+      pushHistory()
+    }
+    updateStatus(`Added ${segments.length} subtitle segments from audio #${audioNumber}.`, false)
+  }
+
+  const resolveTimelineAudioForSpeech = async (audioNumber: number) => {
+    const { audios } = useManifestStore.getState()
+    const sorted = [...audios].sort((a, b) => a.startTime - b.startTime)
+    if (audioNumber < 1 || audioNumber > sorted.length) {
+      throw new Error(`Audio #${audioNumber} is out of range (1–${sorted.length}).`)
+    }
+    const audio = sorted[audioNumber - 1]
+    if (!audio.url) {
+      throw new Error(`Audio #${audioNumber} has no source URL.`)
+    }
+    const response = await fetch(audio.url)
+    if (!response.ok) {
+      throw new Error(`Failed to load audio #${audioNumber}.`)
+    }
+    const blob = await response.blob()
+    const trimStart = audio.trimStart ?? 0
+    const trimEnd = audio.trimEnd ?? 0
+    const originalDuration = audio.originalDuration
+    const regionDuration =
+      originalDuration !== undefined
+        ? Math.max(0, originalDuration - trimStart - trimEnd)
+        : await resolveAudioDurationFromUrl(URL.createObjectURL(blob))
+    if (regionDuration > VEO_MAX_SPEECH_SECONDS) {
+      throw new Error(`Audio #${audioNumber} must be ${VEO_MAX_SPEECH_SECONDS} seconds or less for talking animation.`)
+    }
+    return {
+      audioBase64: await blobToBase64(blob),
+      mimeType: blob.type || 'audio/mpeg',
+      trimStart,
+      trimEnd,
+      originalDuration,
+      regionDuration,
+      audioBlob: blob,
+      name: audio.name,
+    }
+  }
+
+  const runAnimateToSpeech = async (
+    spec: AnimateToSpeechInstruction,
+    files: UploadedFile[],
+    updateStatus: (text: string, loading: boolean) => void
+  ) => {
+    updateStatus('Preparing talking animation...', true)
+
+    let firstFrame: { base64: string; mimeType: string } | null = null
+    let targetImage: ImageClass | null = null
+    let targetVideo: VideoModel | null = null
+    let appendAtTime: number | undefined
+    const visualTarget = spec.visualTarget ?? 'selected'
+    const { images, videos, playbackTime } = useManifestStore.getState()
+    const sortedVideos = [...videos].sort((a, b) => a.timestamp - b.timestamp)
+
+    const resolveVideoFrame = async (video: VideoModel, framePosition: VideoFramePosition) => {
+      const captureTime = captureTimeForVideoFramePosition(video, framePosition, playbackTime)
+      const dataUrl = await captureVideoFrameDataUrl(video, captureTime)
+      return dataUrlToReferenceImage(dataUrl)
+    }
+
+    if (visualTarget === 'attached') {
+      const attachedImages = await resolveAttachedImageReferences(files)
+      if (attachedImages.length === 0) {
+        throw new Error('Attach an image file to animate, or specify an image/video number.')
+      }
+      firstFrame = attachedImages[0]
+    } else if (visualTarget === 'image_number') {
+      const imageNumber = spec.imageNumber
+      if (imageNumber === undefined || !Number.isFinite(imageNumber)) {
+        throw new Error('Missing image number to animate.')
+      }
+      const sorted = [...images].sort((a, b) => a.startTime - b.startTime)
+      if (imageNumber < 1 || imageNumber > sorted.length) {
+        throw new Error(`Image #${imageNumber} is out of range (1–${sorted.length}).`)
+      }
+      targetImage = sorted[imageNumber - 1]
+      if (!targetImage.url) throw new Error(`Image #${imageNumber} has no source URL.`)
+      firstFrame = await resolveImageUrlReference(targetImage.url)
+    } else if (visualTarget === 'video_number') {
+      const videoNumber = spec.videoNumber
+      if (videoNumber === undefined || !Number.isFinite(videoNumber)) {
+        throw new Error('Missing video number to animate.')
+      }
+      if (videoNumber < 1 || videoNumber > sortedVideos.length) {
+        throw new Error(`Video #${videoNumber} is out of range (1–${sortedVideos.length}).`)
+      }
+      const sourceVideo = sortedVideos[videoNumber - 1]
+      const framePosition = spec.videoFramePosition ?? 'playhead'
+      const appendAfter = spec.appendAfterVideo ?? framePosition === 'last'
+      firstFrame = await resolveVideoFrame(sourceVideo, framePosition)
+      if (appendAfter) {
+        appendAtTime = videoTimelineEndSeconds(sourceVideo)
+      } else {
+        targetVideo = sourceVideo
+      }
+    } else {
+      const selectedImageId = useSelectionStore.getState().selectedImageId
+      const selectedVideoId = useSelectionStore.getState().selectedVideoId
+      if (selectedImageId) {
+        targetImage = images.find((i) => i.id === selectedImageId) ?? null
+        if (!targetImage?.url) throw new Error('Selected image has no source URL.')
+        firstFrame = await resolveImageUrlReference(targetImage.url)
+      } else if (selectedVideoId) {
+        const sourceVideo = videos.find((v) => v.id === selectedVideoId) ?? null
+        if (!sourceVideo) throw new Error('Selected video was not found on the timeline.')
+        const framePosition = spec.videoFramePosition ?? 'playhead'
+        const appendAfter = spec.appendAfterVideo ?? framePosition === 'last'
+        firstFrame = await resolveVideoFrame(sourceVideo, framePosition)
+        if (appendAfter) {
+          appendAtTime = videoTimelineEndSeconds(sourceVideo)
+        } else {
+          targetVideo = sourceVideo
+        }
+      } else {
+        const attachedImages = await resolveAttachedImageReferences(files)
+        if (attachedImages.length > 0) {
+          firstFrame = attachedImages[0]
+        } else {
+          throw new Error(
+            'Select an image or video, specify a number (e.g. from the end of video 1), or attach an image file.'
+          )
+        }
+      }
+    }
+
+    if (!firstFrame) {
+      throw new Error('Failed to load the visual source for animation.')
+    }
+
+    let audioPayload: {
+      audioBase64: string
+      mimeType: string
+      trimStart: number
+      trimEnd: number
+      originalDuration?: number
+      regionDuration: number
+      audioBlob: Blob
+      name: string
+    }
+
+    if (spec.audioNumber !== undefined) {
+      audioPayload = await resolveTimelineAudioForSpeech(spec.audioNumber)
+    } else {
+      const attachedAudio = await resolveAttachedAudioReference(files)
+      if (!attachedAudio) {
+        throw new Error('Specify an audio track number or attach an audio file in chat.')
+      }
+      const duration = await resolveAudioDurationFromUrl(URL.createObjectURL(attachedAudio.blob))
+      if (duration > VEO_MAX_SPEECH_SECONDS) {
+        throw new Error(`Attached audio must be ${VEO_MAX_SPEECH_SECONDS} seconds or less for talking animation.`)
+      }
+      audioPayload = {
+        audioBase64: attachedAudio.base64,
+        mimeType: attachedAudio.mimeType,
+        trimStart: 0,
+        trimEnd: 0,
+        regionDuration: duration,
+        audioBlob: attachedAudio.blob,
+        name: files.find((f) => f.mediaType === 'audio')?.name ?? 'Speech',
+      }
+    }
+
+    updateStatus('Generating lip-sync animation...', true)
+    const response = await fetch('/api/animate-to-speech', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        firstFrame,
+        audioBase64: audioPayload.audioBase64,
+        mimeType: audioPayload.mimeType,
+        trimStart: audioPayload.trimStart,
+        trimEnd: audioPayload.trimEnd,
+        originalDuration: audioPayload.originalDuration,
+        motionPrompt: spec.motionPrompt,
+      }),
+    })
+    const data = await response.json()
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || 'Failed to animate to speech')
+    }
+    if (!data.video_base64) {
+      throw new Error('No talking video was returned')
+    }
+
+    updateStatus('Applying your audio track...', true)
+    const generatedBlob = base64ToBlob(data.video_base64, data.video_mime_type || 'video/mp4')
+    const muxedBlob = await replaceVideoAudioTrack(generatedBlob, audioPayload.audioBlob, {
+      trimStartSeconds: audioPayload.trimStart,
+      durationSeconds: audioPayload.regionDuration,
+    })
+    const title = `Talking: ${audioPayload.name}`.substring(0, 50)
+    const uploadFile = new File([muxedBlob], `talking-${Date.now()}.mp4`, { type: 'video/mp4' })
+    const { duration } = await resolveVideoMetadata(URL.createObjectURL(muxedBlob))
+    if (!validateMediaDuration(duration, 'Video')) {
+      throw new Error('Generated talking video exceeds upload duration limit.')
+    }
+    const assetId = await uploadToAccountLibrary(uploadFile, duration)
+    const sourceUrl = assetId ? accountMediaAssetPlaybackUrl(assetId) : URL.createObjectURL(muxedBlob)
+    const aspectRatio = FIXED_ASPECT_RATIO
+    const [rw, rh] = ASPECT_RATIOS[aspectRatio]
+
+    pauseHistory()
+    try {
+      if (targetImage) {
+        const crop = await computeMediaCropForAspect(
+          sourceUrl,
+          'video',
+          aspectRatio,
+          targetImage.width,
+          targetImage.height,
+          targetImage.cropAspect ?? aspectRatio
+        )
+        const videoInstance = new VideoModel(
+          `video-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          title,
+          sourceUrl,
+          duration,
+          targetImage.startTime,
+          undefined,
+          undefined,
+          undefined,
+          0,
+          0,
+          undefined,
+          targetImage.x,
+          targetImage.y,
+          targetImage.width,
+          targetImage.height,
+          targetImage.opacity,
+          targetImage.animation as AnimationMode,
+          targetImage.transition as TransitionMode,
+          targetImage.zoomIntensity,
+          targetImage.transitionDuration,
+          targetImage.animationDuration,
+          targetImage.animationZoomEasing,
+          undefined,
+          undefined,
+          undefined,
+          targetImage.transitionSlideEasing,
+          targetImage.transitionCircleEasing,
+          targetImage.row,
+          true,
+          crop.cropAspect ?? targetImage.cropAspect,
+          crop.cropSx ?? targetImage.cropSx,
+          crop.cropSy ?? targetImage.cropSy,
+          crop.cropSw ?? targetImage.cropSw,
+          crop.cropSh ?? targetImage.cropSh,
+          undefined,
+          undefined,
+          undefined,
+          1
+        )
+        replaceImageWithVideo(targetImage.id, videoInstance)
+      } else if (targetVideo) {
+        replaceVideoSource(targetVideo.id, sourceUrl, title)
+        updateVideo(targetVideo.id, { duration, muted: false })
+      } else if (appendAtTime !== undefined) {
+        await addVideoToTimelineAtTime(sourceUrl, title, appendAtTime)
+      } else {
+        await addVideoToTimelineAtPlayhead(sourceUrl, title)
+      }
+    } finally {
+      resumeHistory()
+      pushHistory()
+    }
+
+    const clearedAttachments = files.some((f) => f.mediaType === 'image' || f.mediaType === 'audio')
+    if (clearedAttachments) setUploadedFiles([])
+    updateStatus('Talking animation added with your audio.', false)
   }
 
   const applyNewEffects = (newEffects: AddEffectInstruction[]) => {
@@ -305,7 +908,7 @@ export default function ChatWindow() {
       if (t.animationDuration !== undefined) {
         updates.animationDuration = t.animationDuration
       } else if (t.animation && t.animation !== 'none' && item && (!item.animationDuration || item.animationDuration === 0)) {
-        updates.animationDuration = 1.0
+        updates.animationDuration = t.animation === 'stretch-out' ? item.duration : 1.0
       }
 
       if (t.type === 'image') updateImage(t.id, updates)
@@ -864,6 +1467,71 @@ export default function ChatWindow() {
 
       if (!response.ok || data.error) {
         updateStatus(`Error: ${data.error || 'Failed to process request'}`, false)
+        return
+      }
+
+      if (data.action === 'no_op') {
+        updateStatus(data.message, false)
+        return
+      }
+
+      if (data.action === 'generate_image') {
+        const spec = data.imageGeneration as GenerateImageInstruction | undefined
+        if (!spec?.prompt) {
+          updateStatus('Error: Missing image generation parameters.', false)
+          return
+        }
+        await runGenerateImage(spec, filesSnapshot, updateStatus)
+        return
+      }
+
+      if (data.action === 'edit_image') {
+        const spec = data.editImage as EditImageInstruction | undefined
+        if (!spec?.prompt) {
+          updateStatus('Error: Missing image edit parameters.', false)
+          return
+        }
+        await runEditImage(spec, filesSnapshot, updateStatus)
+        return
+      }
+
+      if (data.action === 'generate_video') {
+        const spec = data.videoGeneration as GenerateVideoInstruction | undefined
+        if (!spec?.prompt) {
+          updateStatus('Error: Missing video generation parameters.', false)
+          return
+        }
+        await runGenerateVideo(spec, filesSnapshot, updateStatus)
+        return
+      }
+
+      if (data.action === 'generate_speech') {
+        const spec = data.speechGeneration as GenerateSpeechInstruction | undefined
+        if (!spec?.prompt) {
+          updateStatus('Error: Missing speech generation parameters.', false)
+          return
+        }
+        await runGenerateSpeech(spec, updateStatus)
+        return
+      }
+
+      if (data.action === 'transcribe_audio') {
+        const spec = data.transcribeAudio as TranscribeAudioInstruction | undefined
+        if (!spec?.audioNumber) {
+          updateStatus('Error: Missing transcription parameters.', false)
+          return
+        }
+        await runTranscribeAudio(spec, updateStatus)
+        return
+      }
+
+      if (data.action === 'animate_to_speech') {
+        const spec = data.animateToSpeech as AnimateToSpeechInstruction | undefined
+        if (!spec) {
+          updateStatus('Error: Missing talking animation parameters.', false)
+          return
+        }
+        await runAnimateToSpeech(spec, filesSnapshot, updateStatus)
         return
       }
 

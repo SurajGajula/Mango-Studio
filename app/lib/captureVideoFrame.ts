@@ -8,6 +8,10 @@ import {
   videoTimelineSourceMapping,
 } from '@/app/lib/renderUtils'
 import { manifestVideoTimelineSpanSeconds } from '@/app/lib/timeUtils'
+import {
+  videoPlaybackMediaUrl,
+  videoSourceTrimBase,
+} from '@/app/lib/videoPlaybackSource'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
 
@@ -18,8 +22,53 @@ export function isVideoOnScreenAtTime(video: VideoClass, playbackTime: number): 
   return playbackTime >= video.timestamp && playbackTime < video.timestamp + span
 }
 
+export function videoTimelineEndSeconds(video: VideoClass): number {
+  return video.timestamp + manifestVideoTimelineSpanSeconds(video)
+}
+
+export function lastFramePlaybackTimeForVideo(video: VideoClass): number {
+  const span = manifestVideoTimelineSpanSeconds(video)
+  if (span <= 0) return video.timestamp
+  return Math.max(video.timestamp, video.timestamp + span - 0.001)
+}
+
+export type VideoFramePosition = 'first' | 'last' | 'playhead'
+
+export function resolveVideoFrameCaptureTime(video: VideoClass, playbackTime: number): number {
+  if (isVideoOnScreenAtTime(video, playbackTime)) return playbackTime
+  return lastFramePlaybackTimeForVideo(video)
+}
+
+export function captureTimeForVideoFramePosition(
+  video: VideoClass,
+  framePosition: VideoFramePosition,
+  playbackTime: number
+): number {
+  if (framePosition === 'first') return video.timestamp
+  if (framePosition === 'last') return lastFramePlaybackTimeForVideo(video)
+  return resolveVideoFrameCaptureTime(video, playbackTime)
+}
+
+export function findPreviousVideoBeforePlayhead(
+  videos: VideoClass[],
+  playbackTime: number
+): VideoClass | null {
+  let best: VideoClass | null = null
+  let bestEnd = -Infinity
+  for (const video of videos) {
+    if (!videoPlaybackMediaUrl(video)) continue
+    const end = videoTimelineEndSeconds(video)
+    if (end <= 1e-9) continue
+    if (end <= playbackTime + 1e-9 && end > bestEnd) {
+      best = video
+      bestEnd = end
+    }
+  }
+  return best
+}
+
 function resolvedVideoSrc(video: VideoClass): string {
-  const src = video.url || video.sourceUrl
+  const src = videoPlaybackMediaUrl(video)
   if (!src) throw new Error('Video has no media source')
   return src
 }
@@ -91,7 +140,7 @@ export async function captureVideoFrameDataUrl(
     video.duration != null && video.duration > 0 ? video.duration : span
   )
   const tm = videoTimelineSourceMapping(video, elapsed, vDur)
-  const sourceTime = (video.trimStart ?? 0) + tm.sourceElapsed
+  const sourceTime = videoSourceTrimBase(video) + tm.sourceElapsed
   const el = await resolveVideoElementForCapture(video, sourceTime)
 
   const vw = el.videoWidth

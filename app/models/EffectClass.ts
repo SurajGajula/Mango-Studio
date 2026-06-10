@@ -4,6 +4,7 @@ export type EffectType =
   | 'black-and-white'
   | 'vivid-sharp'
   | 'pixel-glitch-scan'
+  | 'grainy'
 
 export class EffectClass {
   id: string

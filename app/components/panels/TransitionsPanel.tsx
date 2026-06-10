@@ -75,6 +75,17 @@ const ANIMATION_OPTIONS: { value: AnimationMode; label: string; icon: React.Reac
     ),
   },
   {
+    value: 'stretch-out',
+    label: 'Stretch out',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="2" />
+        <path d="M12 5v-2M12 21v-2M5 12H3M21 12h-2" />
+        <path d="M7.2 7.2L5.8 5.8M18.2 18.2l-1.4-1.4M16.8 7.2l1.4-1.4M7.2 16.8l-1.4 1.4" />
+      </svg>
+    ),
+  },
+  {
     value: 'shake',
     label: 'Shake',
     icon: (
@@ -89,6 +100,16 @@ const ANIMATION_OPTIONS: { value: AnimationMode; label: string; icon: React.Reac
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M2 12l3-3 4 4 4-4 4 4 5-5" />
+      </svg>
+    ),
+  },
+  {
+    value: 'rotate',
+    label: 'Rotate',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+        <path d="M21 3v5h-5" />
       </svg>
     ),
   },
@@ -648,7 +669,7 @@ export default function TransitionsPanel({ mode, onClose, itemId }: Props) {
                   type="range"
                   min="0.01"
                   max="1.0"
-                  step="0.01"
+                  step="0.1"
                   value={displayIntensity}
                   className={styles.durationSlider}
                   onPointerDown={intensitySliderHistory}

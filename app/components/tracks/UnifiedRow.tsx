@@ -32,8 +32,6 @@ interface UnifiedRowProps {
   handleVideoDoubleClick: (videoId: string) => void
   handleAudioDoubleClick: (audioId: string) => void
   videoThumbnails: Map<string, Map<number, string>>
-  scrollContainerRef: React.RefObject<HTMLDivElement>
-  timelineInnerWidthPx: number
   onOpenTransitions?: (id: string) => void
   onOpenEffects?: () => void
   multiSelectedItems: TimelineSelectionItem[]
@@ -56,8 +54,6 @@ const UnifiedRow = ({
   handleVideoDoubleClick,
   handleAudioDoubleClick,
   videoThumbnails,
-  scrollContainerRef,
-  timelineInnerWidthPx,
   onOpenTransitions,
   onOpenEffects,
   multiSelectedItems,
@@ -268,16 +264,21 @@ const UnifiedRow = ({
                       const repeatedThumbs = buildVideoStripThumbnails({
                         video: vidItem,
                         videoThumbnails,
-                        widthPercent,
-                        timelineInnerWidthPx,
-                        fallbackViewportWidthPx: scrollContainerRef.current?.clientWidth ?? 800,
-                        totalDuration,
                       })
                       if (repeatedThumbs.length === 0) return null
                       return repeatedThumbs
                         .filter((thumb): thumb is string => Boolean(thumb))
                         .map((thumb, tIdx) => (
-                          <img key={`${id}-thumb-${tIdx}`} src={thumb} alt="" className={styles.thumbnail} draggable={false} />
+                          <img
+                            key={`${id}-thumb-${tIdx}`}
+                            src={thumb}
+                            alt=""
+                            className={styles.thumbnail}
+                            draggable={false}
+                            loading="lazy"
+                            decoding="async"
+                            fetchPriority="low"
+                          />
                         ))
                     })()}
                   </div>

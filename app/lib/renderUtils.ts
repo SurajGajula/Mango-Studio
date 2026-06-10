@@ -3,11 +3,11 @@ import { ImageClass } from '@/app/models/ImageClass'
 import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
 import { resolveMediaKeyframeTransform } from '@/app/lib/resolveMediaKeyframeTransform'
 import {
-  previewVideoFrameReady,
   resolvePreviewVideoDrawSource,
   videoHasDecodedPreviewFrame,
 } from '@/app/lib/previewVideoFrameCache'
 import { manifestVideoTimelineSpanSeconds } from '@/app/lib/timeUtils'
+import { isSameSourceSplitPair } from '@/app/lib/adjacentSplitVideo'
 
 export interface MainItem {
   id: string
@@ -74,9 +74,6 @@ export function getSortedRowItems(row: number, videos: VideoClass[], images: Ima
   ].sort((a, b) => a.startTime - b.startTime)
 }
 
-function videoHasDrawableFrame(el: HTMLVideoElement): boolean {
-  return previewVideoFrameReady(el)
-}
 
 function resolveVideoDrawSource(
   el: HTMLVideoElement
@@ -94,6 +91,34 @@ function bitmapOrImageSize(el: HTMLImageElement | ImageBitmap): { w: number; h: 
   return { w: el.width, h: el.height }
 }
 
+function drawSourceSize(source: HTMLVideoElement | HTMLCanvasElement | HTMLImageElement | ImageBitmap): {
+  w: number
+  h: number
+} {
+  if (source instanceof HTMLVideoElement) {
+    return { w: source.videoWidth, h: source.videoHeight }
+  }
+  if (source instanceof HTMLImageElement) {
+    return { w: source.naturalWidth, h: source.naturalHeight }
+  }
+  return { w: source.width, h: source.height }
+}
+
+export type ResolveVideoDrawSource = (
+  id: string,
+  el: HTMLVideoElement
+) => HTMLVideoElement | HTMLCanvasElement | null
+
+function resolveClipVideoDrawSource(
+  id: string,
+  el: HTMLVideoElement | undefined,
+  resolveVideoSource?: ResolveVideoDrawSource
+): HTMLVideoElement | HTMLCanvasElement | null {
+  if (!el) return null
+  if (resolveVideoSource) return resolveVideoSource(id, el)
+  return resolveVideoDrawSource(el)
+}
+
 export function renderClipTransitionPair(
   ctx: CanvasRenderingContext2D,
   cr: { x: number; y: number; width: number; height: number },
@@ -102,7 +127,8 @@ export function renderClipTransitionPair(
   nextClip: MainItem,
   transProgress: number,
   getVideo: (id: string) => HTMLVideoElement | undefined,
-  getImage: (id: string) => HTMLImageElement | ImageBitmap | undefined
+  getImage: (id: string) => HTMLImageElement | ImageBitmap | undefined,
+  resolveVideoSource?: ResolveVideoDrawSource
 ): boolean {
   const logicalW = LOGICAL_W
   const logicalH = LOGICAL_H
@@ -125,22 +151,27 @@ export function renderClipTransitionPair(
       }
     | undefined
 
+  let nextDraw: HTMLVideoElement | HTMLCanvasElement | HTMLImageElement | ImageBitmap | null = null
+
   if (nextClip.type === 'video') {
     const nv = nextClip.item as VideoClass
     const el = getVideo(nextClip.id)
-    if (el && videoHasDrawableFrame(el)) {
+    const draw = resolveClipVideoDrawSource(nextClip.id, el, resolveVideoSource)
+    if (el && draw) {
+      const { w: nw, h: nh } = drawSourceSize(draw)
       const kn = resolveMediaKeyframeTransform(nv, elapsedB, nv.duration ?? 0)
       nextParams = {
         x: cr.x + kn.x * xScale,
         y: cr.y + kn.y * yScale,
         w: kn.width * xScale,
         h: kn.height * yScale,
-        sx: el.videoWidth * kn.cropSx,
-        sy: el.videoHeight * kn.cropSy,
-        sw: el.videoWidth * kn.cropSw,
-        sh: el.videoHeight * kn.cropSh,
+        sx: nw * kn.cropSx,
+        sy: nh * kn.cropSy,
+        sw: nw * kn.cropSw,
+        sh: nh * kn.cropSh,
       }
       nextEl = el
+      nextDraw = draw
     }
   } else {
     const ni = nextClip.item as ImageClass
@@ -159,28 +190,33 @@ export function renderClipTransitionPair(
         sh: nh * kn.cropSh,
       }
       nextEl = el
+      nextDraw = el
     }
   }
 
   let curEl: HTMLVideoElement | HTMLImageElement | ImageBitmap | null = null
   let curParams: typeof nextParams | undefined
+  let curDraw: HTMLVideoElement | HTMLCanvasElement | HTMLImageElement | ImageBitmap | null = null
 
   if (activeClip.type === 'video') {
     const av = activeClip.item as VideoClass
     const el = getVideo(activeClip.id)
-    if (el && videoHasDrawableFrame(el)) {
+    const draw = resolveClipVideoDrawSource(activeClip.id, el, resolveVideoSource)
+    if (el && draw) {
+      const { w: cw, h: ch } = drawSourceSize(draw)
       const ka = resolveMediaKeyframeTransform(av, elapsedA, av.duration ?? 0)
       curParams = {
         x: cr.x + ka.x * xScale,
         y: cr.y + ka.y * yScale,
         w: ka.width * xScale,
         h: ka.height * yScale,
-        sx: el.videoWidth * ka.cropSx,
-        sy: el.videoHeight * ka.cropSy,
-        sw: el.videoWidth * ka.cropSw,
-        sh: el.videoHeight * ka.cropSh,
+        sx: cw * ka.cropSx,
+        sy: ch * ka.cropSy,
+        sw: cw * ka.cropSw,
+        sh: ch * ka.cropSh,
       }
       curEl = el
+      curDraw = draw
     }
   } else {
     const ai = activeClip.item as ImageClass
@@ -199,23 +235,65 @@ export function renderClipTransitionPair(
         sh: ch * ka.cropSh,
       }
       curEl = el
+      curDraw = el
     }
   }
 
-  if (!curEl || !curParams) return false
-
-  const curDraw =
-    activeClip.type === 'video'
-      ? resolveVideoDrawSource(curEl as HTMLVideoElement)
-      : curEl
-  if (!curDraw) return false
-
-  const nextDraw =
-    nextEl && nextClip.type === 'video'
-      ? resolveVideoDrawSource(nextEl as HTMLVideoElement)
-      : nextEl
+  if (!curEl || !curParams || !curDraw) return false
 
   if (!nextEl || !nextParams || !nextDraw) {
+    if (nextClip.item.transition === 'flash' && transProgress < 0.5) {
+      const activeItem = activeClip.item
+      const nextItem = nextClip.item
+      const progA = calculateAnimationProgress(activeItem, t, activeClip.startTime)
+      const ka =
+        activeClip.type === 'video'
+          ? resolveMediaKeyframeTransform(activeItem as VideoClass, elapsedA, (activeItem as VideoClass).duration ?? 0)
+          : resolveMediaKeyframeTransform(activeItem as ImageClass, elapsedA, (activeItem as ImageClass).duration)
+      applyZoomTransform(
+        ctx,
+        activeItem.animation,
+        'flash',
+        transProgress,
+        curDraw,
+        curParams.x,
+        curParams.y,
+        curParams.w,
+        curParams.h,
+        ka.cropSx,
+        ka.cropSy,
+        ka.cropSw,
+        ka.cropSh,
+        ka.zoomIntensity,
+        activeItem.duration,
+        activeItem.animationDuration,
+        elapsedA,
+        curDraw,
+        activeItem.animation,
+        progA,
+        elapsedA,
+        ka.zoomIntensity,
+        activeItem.duration,
+        activeItem.animationDuration,
+        curParams,
+        nextItem.transitionColor,
+        nextItem.transitionFlashMode,
+        nextItem.transitionDirection,
+        nextItem.transitionAxis,
+        nextItem.transitionSlideEasing,
+        nextItem.transitionCircleEasing,
+        nextItem.transitionWipeEasing,
+        nextItem.animationZoomEasing,
+        activeItem.animationZoomEasing,
+        nextItem.zoomDistanceIntensity,
+        activeItem.zoomDistanceIntensity,
+        activeItem.flipHorizontal,
+        activeItem.flipVertical,
+        activeItem.flipHorizontal,
+        activeItem.flipVertical
+      )
+      return true
+    }
     if (nextClip.item.transition === 'morph') {
       const activeItem = activeClip.item
       const progA = calculateAnimationProgress(activeItem, t, activeClip.startTime)
@@ -520,6 +598,20 @@ export function timelineClipSourceSpanSeconds(
   return calculateSourceTime(D, D, ss, se, ps, easing)
 }
 
+export function videoInstantaneousPlaybackSpeed(
+  video: VideoClass,
+  elapsedInClip: number,
+  clipDuration: number
+): number {
+  const D = clipDuration > 0 ? clipDuration : 0.1
+  const t = Math.max(0, Math.min(elapsedInClip, D))
+  const x = t / D
+  const speedStart = video.speedStart ?? video.playbackSpeed ?? 1
+  const speedEnd = video.speedEnd ?? video.playbackSpeed ?? 1
+  if (Math.abs(speedStart - speedEnd) < 0.001) return speedStart
+  return speedStart + x * (speedEnd - speedStart)
+}
+
 export function calculateSourceTime(
   elapsedTimelineTime: number,
   timelineDuration: number,
@@ -557,11 +649,10 @@ export function findActiveAndNextItems(items: MainItem[], time: number) {
   if (activeItem && activeIdx > 0 && activeItem.item.transition === 'flash') {
     const previousItem = items[activeIdx - 1]
     const adjacent = Math.abs(previousItem.startTime + previousItem.duration - activeItem.startTime) < 0.01
-    const compatible = clipsTransitionLayoutCompatible(previousItem.item, activeItem.item)
     const rawTransDur = Math.max(0.1, activeItem.item.transitionDuration ?? 1.0)
     const transDur = Math.min(rawTransDur, previousItem.duration, activeItem.duration)
     const halfDur = transDur * 0.5
-    if (adjacent && compatible && time >= activeItem.startTime && time < activeItem.startTime + halfDur) {
+    if (adjacent && time >= activeItem.startTime && time < activeItem.startTime + halfDur) {
       return { activeItem: previousItem, nextItem: activeItem }
     }
   }
@@ -571,6 +662,15 @@ export function findActiveAndNextItems(items: MainItem[], time: number) {
 
 export function checkTransition(activeItem: MainItem | null, nextItem: MainItem | null, time: number) {
   if (!activeItem || !nextItem) return { transitionActive: false, progress: 0 }
+
+  if (
+    activeItem.type === 'video' &&
+    nextItem.type === 'video' &&
+    isSameSourceSplitPair(activeItem.item as VideoClass, nextItem.item as VideoClass) &&
+    nextItem.item.transition !== 'flash'
+  ) {
+    return { transitionActive: false, progress: 0 }
+  }
 
   const isTransitionType = nextItem.item.transition !== 'none'
   if (!isTransitionType) return { transitionActive: false, progress: 0 }

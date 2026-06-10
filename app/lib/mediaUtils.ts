@@ -501,22 +501,32 @@ export async function generateVideoThumbnails(
   // Sort seconds to minimize seeking distance
   const sortedSeconds = [...seconds].sort((a, b) => a - b)
 
+  let lastSeekTime = -1
+
   for (const s of sortedSeconds) {
     if (s < 0 || s > video.duration) continue
-    
-    video.currentTime = s
+
+    const seekDelta = lastSeekTime < 0 ? Number.POSITIVE_INFINITY : Math.abs(s - lastSeekTime)
+    const seekTimeoutMs = seekDelta <= 2 ? 120 : seekDelta <= 12 ? 250 : 450
+
     await new Promise<void>((resolve) => {
-      video.onseeked = () => resolve()
-      // Fallback for slow seeking
-      const t = setTimeout(resolve, 500)
-      video.onseeked = () => {
-        clearTimeout(t)
+      const t = window.setTimeout(resolve, seekTimeoutMs)
+      const onSeeked = () => {
+        window.clearTimeout(t)
+        video.removeEventListener('seeked', onSeeked)
         resolve()
       }
+      video.addEventListener('seeked', onSeeked)
+      if (typeof (video as HTMLVideoElement & { fastSeek?: (time: number) => void }).fastSeek === 'function') {
+        ;(video as HTMLVideoElement & { fastSeek: (time: number) => void }).fastSeek(s)
+      } else {
+        video.currentTime = s
+      }
     })
+    lastSeekTime = s
     
     ctx.drawImage(video, 0, 0, thumbWidth, thumbHeight)
-    const data = canvas.toDataURL('image/jpeg', 0.5)
+    const data = canvas.toDataURL('image/jpeg', 0.42)
     thumbnails.set(s, data)
     
     if (onProgress) {

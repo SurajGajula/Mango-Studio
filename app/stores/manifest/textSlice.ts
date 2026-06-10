@@ -1,4 +1,5 @@
 import { TextClass } from '@/app/models/TextClass'
+import { sliceWordTimingsForClip } from '@/app/lib/textUtils'
 import { generateId } from '@/app/lib/idUtils'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { ManifestStore } from './types'
@@ -36,7 +37,8 @@ export const createTextSlice = (set: any, get: any) => ({
           updates.animation ?? t.animation,
           updates.style ?? t.style,
           updates.createdAt ?? t.createdAt,
-          updates.row ?? t.row
+          updates.row ?? t.row,
+          updates.wordTimings !== undefined ? updates.wordTimings : t.wordTimings
         )
       }),
     }))
@@ -55,11 +57,15 @@ export const createTextSlice = (set: any, get: any) => ({
     if (!text) return
     if (playbackTime <= text.startTime + 0.05 || playbackTime >= text.endTime - 0.05) return
 
-    const firstHalf = text.copy({ endTime: playbackTime })
+    const firstHalf = text.copy({
+      endTime: playbackTime,
+      wordTimings: sliceWordTimingsForClip(text.wordTimings, text.startTime, playbackTime, text.startTime),
+    })
     const secondHalf = text.copy({
       id: `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       startTime: playbackTime,
-      createdAt: new Date()
+      createdAt: new Date(),
+      wordTimings: sliceWordTimingsForClip(text.wordTimings, playbackTime, text.endTime, text.startTime),
     })
 
     useSelectionStore.getState().setSelectedTextId(secondHalf.id)
@@ -91,6 +97,7 @@ export const createTextSlice = (set: any, get: any) => ({
         startTime: segStart,
         endTime: segEnd,
         createdAt: i === 0 ? text.createdAt : new Date(),
+        wordTimings: sliceWordTimingsForClip(text.wordTimings, segStart, segEnd, text.startTime),
       })
     })
 

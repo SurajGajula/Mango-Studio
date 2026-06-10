@@ -3,9 +3,18 @@ import { ImageClass } from '@/app/models/ImageClass'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { generateId } from '@/app/lib/idUtils'
 import { quantizeTimelineSeconds } from '@/app/lib/timeline/timelineQuantize'
-import { syncVideoTrimDerivedFields } from '@/app/lib/timeUtils'
+import { manifestVideoTimelineSpanSeconds, syncVideoTrimDerivedFields } from '@/app/lib/timeUtils'
 import { keyframesAfterSingleSplit, keyframesForVideoSegmentBoundaries } from '@/app/lib/splitClipKeyframes'
+import {
+  buildVideoSplitSegmentFields,
+  videoLocalBoundariesFromSplitTimes,
+} from '@/app/lib/splitVideoSegments'
 import { ManifestStore, BlobEntry } from './types'
+
+function splitSegmentCopyFields(index: number): Partial<VideoClass> {
+  if (index === 0) return {}
+  return { transition: 'none', transitionDuration: undefined }
+}
 
 export const createVideoSlice = (set: any, get: any) => ({
   addVideo: (video: VideoClass) => {
@@ -99,20 +108,20 @@ export const createVideoSlice = (set: any, get: any) => ({
     const video = state.videos.find((v: VideoClass) => v.id === id)
     if (!video) return
 
+    const timelineDuration = manifestVideoTimelineSpanSeconds(video)
     const localTime = playbackTime - video.timestamp
-    const duration = video.duration ?? 0
-    if (localTime <= 0.05 || localTime >= duration - 0.05) return
+    if (localTime <= 0.05 || localTime >= timelineDuration - 0.05) return
 
-    const origDuration = video.originalDuration ?? duration
-    const originalSplitPoint = quantizeTimelineSeconds(
-      video.trimStart + localTime * (video.playbackSpeed ?? 1)
-    )
+    const origDuration = video.originalDuration ?? video.duration ?? 0
+    const localBoundaries = [0, localTime, timelineDuration]
+    const [firstFields, secondFields] = buildVideoSplitSegmentFields(video, localBoundaries)
 
     const { first: kfFirst, second: kfSecond } = keyframesAfterSingleSplit(video.keyframes ?? [], localTime)
 
     const firstHalf = video.copy({
-      duration: quantizeTimelineSeconds(localTime),
-      trimEnd: quantizeTimelineSeconds(origDuration - originalSplitPoint),
+      duration: firstFields.duration,
+      trimEnd: firstFields.trimEnd,
+      sourceDuration: firstFields.sourceDuration,
       updatedAt: new Date(),
       originalDuration: origDuration,
       keyframes: kfFirst,
@@ -120,13 +129,16 @@ export const createVideoSlice = (set: any, get: any) => ({
 
     const secondHalf = video.copy({
       id: generateId('video'),
-      duration: quantizeTimelineSeconds(duration - localTime),
-      timestamp: quantizeTimelineSeconds(video.timestamp + localTime),
-      trimStart: originalSplitPoint,
+      duration: secondFields.duration,
+      timestamp: secondFields.timestamp,
+      trimStart: secondFields.trimStart,
+      trimEnd: secondFields.trimEnd,
+      sourceDuration: secondFields.sourceDuration,
       createdAt: new Date(),
       updatedAt: new Date(),
       originalDuration: origDuration,
       keyframes: kfSecond,
+      ...splitSegmentCopyFields(1),
     })
 
     useSelectionStore.getState().setSelectedVideoId(secondHalf.id)
@@ -137,7 +149,7 @@ export const createVideoSlice = (set: any, get: any) => ({
     }))
 
     get().recalculateTimestamps()
-    set({ playbackTime: quantizeTimelineSeconds(video.timestamp + localTime) })
+    set({ playbackTime: secondFields.timestamp })
     get().pushHistory()
   },
 
@@ -146,40 +158,27 @@ export const createVideoSlice = (set: any, get: any) => ({
     const video = state.videos.find((v: VideoClass) => v.id === id)
     if (!video) return
 
-    const duration = video.duration ?? 0
-    const origDuration = video.originalDuration ?? duration
+    const origDuration = video.originalDuration ?? video.duration ?? 0
+    const localBoundaries = videoLocalBoundariesFromSplitTimes(video, times)
+    if (localBoundaries.length <= 2) return
 
-    const epsilon = 1e-6
-    const relTimes = times
-      .map((t) => t - video.timestamp)
-      .filter((t) => t > epsilon && t < duration - epsilon)
-      .sort((a, b) => a - b)
-      .filter((t, i, arr) => i === 0 || t - arr[i - 1] > epsilon)
-
-    if (relTimes.length === 0) return
-
-    const boundaries = [0, ...relTimes, duration]
-    const segKeyframes = keyframesForVideoSegmentBoundaries(video.keyframes ?? [], boundaries)
-    const newClips: VideoClass[] = boundaries.slice(0, -1).map((segStart, i) => {
-      const segEnd = boundaries[i + 1]
-      const segTrimStart = quantizeTimelineSeconds(
-        video.trimStart + segStart * (video.playbackSpeed ?? 1)
-      )
-      const segTrimEnd = quantizeTimelineSeconds(
-        Math.max(0, origDuration - (video.trimStart + segEnd * (video.playbackSpeed ?? 1)))
-      )
-      return video.copy({
+    const segFields = buildVideoSplitSegmentFields(video, localBoundaries)
+    const segKeyframes = keyframesForVideoSegmentBoundaries(video.keyframes ?? [], localBoundaries)
+    const newClips: VideoClass[] = segFields.map((fields, i) =>
+      video.copy({
         id: i === 0 ? video.id : generateId('video'),
-        duration: quantizeTimelineSeconds(segEnd - segStart),
-        timestamp: quantizeTimelineSeconds(video.timestamp + segStart),
+        duration: fields.duration,
+        timestamp: fields.timestamp,
         createdAt: i === 0 ? video.createdAt : new Date(),
         updatedAt: new Date(),
         originalDuration: origDuration,
-        trimStart: segTrimStart,
-        trimEnd: segTrimEnd,
+        trimStart: fields.trimStart,
+        trimEnd: fields.trimEnd,
+        sourceDuration: fields.sourceDuration,
         keyframes: segKeyframes[i] ?? [],
+        ...splitSegmentCopyFields(i),
       })
-    })
+    )
 
     set((s: ManifestStore) => ({
       videos: s.videos.filter((v) => v.id !== id).concat(newClips),

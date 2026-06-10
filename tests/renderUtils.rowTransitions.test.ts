@@ -149,7 +149,7 @@ describe('checkTransition with layout guard', () => {
 })
 
 describe('findActiveAndNextItems flash layout guard', () => {
-  it('does not remap to previous clip when flash pair layout mismatches', () => {
+  it('remaps to previous clip during flash second half even when layout mismatches', () => {
     const prev = makeVideo('p', 0, 0, 2)
     const cur = makeVideo('c', 0, 2, 2, { width: 400, transition: 'flash', transitionDuration: 2 })
     const items = [
@@ -158,7 +158,7 @@ describe('findActiveAndNextItems flash layout guard', () => {
     ]
     const t = cur.timestamp + 0.1
     const { activeItem, nextItem } = findActiveAndNextItems(items, t)
-    expect(activeItem?.id).toBe('c')
-    expect(nextItem).toBeNull()
+    expect(activeItem?.id).toBe('p')
+    expect(nextItem?.id).toBe('c')
   })
 })

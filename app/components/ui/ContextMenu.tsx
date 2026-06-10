@@ -62,6 +62,7 @@ export default function ContextMenu({
   const duplicateItem = useManifestStore((s) => s.duplicateItem)
   const updateVideo = useManifestStore((s) => s.updateVideo)
   const updateImage = useManifestStore((s) => s.updateImage)
+  const updateText = useManifestStore((s) => s.updateText)
   const updateAudio = useManifestStore((s) => s.updateAudio)
   const splitAudio = useManifestStore((s) => s.splitAudio)
   const pushHistory = useManifestStore((s) => s.pushHistory)
@@ -69,6 +70,7 @@ export default function ContextMenu({
   const volumeSliderHistory = useSliderHistorySession()
   const pitchSliderHistory = useSliderHistorySession()
   const fadeOutSliderHistory = useSliderHistorySession()
+  const opacitySliderHistory = useSliderHistorySession()
 
   const clearSelection = useSelectionStore((s) => s.clearSelection)
 
@@ -174,8 +176,11 @@ export default function ContextMenu({
   }
 
   const currentVideo = itemType === 'video' ? videos.find(v => v.id === itemId) : null
+  const currentImage = itemType === 'image' ? images.find((img) => img.id === itemId) : null
+  const currentText = itemType === 'text' ? texts.find((t) => t.id === itemId) : null
   const currentAudio = itemType === 'audio' ? audios.find(a => a.id === itemId) : null
   const currentItem = currentVideo || currentAudio
+  const currentOpacityItem = currentVideo || currentImage || currentText
   const canCaptureFrame =
     !!currentVideo && isVideoOnScreenAtTime(currentVideo, playbackTime) && !capturingFrame
 
@@ -536,15 +541,77 @@ export default function ContextMenu({
       )}
 
       {itemType === 'text' && (
-        <button
-          className={styles.contextMenuItem}
-          onClick={() => handleAction(() => onOpenFont?.())}
-        >
+        <>
+          {currentOpacityItem && (
+            <div className={styles.contextMenuSliderItem}>
+              <div className={styles.contextMenuIcon}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 3v18" />
+                  <path d="M6 9h12" />
+                  <path d="M6 15h12" />
+                </svg>
+              </div>
+              <span style={{ fontSize: '0.75rem', color: '#cccccc', marginRight: '8px', minWidth: '45px' }}>Opacity</span>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.1"
+                value={currentOpacityItem.opacity ?? 1}
+                onPointerDown={opacitySliderHistory}
+                onChange={(e) => {
+                  const opacity = parseFloat(e.target.value)
+                  updateText(itemId, { opacity })
+                }}
+                onClick={(e) => e.stopPropagation()}
+                className={styles.contextMenuSlider}
+              />
+              <span style={{ fontSize: '0.7rem', color: '#888', marginLeft: '8px', minWidth: '30px' }}>
+                {Math.round((currentOpacityItem.opacity ?? 1) * 100)}%
+              </span>
+            </div>
+          )}
+          <button
+            className={styles.contextMenuItem}
+            onClick={() => handleAction(() => onOpenFont?.())}
+          >
+            <div className={styles.contextMenuIcon}>
+              <span style={{ fontSize: '11px', fontWeight: 700 }}>F</span>
+            </div>
+            Font & Style
+          </button>
+        </>
+      )}
+
+      {(itemType === 'video' || itemType === 'image') && currentOpacityItem && (
+        <div className={styles.contextMenuSliderItem}>
           <div className={styles.contextMenuIcon}>
-            <span style={{ fontSize: '11px', fontWeight: 700 }}>F</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 3v18" />
+              <path d="M6 9h12" />
+              <path d="M6 15h12" />
+            </svg>
           </div>
-          Font & Style
-        </button>
+          <span style={{ fontSize: '0.75rem', color: '#cccccc', marginRight: '8px', minWidth: '45px' }}>Opacity</span>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.1"
+            value={currentOpacityItem.opacity ?? 1}
+            onPointerDown={opacitySliderHistory}
+            onChange={(e) => {
+              const opacity = parseFloat(e.target.value)
+              if (itemType === 'video') updateVideo(itemId, { opacity })
+              else updateImage(itemId, { opacity })
+            }}
+            onClick={(e) => e.stopPropagation()}
+            className={styles.contextMenuSlider}
+          />
+          <span style={{ fontSize: '0.7rem', color: '#888', marginLeft: '8px', minWidth: '30px' }}>
+            {Math.round((currentOpacityItem.opacity ?? 1) * 100)}%
+          </span>
+        </div>
       )}
 
       {itemType === 'effect' && (

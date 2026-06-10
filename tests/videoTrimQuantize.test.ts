@@ -88,6 +88,31 @@ describe('video trim quantization', () => {
     expect(synced.duration).toBe(0.671)
   })
 
+  it('preserves explicit trimEnd and sourceDuration when duration is edited', () => {
+    const video = new VideoClass(
+      'v1',
+      'clip',
+      '/x.mp4',
+      5,
+      0,
+      undefined,
+      undefined,
+      120,
+      0,
+      0
+    )
+    const synced = syncVideoTrimDerivedFields(video, {
+      duration: 5,
+      trimEnd: 0,
+      sourceDuration: 120,
+      originalDuration: 10,
+      trimStart: 0,
+    })
+    expect(synced.trimEnd).toBe(0)
+    expect(synced.sourceDuration).toBe(120)
+    expect(synced.duration).toBe(5)
+  })
+
   it('syncs trimEnd when duration is edited directly', () => {
     const video = new VideoClass(
       'v1',

@@ -69,6 +69,22 @@ const EFFECT_OPTIONS: { value: EffectType; label: string; icon: React.ReactNode 
       </svg>
     ),
   },
+  {
+    value: 'grainy',
+    label: 'Grainy',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="5" cy="6" r="0.75" fill="currentColor" stroke="none" />
+        <circle cx="11" cy="4" r="0.75" fill="currentColor" stroke="none" />
+        <circle cx="17" cy="7" r="0.75" fill="currentColor" stroke="none" />
+        <circle cx="8" cy="12" r="0.75" fill="currentColor" stroke="none" />
+        <circle cx="15" cy="11" r="0.75" fill="currentColor" stroke="none" />
+        <circle cx="6" cy="17" r="0.75" fill="currentColor" stroke="none" />
+        <circle cx="13" cy="18" r="0.75" fill="currentColor" stroke="none" />
+        <circle cx="19" cy="15" r="0.75" fill="currentColor" stroke="none" />
+      </svg>
+    ),
+  },
 ]
 
 export default function EffectsPanel({ onClose }: Props) {
@@ -152,7 +168,7 @@ export default function EffectsPanel({ onClose }: Props) {
                 type="range"
                 min="0"
                 max="1"
-                step="0.01"
+                step="0.1"
                 value={activeEffect.intensity ?? 0.5}
                 onPointerDown={intensitySliderHistory}
                 onChange={handleIntensityChange}
@@ -168,7 +184,7 @@ export default function EffectsPanel({ onClose }: Props) {
                 type="range"
                 min="0"
                 max="1"
-                step="0.01"
+                step="0.1"
                 value={activeEffect.flashSpeed ?? 1}
                 onPointerDown={flashSpeedSliderHistory}
                 onChange={handleFlashSpeedChange}
@@ -180,7 +196,8 @@ export default function EffectsPanel({ onClose }: Props) {
 
         {(activeEffect?.type === 'black-and-white' ||
           activeEffect?.type === 'vivid-sharp' ||
-          activeEffect?.type === 'pixel-glitch-scan') && (
+          activeEffect?.type === 'pixel-glitch-scan' ||
+          activeEffect?.type === 'grainy') && (
           <div className={styles.durationControl} style={{ marginTop: '2rem' }}>
             <div className={styles.durationHeader}>
               <span className={styles.durationLabel}>
@@ -188,7 +205,9 @@ export default function EffectsPanel({ onClose }: Props) {
                   ? 'Contrast'
                   : activeEffect.type === 'vivid-sharp'
                     ? 'Sharpness'
-                    : 'Block size'}
+                    : activeEffect.type === 'grainy'
+                      ? 'Grain'
+                      : 'Block size'}
               </span>
               <span className={styles.durationValue}>{((activeEffect.intensity ?? 0.5) * 100).toFixed(0)}%</span>
             </div>
@@ -196,7 +215,7 @@ export default function EffectsPanel({ onClose }: Props) {
               type="range"
               min="0"
               max="1"
-              step="0.01"
+              step="0.1"
               value={activeEffect.intensity ?? 0.5}
               onPointerDown={intensitySliderHistory}
               onChange={handleIntensityChange}

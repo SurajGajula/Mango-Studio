@@ -17,6 +17,68 @@ import { applyRotate } from './transforms/rotate'
 import { applyWipe } from './transforms/wipe'
 import type { TransformParams } from './transforms/types'
 
+function renderAnimatedMorphSource(
+  source: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement | ImageBitmap,
+  animation: AnimationMode,
+  animationProgress: number,
+  elapsedTime: number,
+  zoomIntensity: number,
+  itemDuration: number | undefined,
+  animationDuration: number | undefined,
+  zoomDistanceIntensity: number,
+  sx: number,
+  sy: number,
+  sw: number,
+  sh: number,
+  flipHorizontal: boolean,
+  flipVertical: boolean
+): HTMLCanvasElement | null {
+  const outW = Math.max(1, Math.round(sw))
+  const outH = Math.max(1, Math.round(sh))
+  const out = document.createElement('canvas')
+  out.width = outW
+  out.height = outH
+  const outCtx = out.getContext('2d')
+  if (!outCtx) return null
+
+  drawWithAnimation(
+    {
+      ctx: outCtx,
+      animation,
+      transition: 'none',
+      progress: animationProgress,
+      imgEl: source,
+      x: 0,
+      y: 0,
+      w: outW,
+      h: outH,
+      sx,
+      sy,
+      sw,
+      sh,
+      zoomIntensity,
+      zoomDistanceIntensity,
+      itemDuration,
+      animationDuration,
+      elapsedTime,
+      prevEl: undefined,
+      prevParams: undefined,
+      flipHorizontal,
+      flipVertical,
+    },
+    source,
+    animation,
+    animationProgress,
+    elapsedTime,
+    zoomIntensity,
+    itemDuration,
+    animationDuration,
+    zoomDistanceIntensity
+  )
+
+  return out
+}
+
 export function applyZoomTransform(
   ctx: CanvasRenderingContext2D,
   animation: AnimationMode | undefined,
@@ -147,7 +209,65 @@ export function applyZoomTransform(
       }
     }
   } else if (transition === 'morph' && prevEl && prevParams && progress < 1) {
-    applyMorph(params)
+    if (animation === 'stretch-out' || (prevAnimation ?? 'none') === 'stretch-out') {
+      const currentSource = renderAnimatedMorphSource(
+        imgEl,
+        animation ?? 'none',
+        progress,
+        elapsedTime,
+        zoomIntensity ?? 0.5,
+        itemDuration,
+        animationDuration,
+        zoomDistanceIntensity ?? 1,
+        sx,
+        sy,
+        sw,
+        sh,
+        flipHorizontal,
+        flipVertical
+      )
+      const previousSource = renderAnimatedMorphSource(
+        prevEl,
+        prevAnimation ?? 'none',
+        prevAnimationProgress ?? 0,
+        prevElapsedTime ?? 0,
+        prevZoomIntensity ?? 0.5,
+        prevItemDuration,
+        prevAnimationDuration,
+        prevZoomDistanceIntensity ?? 1,
+        prevParams.sx,
+        prevParams.sy,
+        prevParams.sw,
+        prevParams.sh,
+        prevFlipHorizontal,
+        prevFlipVertical
+      )
+
+      if (currentSource && previousSource) {
+        applyMorph({
+          ...params,
+          imgEl: currentSource,
+          sx: 0,
+          sy: 0,
+          sw: currentSource.width,
+          sh: currentSource.height,
+          prevEl: previousSource,
+          prevParams: {
+            ...prevParams,
+            sx: 0,
+            sy: 0,
+            sw: previousSource.width,
+            sh: previousSource.height,
+          },
+          animation: 'none',
+          prevAnimation: 'none',
+        })
+      } else {
+        applyMorph(params)
+      }
+    } else {
+      applyMorph(params)
+    }
   } else {
     drawWithAnimation(
       params,

@@ -3,6 +3,15 @@ import { isTimelineScrubbingRef } from '@/app/lib/playbackClock'
 import { attachPreviewVideoFrameListeners, invalidatePreviewVideoFrameCache } from '@/app/lib/previewVideoFrameCache'
 import { setVideoCrossOriginForUrl } from '@/app/lib/mediaUtils'
 import { manifestVideoTimelineSpanSeconds } from '@/app/lib/timeUtils'
+import {
+  isVideoActiveAtTimelineTime,
+  videoTimelineActiveEnd,
+} from '@/app/lib/adjacentSplitVideo'
+import {
+  videoPlaybackContentKey,
+  videoPlaybackMediaUrl,
+  videoSourceTrimBase,
+} from '@/app/lib/videoPlaybackSource'
 import type { VideoClass } from '@/app/models/VideoClass'
 import { useManifestStore } from '@/app/stores/manifestStore'
 
@@ -31,6 +40,13 @@ function maxActivePreviewVideos(videoCount: number): number {
 }
 
 type PersistenceCanvasMap = Map<string, { current: HTMLCanvasElement; accumulation: HTMLCanvasElement }>
+
+const lastPlaybackContentKeyByClipId = new Map<string, string>()
+
+function resolvedVideoElementSrc(src: string): string {
+  if (src.startsWith('blob:') || src.startsWith('http')) return src
+  return window.location.origin + src
+}
 
 function resolvedMediaHref(src: string): string {
   try {
@@ -64,11 +80,15 @@ export function releasePreviewVideoElement(
   persistenceCanvasesRef.current.delete(id)
 }
 
-function clipDistanceFromPlayhead(clip: VideoClass, playbackTime: number): number {
+function clipDistanceFromPlayhead(
+  clip: VideoClass,
+  playbackTime: number,
+  videosList: VideoClass[]
+): number {
   const span = manifestVideoTimelineSpanSeconds(clip)
   if (span <= 0) return Number.POSITIVE_INFINITY
   const start = clip.timestamp
-  const end = start + span
+  const end = videoTimelineActiveEnd(clip, videosList)
   if (playbackTime >= start && playbackTime < end) return 0
   if (playbackTime < start) return start - playbackTime
   return playbackTime - end
@@ -92,7 +112,7 @@ function enforceMaxActivePreviewVideos(
         farthestDist = Number.POSITIVE_INFINITY
         return
       }
-      const dist = clipDistanceFromPlayhead(clip, playbackTime)
+      const dist = clipDistanceFromPlayhead(clip, playbackTime, videosList)
       if (dist > farthestDist) {
         farthestDist = dist
         farthestId = id
@@ -118,8 +138,7 @@ export function purgeOffscreenPreviewVideos(
       releasePreviewVideoElement(id, videoElementsRef, persistenceCanvasesRef, releaseDeadlinesRef)
       continue
     }
-    const span = manifestVideoTimelineSpanSeconds(clip)
-    const inTimelineRange = playbackTime >= clip.timestamp && playbackTime < clip.timestamp + span
+    const inTimelineRange = isVideoActiveAtTimelineTime(clip, videosList, playbackTime)
     const prefetchBeforeStart =
       playbackTime < clip.timestamp && clip.timestamp - playbackTime <= prefetchLead
     if (!inTimelineRange && !prefetchBeforeStart) {
@@ -159,8 +178,7 @@ export function syncManifestVideoPool(
       releasePreviewVideoElement(id, videoElementsRef, persistenceCanvasesRef, releaseDeadlinesRef)
       return
     }
-    const span = manifestVideoTimelineSpanSeconds(clip)
-    const inTimelineRange = playbackTime >= clip.timestamp && playbackTime < clip.timestamp + span
+    const inTimelineRange = isVideoActiveAtTimelineTime(clip, videosList, playbackTime)
     const prefetchBeforeStart =
       playbackTime < clip.timestamp && clip.timestamp - playbackTime <= prefetchLead
     if (!inTimelineRange && !prefetchBeforeStart) {
@@ -173,6 +191,10 @@ export function syncManifestVideoPool(
   const sortedVideos = [...videosList].sort((a, b) => a.timestamp - b.timestamp)
   const currentIds = new Set(sortedVideos.map((v) => v.id))
 
+  lastPlaybackContentKeyByClipId.forEach((_, id) => {
+    if (!currentIds.has(id)) lastPlaybackContentKeyByClipId.delete(id)
+  })
+
   const removedElements = new Map<string, HTMLVideoElement>()
   videoElementsRef.current.forEach((el, id) => {
     if (!currentIds.has(id)) {
@@ -184,10 +206,13 @@ export function syncManifestVideoPool(
   })
 
   sortedVideos.forEach((clip) => {
-    const clipSrc = clip.url || clip.sourceUrl
-    const span = manifestVideoTimelineSpanSeconds(clip)
-    const clipEnd = clip.timestamp + span
-    const inTimelineRange = playbackTime >= clip.timestamp && playbackTime < clipEnd
+    const clipSrc = videoPlaybackMediaUrl(clip)
+    const contentKey = videoPlaybackContentKey(clip)
+    const prevContentKey = lastPlaybackContentKeyByClipId.get(clip.id)
+    const contentChanged = prevContentKey !== undefined && prevContentKey !== contentKey
+    lastPlaybackContentKeyByClipId.set(clip.id, contentKey)
+
+    const inTimelineRange = isVideoActiveAtTimelineTime(clip, videosList, playbackTime)
     const prefetchBeforeStart =
       playbackTime < clip.timestamp && clip.timestamp - playbackTime <= prefetchLead
     const isNearPlayhead = inTimelineRange || prefetchBeforeStart
@@ -199,12 +224,22 @@ export function syncManifestVideoPool(
       releaseDeadlinesRef.current.delete(clip.id)
     }
 
+    if (video && contentChanged) {
+      releasePreviewVideoElement(
+        clip.id,
+        videoElementsRef,
+        persistenceCanvasesRef,
+        releaseDeadlinesRef
+      )
+      video = undefined
+    }
+
     if (!video && clipSrc && isNearPlayhead) {
-      const fullUrl = clipSrc.startsWith('http') ? clipSrc : window.location.origin + clipSrc
+      const resolvedSrc = resolvedVideoElementSrc(clipSrc)
       video =
-        removedElements.get(resolvedMediaHref(fullUrl)) ||
+        removedElements.get(resolvedMediaHref(resolvedSrc)) ||
         removedElements.get(resolvedMediaHref(clipSrc)) ||
-        removedElements.get(fullUrl) ||
+        removedElements.get(resolvedSrc) ||
         removedElements.get(clipSrc)
 
       if (video) {
@@ -212,20 +247,43 @@ export function syncManifestVideoPool(
         invalidatePreviewVideoFrameCache(video)
         setVideoCrossOriginForUrl(video, clipSrc)
         attachPreviewVideoFrameListeners(video)
+        if (!videoElementSrcMatches(video, clipSrc)) {
+          video.pause()
+          video.src = resolvedSrc
+          video.load()
+        } else {
+          const trimBase = videoSourceTrimBase(clip)
+          if (Math.abs(video.currentTime - trimBase) > 0.05) {
+            video.currentTime = trimBase
+          }
+        }
       } else {
         video = document.createElement('video')
         video.preload = inTimelineRange ? 'auto' : 'metadata'
         video.playsInline = true
         setVideoCrossOriginForUrl(video, clipSrc)
-        video.src = clipSrc
+        video.src = resolvedSrc
         video.onloadedmetadata = () => {
           const currentClip = useManifestStore.getState().videos.find((v) => v.id === clip.id)
           if (!currentClip) return
-          const hasTrim = currentClip.trimStart > 0 || currentClip.trimEnd > 0
+          const elDur = video!.duration
+          const trimBase = videoSourceTrimBase(currentClip)
+          const hasTrim = trimBase > 0 || currentClip.trimEnd > 0
           const cd = currentClip.duration
           const needsTimelineDuration = cd == null || !(cd > 0)
-          if (!hasTrim && video!.duration && needsTimelineDuration) {
-            useManifestStore.getState().updateVideo(clip.id, { duration: video!.duration })
+          const storedOrig = currentClip.originalDuration ?? 0
+          const patch: Record<string, number> = {}
+          if (elDur > 0 && needsTimelineDuration && !hasTrim) {
+            patch.duration = elDur
+          }
+          if (elDur > storedOrig + 0.05 && !hasTrim) {
+            patch.originalDuration = elDur
+          }
+          if (Object.keys(patch).length > 0) {
+            useManifestStore.getState().updateVideo(clip.id, patch)
+          }
+          if (Math.abs(video!.currentTime - trimBase) > 0.05) {
+            video!.currentTime = trimBase
           }
         }
       }
@@ -235,7 +293,7 @@ export function syncManifestVideoPool(
       video.pause()
       invalidatePreviewVideoFrameCache(video)
       setVideoCrossOriginForUrl(video, clipSrc)
-      video.src = clipSrc
+      video.src = resolvedVideoElementSrc(clipSrc)
       video.load()
     } else if (video && !isNearPlayhead) {
       const deadline = releaseDeadlinesRef.current.get(clip.id)

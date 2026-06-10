@@ -1,6 +1,24 @@
 import type { VideoClass } from '@/app/models/VideoClass'
 
 export const MAX_THUMBNAIL_SAMPLES_PER_CLIP = 72
+export const PRIORITY_THUMBNAIL_SAMPLES_PER_CLIP = 6
+
+export function subsampleThumbnailSecondIndices(seconds: number[], maxSamples: number): number[] {
+  if (seconds.length <= maxSamples) return seconds
+  const out: number[] = []
+  const step = (seconds.length - 1) / (maxSamples - 1)
+  for (let i = 0; i < maxSamples; i++) {
+    out.push(seconds[Math.floor(i * step)])
+  }
+  return out
+}
+
+export function videoThumbnailPrioritySecondIndices(v: VideoClass): number[] {
+  return subsampleThumbnailSecondIndices(
+    videoThumbnailSecondIndices(v),
+    PRIORITY_THUMBNAIL_SAMPLES_PER_CLIP
+  )
+}
 
 export function videoThumbnailCacheKey(v: VideoClass): string | undefined {
   if (v.sourceUrl && v.url && v.url !== v.sourceUrl) return v.sourceUrl

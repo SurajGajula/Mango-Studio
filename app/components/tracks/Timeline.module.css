@@ -645,10 +645,13 @@
   display: flex;
   flex-wrap: nowrap;
   height: 100%;
+  min-width: 100%;
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
+  content-visibility: auto;
+  contain-intrinsic-size: 48px 100%;
 }
 
 .thumbnail {

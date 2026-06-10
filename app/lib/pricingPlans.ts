@@ -12,6 +12,9 @@ export const FREE_PLAN_FEATURES = [
 
 export const PRO_PLAN_FEATURES = [
   `${PRO_MONTHLY_REQUESTS} AI chats per month (Even I don't use up all 1000 and I built this)`,
+  'AI image generation and editing from chat',
+  'AI video generation and talking animation from chat',
+  'AI speech generation and transcription from chat',
 ] as const
 
 export async function startProCheckout(priceId: string) {

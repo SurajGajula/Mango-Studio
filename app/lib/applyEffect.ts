@@ -3,6 +3,7 @@ import type { EffectType } from '@/app/models/EffectClass'
 let bwScratch: HTMLCanvasElement | null = null
 let vividScratch: HTMLCanvasElement | null = null
 let glitchScratch: HTMLCanvasElement | null = null
+let grainScratch: HTMLCanvasElement | null = null
 
 const VIVID_FILTER = 'saturate(1.38) contrast(1.06)'
 const UNSHARP_STRENGTH = 1.85
@@ -360,6 +361,85 @@ function applyFlashingBlackVignette(
   ctx.restore()
 }
 
+function getGrainScratch(w: number, h: number): HTMLCanvasElement {
+  if (!grainScratch) {
+    grainScratch = document.createElement('canvas')
+    grainScratch.getContext('2d', { willReadFrequently: true })
+  }
+  if (grainScratch.width !== w || grainScratch.height !== h) {
+    grainScratch.width = w
+    grainScratch.height = h
+  }
+  return grainScratch
+}
+
+function applyGrainy(
+  ctx: CanvasRenderingContext2D,
+  rx: number,
+  ry: number,
+  rw: number,
+  rh: number,
+  playbackTime: number,
+  intensity: number = 0.5
+): void {
+  if (rw <= 0 || rh <= 0) return
+  const t = Math.max(0, Math.min(1, intensity))
+  if (t <= 0) return
+
+  const V_WIDTH = 480
+  const scale = rw / V_WIDTH
+  const vWidth = V_WIDTH
+  const vHeight = Math.max(1, Math.round(rh / scale))
+  const snap = getGrainScratch(vWidth, vHeight)
+  const sctx = snap.getContext('2d', { willReadFrequently: true })
+  if (!sctx) return
+
+  const source = ctx.canvas
+  sctx.setTransform(1, 0, 0, 1, 0, 0)
+  sctx.clearRect(0, 0, vWidth, vHeight)
+  sctx.drawImage(source, rx, ry, rw, rh, 0, 0, vWidth, vHeight)
+
+  try {
+    const img = sctx.getImageData(0, 0, vWidth, vHeight)
+    const d = img.data
+    const fineGrain = 12 + t * 20
+    const grainRng = makeLCG(Math.floor(playbackTime * 24))
+
+    for (let i = 0; i < d.length; i += 4) {
+      const n = (grainRng() - 0.5) * fineGrain
+      d[i] = clampByte(d[i] + n)
+      d[i + 1] = clampByte(d[i + 1] + n)
+      d[i + 2] = clampByte(d[i + 2] + n)
+    }
+
+    sctx.putImageData(img, 0, 0)
+
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(rx, ry, rw, rh)
+    ctx.clip()
+    ctx.drawImage(snap, 0, 0, vWidth, vHeight, rx, ry, rw, rh)
+
+    const speckleRng = makeLCG(Math.floor(playbackTime * 24) ^ 0x9e3779b9)
+    const grainAlpha = 0.25 + t * 0.35
+    const grainPerLevel = 450 + Math.round(t * 550)
+    const grainLevels = [65, 105, 145, 185] as const
+    ctx.translate(rx, ry)
+    ctx.scale(scale, scale)
+    ctx.globalCompositeOperation = 'overlay'
+    ctx.globalAlpha = grainAlpha
+    for (const level of grainLevels) {
+      ctx.fillStyle = `rgb(${level},${level},${level})`
+      for (let gi = 0; gi < grainPerLevel; gi++) {
+        ctx.fillRect(speckleRng() * vWidth, speckleRng() * vHeight, 1, 1)
+      }
+    }
+    ctx.restore()
+  } catch {
+    return
+  }
+}
+
 function applyBlackAndWhite(
   ctx: CanvasRenderingContext2D,
   rx: number,
@@ -437,5 +517,7 @@ export function applyEffect(
     applyVividSharp(ctx, x, y, width, height, intensity)
   } else if (type === 'pixel-glitch-scan') {
     applyPixelGlitchScan(ctx, x, y, width, height, playbackTime, intensity)
+  } else if (type === 'grainy') {
+    applyGrainy(ctx, x, y, width, height, playbackTime, intensity)
   }
 }

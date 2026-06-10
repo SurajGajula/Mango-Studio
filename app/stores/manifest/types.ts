@@ -83,6 +83,7 @@ export interface ManifestStore {
   addAudio: (audio: AudioClass) => void
   updateAudio: (id: string, updates: Partial<AudioClass>) => void
   splitAudio: (id: string, playbackTime: number) => void
+  splitAudioAtTimes: (id: string, times: number[]) => void
   removeAudio: (id: string) => void
   trimAudio: (id: string, trimStart: number, trimEnd: number, startTime?: number) => void
   setItemPlaybackSpeed: (id: string, speed: number, speedStart?: number, speedEnd?: number, speedEasing?: 'linear' | 'ease') => boolean

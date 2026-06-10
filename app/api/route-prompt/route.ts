@@ -2,8 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/app/utils/supabase/server'
 import { getGenAIClient } from '@/app/lib/genaiClient'
 import { PRO_MONTHLY_REQUESTS } from '@/app/lib/planLimits'
+import { GEMINI_ROUTE_MODEL } from '@/app/lib/geminiModels'
 import { audioMarksAbsoluteTimelinePositions } from '@/app/lib/audioMarkTimeline'
-import { tools, systemInstruction, FunctionCallingConfigMode } from '@/app/lib/routePromptConfig'
+import {
+  tools,
+  proTools,
+  systemInstruction,
+  proSystemInstructionLines,
+  FunctionCallingConfigMode,
+} from '@/app/lib/routePromptConfig'
 
 interface ManifestItem {
   id: string
@@ -34,6 +41,7 @@ interface ManifestItem {
   speedEasing?: 'linear' | 'ease'
   muted?: boolean
   volume?: number
+  opacity?: number
   row?: number
   fontFamily?: string
   fontWeight?: string
@@ -81,14 +89,15 @@ export interface ManifestMutation {
   speedEnd?: number
   speedEasing?: 'linear' | 'ease'
   muted?: boolean
+  opacity?: number
   fontFamily?: string
   fontWeight?: string
-  animation?: 'none' | 'keyboard' | 'shake'
+  animation?: 'none' | 'keyboard' | 'speech' | 'shake'
   style?: 'normal' | 'negative' | 'highlight'
 }
 
 export interface SplitInstruction {
-  type: 'image' | 'video' | 'text'
+  type: 'image' | 'video' | 'text' | 'audio'
   id: string
   times: number[]
 }
@@ -110,7 +119,7 @@ export interface AddTextInstruction {
 }
 
 export interface AddEffectInstruction {
-  type: 'crt-dither' | 'flashing-black-vignette' | 'black-and-white' | 'vivid-sharp' | 'pixel-glitch-scan'
+  type: 'crt-dither' | 'flashing-black-vignette' | 'black-and-white' | 'vivid-sharp' | 'pixel-glitch-scan' | 'grainy'
   startTime: number
   endTime: number
   intensity?: number
@@ -121,7 +130,7 @@ export interface AddEffectInstruction {
 export interface TransitionInstruction {
   type: 'image' | 'video'
   id: string
-  animation?: 'none' | 'zoom-in' | 'zoom-out' | 'shake' | 'jitter' | 'slide-shake-left' | 'slide-shake-right' | string
+  animation?: 'none' | 'zoom-in' | 'zoom-out' | 'stretch-out' | 'shake' | 'jitter' | 'rotate' | 'slide-shake-left' | 'slide-shake-right' | string
   transition?: 'none' | 'split' | 'fade' | 'morph' | 'slide-in' | 'wipe' | 'circle' | 'rotate' | 'flash'
   zoomIntensity?: number
   zoomDistanceIntensity?: number
@@ -160,6 +169,42 @@ export interface DeleteTimelineItemInstruction {
   id: string
 }
 
+export interface GenerateImageInstruction {
+  prompt: string
+}
+
+export interface EditImageInstruction {
+  target?: 'image_number' | 'selected'
+  imageNumber?: number
+  prompt: string
+}
+
+export interface GenerateVideoInstruction {
+  prompt: string
+  negativePrompt?: string
+}
+
+export interface TranscribeAudioInstruction {
+  audioNumber: number
+}
+
+export interface GenerateSpeechInstruction {
+  prompt: string
+  voiceName?: string
+  multiSpeaker?: boolean
+  speakers?: { name: string; voiceName: string }[]
+}
+
+export interface AnimateToSpeechInstruction {
+  visualTarget?: 'image_number' | 'video_number' | 'selected' | 'attached'
+  imageNumber?: number
+  videoNumber?: number
+  videoFramePosition?: 'first' | 'last' | 'playhead'
+  appendAfterVideo?: boolean
+  audioNumber?: number
+  motionPrompt?: string
+}
+
 type RoutedAction =
   | 'no_op'
   | 'edit_manifest'
@@ -174,6 +219,12 @@ type RoutedAction =
   | 'delete_timeline_items'
   | 'duplicate_timeline_range'
   | 'normalize_audio_volumes'
+  | 'generate_image'
+  | 'edit_image'
+  | 'generate_video'
+  | 'generate_speech'
+  | 'transcribe_audio'
+  | 'animate_to_speech'
 
 interface RoutePromptResponse {
   action: RoutedAction
@@ -189,8 +240,39 @@ interface RoutePromptResponse {
   deleteItems?: DeleteTimelineItemInstruction[]
   duplicateRange?: { kind: 'image' | 'video'; firstNumber: number; lastNumber: number }
   normalizeAudioVolumes?: NormalizeAudioVolumesInstruction
+  imageGeneration?: GenerateImageInstruction
+  editImage?: EditImageInstruction
+  videoGeneration?: GenerateVideoInstruction
+  speechGeneration?: GenerateSpeechInstruction
+  transcribeAudio?: TranscribeAudioInstruction
+  animateToSpeech?: AnimateToSpeechInstruction
   message: string
 }
+
+const editingFunctionNames = [
+  'no_op',
+  'edit_manifest',
+  'delete_timeline_items',
+  'duplicate_timeline_range',
+  'split_at_marks',
+  'replace_images',
+  'replace_with_solid',
+  'add_text',
+  'set_transitions',
+  'set_step_growth',
+  'set_crop',
+  'add_effect',
+  'normalize_audio_volumes',
+] as const
+
+const proFunctionNames = [
+  'generate_image',
+  'edit_image',
+  'generate_video',
+  'generate_speech',
+  'transcribe_audio',
+  'animate_to_speech',
+] as const
 
 
 function buildUploadedFilesContext(files: UploadedFileMeta[]): string {
@@ -415,9 +497,19 @@ export async function POST(request: NextRequest) {
     const ai = getGenAIClient()
     const manifestContext = body.manifest ? '\n\n' + buildManifestContext(body.manifest) : ''
     const filesContext = body.uploadedFiles?.length ? '\n\n' + buildUploadedFilesContext(body.uploadedFiles) : ''
+    const isPro = profile.is_pro
+    const allowedFunctionNames = isPro
+      ? [...editingFunctionNames, ...proFunctionNames]
+      : [...editingFunctionNames]
+    const activeSystemInstruction = isPro
+      ? systemInstruction.replace(
+          '- no_op: for anything else (including video generation and transcription requests from non-Pro users)\n',
+          proSystemInstructionLines + '- no_op: for anything else\n'
+        )
+      : systemInstruction
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.1-flash-lite',
+      model: GEMINI_ROUTE_MODEL,
       contents: [
         {
           role: 'user',
@@ -425,26 +517,12 @@ export async function POST(request: NextRequest) {
         },
       ],
       config: {
-        systemInstruction,
-        tools,
+        systemInstruction: activeSystemInstruction,
+        tools: isPro ? proTools : tools,
         toolConfig: {
           functionCallingConfig: {
             mode: FunctionCallingConfigMode.ANY,
-            allowedFunctionNames: [
-              'no_op',
-              'edit_manifest',
-              'delete_timeline_items',
-              'duplicate_timeline_range',
-              'split_at_marks',
-              'replace_images',
-              'replace_with_solid',
-              'add_text',
-              'set_transitions',
-              'set_step_growth',
-              'set_crop',
-              'add_effect',
-              'normalize_audio_volumes',
-            ],
+            allowedFunctionNames: [...allowedFunctionNames],
           },
         },
       },
@@ -561,6 +639,132 @@ export async function POST(request: NextRequest) {
         action: 'normalize_audio_volumes',
         normalizeAudioVolumes: { referenceAudioNumber, targetAudioNumbers },
         message: (args?.message as string) || 'Audio levels matched to reference.',
+      }
+    } else if (action === 'generate_image') {
+      if (!isPro) {
+        result = {
+          action: 'no_op',
+          message: 'Image generation requires a Pro subscription.',
+        }
+      } else {
+        result = {
+          action: 'generate_image',
+          imageGeneration: {
+            prompt: (args?.prompt as string) || body.prompt.trim(),
+          },
+          message: (args?.message as string) || 'Generating image...',
+        }
+      }
+    } else if (action === 'edit_image') {
+      if (!isPro) {
+        result = {
+          action: 'no_op',
+          message: 'AI image editing requires a Pro subscription.',
+        }
+      } else {
+        const target = args?.target === 'selected' ? 'selected' : 'image_number'
+        const imageNumber = typeof args?.imageNumber === 'number' ? args.imageNumber : undefined
+        result = {
+          action: 'edit_image',
+          editImage: {
+            target,
+            imageNumber,
+            prompt: (args?.prompt as string) || body.prompt.trim(),
+          },
+          message: (args?.message as string) || 'Editing image...',
+        }
+      }
+    } else if (action === 'generate_video') {
+      if (!isPro) {
+        result = {
+          action: 'no_op',
+          message: 'Video generation requires a Pro subscription.',
+        }
+      } else {
+        result = {
+          action: 'generate_video',
+          videoGeneration: {
+            prompt: (args?.prompt as string) || body.prompt.trim(),
+            negativePrompt: (args?.negativePrompt as string) || undefined,
+          },
+          message: (args?.message as string) || 'Generating video...',
+        }
+      }
+    } else if (action === 'generate_speech') {
+      if (!isPro) {
+        result = {
+          action: 'no_op',
+          message: 'AI speech generation requires a Pro subscription.',
+        }
+      } else {
+        const rawSpeakers = Array.isArray(args?.speakers) ? args.speakers : []
+        const speakers = rawSpeakers
+          .filter(
+            (s: unknown): s is { name: string; voiceName: string } =>
+              typeof s === 'object' &&
+              s !== null &&
+              typeof (s as { name?: unknown }).name === 'string' &&
+              typeof (s as { voiceName?: unknown }).voiceName === 'string'
+          )
+          .map((s) => ({ name: s.name, voiceName: s.voiceName }))
+        result = {
+          action: 'generate_speech',
+          speechGeneration: {
+            prompt: (args?.prompt as string) || body.prompt.trim(),
+            voiceName: typeof args?.voiceName === 'string' ? args.voiceName : undefined,
+            multiSpeaker: args?.multiSpeaker === true,
+            speakers: speakers.length > 0 ? speakers : undefined,
+          },
+          message: (args?.message as string) || 'Generating speech...',
+        }
+      }
+    } else if (action === 'transcribe_audio') {
+      if (!isPro) {
+        result = {
+          action: 'no_op',
+          message: 'AI transcription requires a Pro subscription.',
+        }
+      } else {
+        const audioNumber = typeof args?.audioNumber === 'number' ? args.audioNumber : 1
+        result = {
+          action: 'transcribe_audio',
+          transcribeAudio: { audioNumber },
+          message: (args?.message as string) || 'Transcribing audio...',
+        }
+      }
+    } else if (action === 'animate_to_speech') {
+      if (!isPro) {
+        result = {
+          action: 'no_op',
+          message: 'Talking animation requires a Pro subscription.',
+        }
+      } else {
+        const visualTarget =
+          args?.visualTarget === 'selected' ||
+          args?.visualTarget === 'image_number' ||
+          args?.visualTarget === 'video_number' ||
+          args?.visualTarget === 'attached'
+            ? args.visualTarget
+            : 'selected'
+        const videoFramePosition =
+          args?.videoFramePosition === 'first' ||
+          args?.videoFramePosition === 'last' ||
+          args?.videoFramePosition === 'playhead'
+            ? args.videoFramePosition
+            : undefined
+        result = {
+          action: 'animate_to_speech',
+          animateToSpeech: {
+            visualTarget,
+            imageNumber: typeof args?.imageNumber === 'number' ? args.imageNumber : undefined,
+            videoNumber: typeof args?.videoNumber === 'number' ? args.videoNumber : undefined,
+            videoFramePosition,
+            appendAfterVideo: typeof args?.appendAfterVideo === 'boolean' ? args.appendAfterVideo : undefined,
+            audioNumber: typeof args?.audioNumber === 'number' ? args.audioNumber : undefined,
+            motionPrompt: typeof args?.motionPrompt === 'string' ? args.motionPrompt : undefined,
+          },
+          message: (args?.message as string) || 'Animating to speech...',
+        }
       }
     } else {
       result = {

@@ -7,12 +7,23 @@ import {
   calculateAnimationProgress,
   clipTimelineSpanForSourceMap,
   videoTimelineSourceMapping,
+  videoInstantaneousPlaybackSpeed,
   getSortedRowItems,
   findActiveAndNextItems,
   checkTransition,
   renderClipTransitionPair,
 } from '@/app/lib/renderUtils'
 import { manifestVideoTimelineSpanSeconds } from '@/app/lib/timeUtils'
+import {
+  findAdjacentSameSourcePredecessor,
+  isVideoActiveAtTimelineTime,
+  videoElapsedForMapping,
+} from '@/app/lib/adjacentSplitVideo'
+import {
+  videoEffectiveSourceSpanSeconds,
+  videoPlaybackTrimEnd,
+  videoSourceTrimBase,
+} from '@/app/lib/videoPlaybackSource'
 import { quantizeTimelineSeconds } from '@/app/lib/timeline/timelineQuantize'
 import { resolveMediaKeyframeTransform } from '@/app/lib/resolveMediaKeyframeTransform'
 import { runWithPlacementRotation } from '@/app/lib/placementRotation'
@@ -22,6 +33,7 @@ import { drawTextOverlay } from '@/app/lib/drawTextOverlay'
 import {
   primePreviewVideoFrame,
   resolvePreviewVideoDrawSource,
+  schedulePreviewVideoFrameCapture,
 } from '@/app/lib/previewVideoFrameCache'
 
 export interface RenderState {
@@ -43,6 +55,7 @@ export interface RenderResources {
 
 const PAUSED_SCRUB_SEEK_THRESHOLD = 0.16
 const PLAYBACK_SEEK_SYNC_THRESHOLD = 0.02
+const PLAYBACK_DRIFT_RESYNC_SEC = 0.2
 const PREWARM_LEAD_SEC = 10
 const PREWARM_LEAD_SEC_MANY_CLIPS = 3
 const MANY_TIMELINE_VIDEOS = 3
@@ -63,18 +76,14 @@ function clampVideoSourceSeekTime(
   el: HTMLVideoElement,
   requestedTime: number
 ): number {
-  if (!Number.isFinite(requestedTime)) return quantizeTimelineSeconds(video.trimStart ?? 0)
-  const trimStart = quantizeTimelineSeconds(video.trimStart ?? 0)
-  const trimEnd = quantizeTimelineSeconds(video.trimEnd ?? 0)
-  const orig = video.originalDuration ?? el.duration
-  let maxT = trimStart
-  if (Number.isFinite(orig) && orig > 0) {
-    maxT = Math.max(trimStart, orig - trimEnd - 0.001)
-  } else {
-    maxT = clampVideoSeekTime(el, requestedTime)
-    return maxT
+  if (!Number.isFinite(requestedTime)) return quantizeTimelineSeconds(videoSourceTrimBase(video))
+  const trimStart = quantizeTimelineSeconds(videoSourceTrimBase(video))
+  const spanLimit = videoEffectiveSourceSpanSeconds(video, el)
+  if (spanLimit > 0) {
+    const maxT = trimStart + Math.max(0, spanLimit - 0.001)
+    return quantizeTimelineSeconds(Math.max(trimStart, Math.min(requestedTime, maxT)))
   }
-  return quantizeTimelineSeconds(Math.max(trimStart, Math.min(requestedTime, maxT)))
+  return clampVideoSeekTime(el, requestedTime)
 }
 
 function videoElementHasDecodedFrame(el: HTMLVideoElement): boolean {
@@ -170,13 +179,17 @@ function syncPreviewVideoToTimeline(
 
 function resolveOverlayVideoDrawSource(
   vEl: HTMLVideoElement,
-  sameVideoHold: HTMLCanvasElement | undefined
+  sameVideoHold: HTMLCanvasElement | undefined,
+  fallbackHold: HTMLCanvasElement | undefined
 ): HTMLVideoElement | HTMLCanvasElement | null {
   if (!vEl.seeking && videoElementHasDecodedFrame(vEl)) {
     return vEl
   }
   if (sameVideoHold) {
     return sameVideoHold
+  }
+  if (fallbackHold) {
+    return fallbackHold
   }
   return null
 }
@@ -213,6 +226,7 @@ export class VideoRenderingEngine {
   private cachedEffects: EffectClass[] | null = null
   private cachedEffectsKey = ''
   private videoHoldFrame = new Map<string, HTMLCanvasElement>()
+  private lastVideoVisualKeyForHold = ''
 
   public render(
     canvas: HTMLCanvasElement,
@@ -258,6 +272,10 @@ export class VideoRenderingEngine {
     const visibleCtx = canvas.getContext('2d', { alpha: false })!
 
     const videoVisualKey = this.getVideoVisualKey(state.videos)
+    if (videoVisualKey !== this.lastVideoVisualKeyForHold) {
+      this.videoHoldFrame.clear()
+      this.lastVideoVisualKeyForHold = videoVisualKey
+    }
     const imageVisualKey = this.getImageVisualKey(state.images)
     const textVisualKey = this.getTextVisualKey(state.texts)
     const effectsKey = this.getEffectsKey(effects)
@@ -279,7 +297,7 @@ export class VideoRenderingEngine {
       if (!vEl) continue
 
       const span = manifestVideoTimelineSpanSeconds(video)
-      const inRange = span > 0 && newTime >= video.timestamp && newTime < video.timestamp + span
+      const inRange = span > 0 && isVideoActiveAtTimelineTime(video, state.videos, newTime)
 
       let prewarm = false
       const rowTrans = rowTransitionByRow.get(video.row)
@@ -303,14 +321,12 @@ export class VideoRenderingEngine {
         continue
       }
 
-      const elapsed = Math.max(0, newTime - video.timestamp)
-      const vDur = clipTimelineSpanForSourceMap(
-        video.duration != null && video.duration > 0 ? video.duration : span
-      )
+      const elapsed = videoElapsedForMapping(video, newTime)
+      const vDur = clipTimelineSpanForSourceMap(span)
       const tmV = videoTimelineSourceMapping(video, elapsed, vDur)
-      const sourceSpan = Math.max(0, (video.originalDuration ?? 0) - (video.trimStart ?? 0) - (video.trimEnd ?? 0))
+      const sourceSpan = videoEffectiveSourceSpanSeconds(video, vEl)
       const cappedSourceElapsed = Math.min(tmV.sourceElapsed, sourceSpan)
-      const target = (video.trimStart ?? 0) + cappedSourceElapsed
+      const target = videoSourceTrimBase(video) + cappedSourceElapsed
       const clampedTarget = clampVideoSourceSeekTime(video, vEl, target)
       const onVideoUpdate = (t: number) => onVideoTimeUpdate(video.id, t)
       const decodeOnlyPrewarm = prewarm && !inRange
@@ -319,13 +335,41 @@ export class VideoRenderingEngine {
         isPlaying && inRange && !decodeOnlyPrewarm && !morphSync && !video.reversed && !tmV.inHold
           ? PLAYBACK_SEEK_SYNC_THRESHOLD
           : PAUSED_SCRUB_SEEK_THRESHOLD
+      const useNativePlayback =
+        isPlaying &&
+        inRange &&
+        !decodeOnlyPrewarm &&
+        !morphSync &&
+        !video.reversed &&
+        !tmV.inHold
 
-      if (!vEl.paused) onVideoPlayState(video.id, false, 1)
-      if (!vEl.seeking) {
-        syncPreviewVideoToTimeline(vEl, clampedTarget, onVideoUpdate, seekThreshold)
+      if (useNativePlayback) {
+        const instSpeed = videoInstantaneousPlaybackSpeed(video, elapsed, span)
+        const targetRate = rate * instSpeed
+        if (Math.abs(vEl.playbackRate - targetRate) > 0.01) {
+          vEl.playbackRate = targetRate
+        }
+        const drift = Math.abs(vEl.currentTime - clampedTarget)
+        if (!vEl.seeking && drift > PLAYBACK_DRIFT_RESYNC_SEC) {
+          vEl.currentTime = clampedTarget
+          onVideoUpdate(clampedTarget)
+        }
+        if (vEl.paused) {
+          if (!vEl.seeking && drift > PLAYBACK_SEEK_SYNC_THRESHOLD) {
+            vEl.currentTime = clampedTarget
+            onVideoUpdate(clampedTarget)
+          }
+          const p = vEl.play()
+          if (p) p.catch(() => {})
+        }
+        schedulePreviewVideoFrameCapture(vEl)
+      } else {
+        if (!vEl.paused) onVideoPlayState(video.id, false, 1)
+        if (!vEl.seeking) {
+          syncPreviewVideoToTimeline(vEl, clampedTarget, onVideoUpdate, seekThreshold)
+        }
+        primePreviewVideoFrame(vEl)
       }
-
-      primePreviewVideoFrame(vEl)
     }
 
     bufferCtx.fillStyle = PREVIEW_CHROME_FILL
@@ -391,6 +435,9 @@ export class VideoRenderingEngine {
           video.duration,
           video.trimStart,
           video.trimEnd,
+          video.sourceUrl,
+          video.sourceTrimStart,
+          video.sourceDuration,
           video.playbackSpeed,
           video.speedStart,
           video.speedEnd,
@@ -531,6 +578,7 @@ export class VideoRenderingEngine {
     const logicalH = 1920
     const xScale = cr.width / logicalW; const yScale = cr.height / logicalH
     const skippedOverlayIdsByRow = new Map<number, Set<string>>()
+    const videoById = new Map(videos.map((video) => [video.id, video]))
     type OverlayEntry =
       | { kind: 'image'; row: number; t0: number; image: ImageClass }
       | { kind: 'video'; row: number; t0: number; video: VideoClass }
@@ -544,8 +592,8 @@ export class VideoRenderingEngine {
     for (let i = 0; i < videos.length; i++) {
       const video = videos[i]
       if (video.row < 0) continue
-      const dur = manifestVideoTimelineSpanSeconds(video)
-      if (dur <= 0 || currentTime < video.timestamp || currentTime >= video.timestamp + dur) continue
+      const span = manifestVideoTimelineSpanSeconds(video)
+      if (span <= 0 || !isVideoActiveAtTimelineTime(video, videos, currentTime)) continue
       entries.push({ kind: 'video', row: video.row, t0: video.timestamp, video })
     }
     for (let i = 0; i < texts.length; i++) {
@@ -582,9 +630,15 @@ export class VideoRenderingEngine {
           transitionState.transProgress,
           (id) => {
             const el = videoElements.get(id)
-            return el instanceof HTMLVideoElement && videoElementHasDecodedFrame(el) ? el : undefined
+            return el instanceof HTMLVideoElement ? el : undefined
           },
-          (id) => imageBitmaps.get(id) ?? undefined
+          (id) => imageBitmaps.get(id) ?? undefined,
+          (id, el) => {
+            const video = videoById.get(id)
+            const predecessor = video ? findAdjacentSameSourcePredecessor(videos, video) : null
+            const predecessorHold = predecessor ? this.videoHoldFrame.get(predecessor.id) : undefined
+            return resolveOverlayVideoDrawSource(el, this.videoHoldFrame.get(id), predecessorHold)
+          }
         )
         if (rendered) {
           skippedOverlayIdsByRow.set(
@@ -618,12 +672,18 @@ export class VideoRenderingEngine {
           ctx.restore()
         } else if (e.kind === 'video') {
           const video = e.video
-          const elapsed = currentTime - video.timestamp
+          const span = manifestVideoTimelineSpanSeconds(video)
+          const elapsed = videoElapsedForMapping(video, currentTime)
           const vEl = videoElements.get(video.id)
           if (!vEl) continue
-          const source = resolveOverlayVideoDrawSource(vEl, this.videoHoldFrame.get(video.id))
+          const predecessor = findAdjacentSameSourcePredecessor(videos, video)
+          const predecessorHold = predecessor ? this.videoHoldFrame.get(predecessor.id) : undefined
+          const source = resolveOverlayVideoDrawSource(
+            vEl,
+            this.videoHoldFrame.get(video.id),
+            predecessorHold
+          )
           if (!source) continue
-          const span = manifestVideoTimelineSpanSeconds(video)
           const progress = span > 0 ? Math.max(0, Math.min(1, elapsed / span)) : 0
           const kOvVid = resolveMediaKeyframeTransform(video, elapsed, span)
           ctx.save()

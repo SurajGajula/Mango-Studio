@@ -8,6 +8,7 @@ import { EffectClass, type EffectType } from '@/app/models/EffectClass'
 import type { HistoryEntry } from '@/app/stores/manifest/types'
 import { isPersistedBlobTokenRef, PERSISTED_BLOB_TOKEN_PREFIX } from '@/app/lib/persistedMediaRefs'
 import { repairSnapshotMediaFromAccountLibrary } from '@/app/lib/repairSnapshotMediaFromLibrary'
+import { normalizeVideoAfterSnapshotRevive } from '@/app/lib/videoPlaybackSource'
 
 const DB_VERSION = 1
 const STORE_META = 'meta'
@@ -282,6 +283,28 @@ function reviveImage(o: Record<string, unknown>): ImageClass {
   )
 }
 
+function reviveWordTimings(value: unknown): TextClass['wordTimings'] {
+  if (!Array.isArray(value)) return undefined
+  const timings = value
+    .filter(
+      (w) =>
+        w &&
+        typeof w === 'object' &&
+        typeof (w as Record<string, unknown>).text === 'string' &&
+        typeof (w as Record<string, unknown>).startTime === 'number' &&
+        typeof (w as Record<string, unknown>).endTime === 'number'
+    )
+    .map((w) => {
+      const word = w as Record<string, unknown>
+      return {
+        text: String(word.text),
+        startTime: Number(word.startTime),
+        endTime: Number(word.endTime),
+      }
+    })
+  return timings.length > 0 ? timings : undefined
+}
+
 function reviveText(o: Record<string, unknown>): TextClass {
   return new TextClass(
     String(o.id),
@@ -301,7 +324,8 @@ function reviveText(o: Record<string, unknown>): TextClass {
     o.animation as TextClass['animation'],
     o.style as TextClass['style'],
     o.createdAt ? new Date(String(o.createdAt)) : undefined,
-    o.row as number | undefined
+    o.row as number | undefined,
+    reviveWordTimings(o.wordTimings)
   )
 }
 
@@ -333,9 +357,10 @@ function reviveEffect(o: Record<string, unknown>): EffectClass {
   const flashRaw = o.flashSpeed
   const flashSpeed =
     flashRaw !== undefined && flashRaw !== null && Number.isFinite(Number(flashRaw)) ? Number(flashRaw) : 1
+  const rawType = o.type === 'sketch-overlay' ? 'grainy' : o.type
   return new EffectClass(
     String(o.id),
-    o.type as EffectType,
+    rawType as EffectType,
     Number(o.startTime),
     Number(o.endTime),
     o.row as number | undefined,
@@ -348,7 +373,9 @@ function reviveEffect(o: Record<string, unknown>): EffectClass {
 
 function reviveHistoryEntry(e: Record<string, unknown>): HistoryEntry {
   return {
-    videos: Array.isArray(e.videos) ? e.videos.map((v) => reviveVideo(v as Record<string, unknown>)) : [],
+    videos: Array.isArray(e.videos)
+      ? e.videos.map((v) => normalizeVideoAfterSnapshotRevive(reviveVideo(v as Record<string, unknown>)))
+      : [],
     images: Array.isArray(e.images) ? e.images.map((i) => reviveImage(i as Record<string, unknown>)) : [],
     texts: Array.isArray(e.texts) ? e.texts.map((t) => reviveText(t as Record<string, unknown>)) : [],
     audios: Array.isArray(e.audios) ? e.audios.map((a) => reviveAudio(a as Record<string, unknown>)) : [],
@@ -601,7 +628,9 @@ async function hydrateSnapshotIntoStore(
     ? ((await replaceBlobUrlsInValue(snap.history, mapTokenToBlob, tokenToObjectUrl, rawBlobUrlOutcome)) as unknown[])
     : []
 
-  const revivedVideos = videos.map((v) => reviveVideo(v as Record<string, unknown>))
+  const revivedVideos = videos.map((v) =>
+    normalizeVideoAfterSnapshotRevive(reviveVideo(v as Record<string, unknown>))
+  )
   const revivedImages = images.map((i) => reviveImage(i as Record<string, unknown>))
   const revivedTexts = texts.map((t) => reviveText(t as Record<string, unknown>))
   const revivedAudios = audios.map((a) => reviveAudio(a as Record<string, unknown>))

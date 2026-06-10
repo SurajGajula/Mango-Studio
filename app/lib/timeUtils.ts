@@ -44,8 +44,15 @@ export function syncVideoTrimDerivedFields(
 
   if (durationTouched) {
     const duration = quantizeTimelineSeconds(updates.duration ?? video.duration ?? 0)
-    const sourceDuration = quantizeTimelineSeconds(duration * playbackSpeed)
-    const trimEnd = quantizeTimelineSeconds(Math.max(0, orig - trimStart - sourceDuration))
+    const computedSourceDuration = quantizeTimelineSeconds(duration * playbackSpeed)
+    const sourceDuration =
+      updates.sourceDuration !== undefined
+        ? quantizeTimelineSeconds(updates.sourceDuration)
+        : computedSourceDuration
+    const trimEnd =
+      updates.trimEnd !== undefined
+        ? quantizeTimelineSeconds(updates.trimEnd)
+        : quantizeTimelineSeconds(Math.max(0, orig - trimStart - computedSourceDuration))
     return { ...updates, originalDuration: orig, trimStart, trimEnd, sourceDuration, duration }
   }
 
