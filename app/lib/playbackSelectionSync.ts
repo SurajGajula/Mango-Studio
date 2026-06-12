@@ -22,7 +22,7 @@ export function syncSelectionToActivePlayingClip(
     const vSel = videos.find((v) => v.id === selectedVideoId)
     if (!vSel) return
     const rowItems = getSortedRowItems(vSel.row, videos, images)
-    const { activeItem } = findActiveAndNextItems(rowItems, playbackTime)
+    const { activeItem } = findActiveAndNextItems(rowItems, playbackTime, videos)
     if (activeItem?.type === 'video' && activeItem.id !== selectedVideoId) {
       sel.selectVideo(activeItem.id)
     }
@@ -32,7 +32,7 @@ export function syncSelectionToActivePlayingClip(
   const iSel = images.find((i) => i.id === selectedImageId)
   if (!iSel) return
   const rowItems = getSortedRowItems(iSel.row, videos, images)
-  const { activeItem } = findActiveAndNextItems(rowItems, playbackTime)
+  const { activeItem } = findActiveAndNextItems(rowItems, playbackTime, videos)
   if (activeItem?.type === 'image' && activeItem.id !== selectedImageId) {
     sel.selectImage(activeItem.id)
   }

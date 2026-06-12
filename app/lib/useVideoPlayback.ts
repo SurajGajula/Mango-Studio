@@ -25,6 +25,7 @@ import {
   releasePreviewVideoElement,
   syncManifestVideoPool,
 } from '@/app/lib/previewVideoPoolSync'
+import { isImageActiveAtTimelineTime } from '@/app/lib/adjacentSplitVideo'
 
 function resolvedMediaHref(src: string): string {
   try {
@@ -223,7 +224,8 @@ export function useVideoPlayback(
       getState().videos,
       videoElementsRef,
       persistenceCanvasesRef,
-      videoReleaseDeadlinesRef
+      videoReleaseDeadlinesRef,
+      getState().images
     )
   }, [getState])
 
@@ -234,9 +236,10 @@ export function useVideoPlayback(
       videos,
       videoElementsRef,
       persistenceCanvasesRef,
-      videoReleaseDeadlinesRef
+      videoReleaseDeadlinesRef,
+      images
     )
-  }, [videos, disposeRemovedPreviewVideos])
+  }, [videos, images, disposeRemovedPreviewVideos])
 
   useEffect(() => {
     if (!renderTextsInCanvas || texts.length === 0) return
@@ -270,7 +273,7 @@ export function useVideoPlayback(
     images.forEach((image) => {
       const isNearPlayhead =
         Math.abs(image.startTime - playbackTime) < 60 ||
-        (playbackTime >= image.startTime && playbackTime < image.endTime)
+        isImageActiveAtTimelineTime(image, videos, images, playbackTime)
 
       if (!isNearPlayhead) return
 
@@ -310,7 +313,7 @@ export function useVideoPlayback(
         }
       }
     })
-  }, [images])
+  }, [images, videos])
 
   useEffect(() => {
     imagePrefetchGenRef.current += 1
@@ -568,7 +571,8 @@ export function useVideoPlayback(
         state.videos,
         videoElementsRef,
         persistenceCanvasesRef,
-        videoReleaseDeadlinesRef
+        videoReleaseDeadlinesRef,
+        state.images
       )
       prefetchImagesNearPlayhead(newTime)
 

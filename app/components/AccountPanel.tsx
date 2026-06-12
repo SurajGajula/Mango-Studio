@@ -26,11 +26,9 @@ type DeleteModalState =
   | { type: 'folder'; folderId: string; name: string }
   | { type: 'asset'; assetId: string; name: string }
 
-type MoveModalState = {
-  assetId: string
-  name: string
-  folderId: string | null
-}
+type MoveModalState =
+  | { type: 'asset'; assetId: string; name: string; folderId: string | null }
+  | { type: 'folder'; folderId: string; name: string; parentId: string | null }
 
 type AccountPanelProps = {
   projects: UserProject[]
@@ -66,6 +64,7 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
     deleteFolder,
     deleteAsset,
     moveAsset,
+    moveFolder,
   } = useAccountMediaLibrary(true)
 
   const endDragVisuals = useCallback(() => {
@@ -375,6 +374,20 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
                 {folder.name}
               </button>
               <div className={styles.libraryRowActions}>
+                <button
+                  type="button"
+                  className={styles.rowActionButton}
+                  onClick={() =>
+                    setMoveModal({
+                      type: 'folder',
+                      folderId: folder.id,
+                      name: folder.name,
+                      parentId: folder.parent_id,
+                    })
+                  }
+                >
+                  Move
+                </button>
                 <button type="button" className={styles.rowActionButton} onClick={() => setNameModal({ type: 'rename-folder', folderId: folder.id, initialValue: folder.name })}>
                   Rename
                 </button>
@@ -402,7 +415,18 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
             >
               <span className={styles.libraryAssetName}>{asset.name}</span>
               <div className={styles.libraryRowActions}>
-                <button type="button" className={styles.rowActionButton} onClick={() => setMoveModal({ assetId: asset.id, name: asset.name, folderId: asset.folder_id })}>
+                <button
+                  type="button"
+                  className={styles.rowActionButton}
+                  onClick={() =>
+                    setMoveModal({
+                      type: 'asset',
+                      assetId: asset.id,
+                      name: asset.name,
+                      folderId: asset.folder_id,
+                    })
+                  }
+                >
                   Move
                 </button>
                 <button type="button" className={styles.rowActionButton} onClick={() => setNameModal({ type: 'rename-asset', assetId: asset.id, initialValue: asset.name })}>
@@ -567,13 +591,26 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
         />
       ) : null}
 
-      {moveModal ? (
+      {moveModal?.type === 'asset' ? (
         <MoveMediaModal
-          assetName={moveModal.name}
-          currentFolderId={moveModal.folderId}
+          itemName={moveModal.name}
+          itemType="asset"
+          currentParentId={moveModal.folderId}
           onClose={() => setMoveModal(null)}
           onMove={async (folderId) => {
             await moveAsset(moveModal.assetId, folderId)
+          }}
+        />
+      ) : null}
+      {moveModal?.type === 'folder' ? (
+        <MoveMediaModal
+          itemName={moveModal.name}
+          itemType="folder"
+          currentParentId={moveModal.parentId}
+          movingFolderId={moveModal.folderId}
+          onClose={() => setMoveModal(null)}
+          onMove={async (parentId) => {
+            await moveFolder(moveModal.folderId, parentId)
           }}
         />
       ) : null}

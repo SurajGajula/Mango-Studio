@@ -13,6 +13,7 @@ import { getEffectiveCropForEdit } from '@/app/lib/cropKeyframeHelpers'
 import { resolveMediaKeyframeTransform } from '@/app/lib/resolveMediaKeyframeTransform'
 import { FIXED_ASPECT_RATIO } from '@/app/lib/aspectRatio'
 import { manifestVideoTimelineSpanSeconds } from '@/app/lib/timeUtils'
+import { isImageActiveAtTimelineTime, isVideoActiveAtTimelineTime } from '@/app/lib/adjacentSplitVideo'
 import styles from './PreviewArea.module.css'
 import TextOverlay from './TextOverlay'
 import CropEditor from './CropEditor'
@@ -178,13 +179,13 @@ export default function PreviewArea() {
       | { kind: 'text'; row: number; t0: number; text: TextClass }
     const layers: Layer[] = []
     for (const image of images) {
-      if (playbackTime < image.startTime || playbackTime >= image.endTime) continue
+      if (!isImageActiveAtTimelineTime(image, videos, images, playbackTime)) continue
       layers.push({ kind: 'image', row: image.row, t0: image.startTime, image })
     }
     for (const video of videos) {
       const vdur = manifestVideoTimelineSpanSeconds(video)
       if (vdur <= 0) continue
-      if (playbackTime < video.timestamp || playbackTime >= video.timestamp + vdur) continue
+      if (!isVideoActiveAtTimelineTime(video, videos, playbackTime, images)) continue
       layers.push({ kind: 'video', row: video.row, t0: video.timestamp, video })
     }
     for (const text of texts) {

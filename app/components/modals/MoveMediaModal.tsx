@@ -2,46 +2,38 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { AccountMediaFolder } from '@/app/lib/accountMediaTypes'
+import { buildFolderRows, collectDescendantFolderIds } from '@/app/lib/accountMediaFolderTree'
 import { CenteredModal } from '@/app/components/ui/CenteredModal'
 import styles from './MoveMediaModal.module.css'
 
-function buildFolderRows(folders: AccountMediaFolder[]): { id: string; name: string; depth: number }[] {
-  const byParent = new Map<string | null, AccountMediaFolder[]>()
-  for (const f of folders) {
-    const pid = f.parent_id ?? null
-    if (!byParent.has(pid)) byParent.set(pid, [])
-    byParent.get(pid)!.push(f)
-  }
-  for (const list of byParent.values()) {
-    list.sort((a, b) => a.name.localeCompare(b.name))
-  }
-  const out: { id: string; name: string; depth: number }[] = []
-  const walk = (parentId: string | null, depth: number) => {
-    const children = byParent.get(parentId) ?? []
-    for (const c of children) {
-      out.push({ id: c.id, name: c.name, depth })
-      walk(c.id, depth + 1)
-    }
-  }
-  walk(null, 0)
-  return out
-}
-
 type MoveMediaModalProps = {
-  assetName: string
-  currentFolderId: string | null
+  itemName: string
+  itemType: 'asset' | 'folder'
+  currentParentId: string | null
+  movingFolderId?: string
   onClose: () => void
-  onMove: (folderId: string | null) => Promise<void>
+  onMove: (parentId: string | null) => Promise<void>
 }
 
-export default function MoveMediaModal({ assetName, currentFolderId, onClose, onMove }: MoveMediaModalProps) {
+export default function MoveMediaModal({
+  itemName,
+  itemType,
+  currentParentId,
+  movingFolderId,
+  onClose,
+  onMove,
+}: MoveMediaModalProps) {
   const [folders, setFolders] = useState<AccountMediaFolder[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const [moveError, setMoveError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<'root' | string>('root')
 
-  const rows = useMemo(() => buildFolderRows(folders), [folders])
+  const excluded = useMemo(() => {
+    if (!movingFolderId) return new Set<string>()
+    return new Set([movingFolderId, ...collectDescendantFolderIds(folders, movingFolderId)])
+  }, [folders, movingFolderId])
+  const rows = useMemo(() => buildFolderRows(folders).filter((row) => !excluded.has(row.id)), [folders, excluded])
 
   const loadFolders = useCallback(async () => {
     setLoadError(null)
@@ -61,7 +53,7 @@ export default function MoveMediaModal({ assetName, currentFolderId, onClose, on
 
   const handleConfirm = async () => {
     const target = selectedId === 'root' ? null : selectedId
-    if (target === currentFolderId || (target === null && currentFolderId === null)) {
+    if (target === currentParentId || (target === null && currentParentId === null)) {
       onClose()
       return
     }
@@ -79,14 +71,16 @@ export default function MoveMediaModal({ assetName, currentFolderId, onClose, on
   }
 
   const isCurrent = (folderId: string | null) =>
-    (folderId === null && currentFolderId === null) || folderId === currentFolderId
+    (folderId === null && currentParentId === null) || folderId === currentParentId
+
+  const title = itemType === 'folder' ? 'Move folder' : 'Move media'
 
   return (
     <CenteredModal onClose={onClose} backdropCloseDisabled={pending} size="folder">
       <div className={styles.header}>
-        <h2>Move media</h2>
+        <h2>{title}</h2>
         <p>
-          Choose a folder for <strong>{assetName}</strong>
+          Choose a folder for <strong>{itemName}</strong>
         </p>
       </div>
       {loadError ? <p className={styles.errorText}>{loadError}</p> : null}

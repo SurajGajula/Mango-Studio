@@ -16,9 +16,11 @@ import {
 import { manifestVideoTimelineSpanSeconds } from '@/app/lib/timeUtils'
 import {
   findAdjacentSameSourcePredecessor,
+  isImageActiveAtTimelineTime,
   isVideoActiveAtTimelineTime,
   videoElapsedForMapping,
 } from '@/app/lib/adjacentSplitVideo'
+import { rowClipElapsedAtTime } from '@/app/lib/timelineClipAdjacency'
 import {
   videoEffectiveSourceSpanSeconds,
   videoPlaybackTrimEnd,
@@ -254,7 +256,7 @@ export class VideoRenderingEngine {
     >()
     for (const row of allRows) {
       const sortedR = getSortedRowItems(row, state.videos, state.images)
-      const pr = findActiveAndNextItems(sortedR, newTime)
+      const pr = findActiveAndNextItems(sortedR, newTime, state.videos)
       const tr = checkTransition(pr.activeItem, pr.nextItem, newTime)
       if (pr.activeItem && pr.nextItem && tr.transitionActive) {
         rowTransitionByRow.set(row, {
@@ -281,7 +283,8 @@ export class VideoRenderingEngine {
     const effectsKey = this.getEffectsKey(effects)
     const imageRuntimeKey = state.images
       .map((image) => {
-        const active = image.row >= 0 && newTime >= image.startTime && newTime < image.endTime
+        const active =
+          image.row >= 0 && isImageActiveAtTimelineTime(image, state.videos, state.images, newTime)
         if (!active) return `${image.id}:out`
         const bitmap = imageBitmaps.get(image.id)
         if (!bitmap) return `${image.id}:missing`
@@ -297,7 +300,7 @@ export class VideoRenderingEngine {
       if (!vEl) continue
 
       const span = manifestVideoTimelineSpanSeconds(video)
-      const inRange = span > 0 && isVideoActiveAtTimelineTime(video, state.videos, newTime)
+      const inRange = span > 0 && isVideoActiveAtTimelineTime(video, state.videos, newTime, state.images)
 
       let prewarm = false
       const rowTrans = rowTransitionByRow.get(video.row)
@@ -586,14 +589,14 @@ export class VideoRenderingEngine {
     const entries: OverlayEntry[] = []
     for (let i = 0; i < images.length; i++) {
       const image = images[i]
-      if (image.row < 0 || currentTime < image.startTime || currentTime >= image.endTime) continue
+      if (image.row < 0 || !isImageActiveAtTimelineTime(image, videos, images, currentTime)) continue
       entries.push({ kind: 'image', row: image.row, t0: image.startTime, image })
     }
     for (let i = 0; i < videos.length; i++) {
       const video = videos[i]
       if (video.row < 0) continue
       const span = manifestVideoTimelineSpanSeconds(video)
-      if (span <= 0 || !isVideoActiveAtTimelineTime(video, videos, currentTime)) continue
+      if (span <= 0 || !isVideoActiveAtTimelineTime(video, videos, currentTime, images)) continue
       entries.push({ kind: 'video', row: video.row, t0: video.timestamp, video })
     }
     for (let i = 0; i < texts.length; i++) {
@@ -658,8 +661,12 @@ export class VideoRenderingEngine {
           const image = e.image
           const bitmap = imageBitmaps.get(image.id)
           if (!bitmap) continue
+          const imageElapsed = rowClipElapsedAtTime(
+            { id: image.id, type: 'image', startTime: image.startTime, duration: image.duration, item: image },
+            currentTime
+          )
           const progress = calculateAnimationProgress(image, currentTime, image.startTime)
-          const kOvImg = resolveMediaKeyframeTransform(image, currentTime - image.startTime, image.duration)
+          const kOvImg = resolveMediaKeyframeTransform(image, imageElapsed, image.duration)
           const ox = cr.x + kOvImg.x * xScale
           const oy = cr.y + kOvImg.y * yScale
           const ow = kOvImg.width * xScale
@@ -667,7 +674,7 @@ export class VideoRenderingEngine {
           ctx.save()
           ctx.globalAlpha = image.opacity
           runWithPlacementRotation(ctx, ox, oy, ow, oh, image.rotation, (px, py) => {
-            applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, px, py, ow, oh, kOvImg.cropSx, kOvImg.cropSy, kOvImg.cropSw, kOvImg.cropSh, kOvImg.zoomIntensity, image.duration, image.animationDuration, currentTime - image.startTime, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, image.transitionColor, image.transitionFlashMode, image.transitionDirection, image.transitionAxis, image.transitionSlideEasing, image.transitionCircleEasing, image.transitionWipeEasing, image.animationZoomEasing, undefined, image.zoomDistanceIntensity, undefined)
+            applyZoomTransform(ctx, image.animation, image.transition, progress, bitmap, px, py, ow, oh, kOvImg.cropSx, kOvImg.cropSy, kOvImg.cropSw, kOvImg.cropSh, kOvImg.zoomIntensity, image.duration, image.animationDuration, imageElapsed, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, image.transitionColor, image.transitionFlashMode, image.transitionDirection, image.transitionAxis, image.transitionSlideEasing, image.transitionCircleEasing, image.transitionWipeEasing, image.animationZoomEasing, undefined, image.zoomDistanceIntensity, undefined)
           }, image.flipHorizontal, image.flipVertical)
           ctx.restore()
         } else if (e.kind === 'video') {

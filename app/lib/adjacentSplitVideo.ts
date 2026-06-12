@@ -1,6 +1,8 @@
 import { VideoClass } from '@/app/models/VideoClass'
+import { ImageClass } from '@/app/models/ImageClass'
 import { manifestVideoTimelineSpanSeconds } from '@/app/lib/timeUtils'
 import { videoPlaybackMediaUrl } from '@/app/lib/videoPlaybackSource'
+import { getSortedRowClips, isRowClipActiveAtTimelineTime } from '@/app/lib/timelineClipAdjacency'
 
 export const ADJACENT_SPLIT_BOUNDARY_SEC = 2 / 60
 export const ADJACENT_SPLIT_EPSILON = 0.011
@@ -70,11 +72,31 @@ export function videoTimelineActiveEnd(
 export function isVideoActiveAtTimelineTime(
   video: VideoClass,
   videos: VideoClass[],
-  time: number
+  time: number,
+  images?: ImageClass[]
 ): boolean {
   const span = manifestVideoTimelineSpanSeconds(video)
   if (span <= 0) return false
-  return time >= video.timestamp && time < videoTimelineActiveEnd(video, videos)
+  if (time < video.timestamp) return false
+  const rowItems = getSortedRowClips(video.row, videos, images ?? [])
+  const item = rowItems.find((entry) => entry.id === video.id)
+  if (!item) return time < videoTimelineActiveEnd(video, videos)
+  return isRowClipActiveAtTimelineTime(rowItems, item, time, videos)
+}
+
+export function isImageActiveAtTimelineTime(
+  image: ImageClass,
+  videos: VideoClass[],
+  images: ImageClass[],
+  time: number
+): boolean {
+  const duration = image.endTime - image.startTime
+  if (!(duration > 0)) return false
+  if (time < image.startTime) return false
+  const rowItems = getSortedRowClips(image.row, videos, images)
+  const item = rowItems.find((entry) => entry.id === image.id)
+  if (!item) return time < image.endTime
+  return isRowClipActiveAtTimelineTime(rowItems, item, time, videos)
 }
 
 export function isSameSourceSplitPair(a: VideoClass, b: VideoClass): boolean {

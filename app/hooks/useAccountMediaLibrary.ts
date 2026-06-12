@@ -172,6 +172,26 @@ export function useAccountMediaLibrary(enabled: boolean) {
     [assets, currentFolderId, fetchList]
   )
 
+  const moveFolder = useCallback(
+    async (folderId: string, parentId: string | null) => {
+      const previousFolders = folders
+      setFolders((prev) => prev.filter((folder) => (folder.id === folderId ? parentId === currentFolderId : true)))
+      const response = await fetch('/api/media/move', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderId, parentId }),
+      })
+      if (!response.ok) {
+        setFolders(previousFolders)
+        const body = await response.json().catch(() => null)
+        throw new Error(body?.error ?? 'Failed to move folder')
+      }
+      window.dispatchEvent(new Event('account-media-updated'))
+      void fetchList()
+    },
+    [currentFolderId, fetchList, folders]
+  )
+
   return {
     folders,
     assets,
@@ -188,5 +208,6 @@ export function useAccountMediaLibrary(enabled: boolean) {
     deleteFolder,
     deleteAsset,
     moveAsset,
+    moveFolder,
   }
 }

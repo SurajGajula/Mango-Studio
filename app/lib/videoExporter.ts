@@ -21,7 +21,12 @@ import {
 } from '@/app/lib/renderUtils'
 import { resolveMediaKeyframeTransform } from '@/app/lib/resolveMediaKeyframeTransform'
 import { alignTimeToFrame, calculateTotalDuration, manifestVideoTimelineSpanSeconds } from '@/app/lib/timeUtils'
-import { isVideoActiveAtTimelineTime, videoElapsedForMapping } from '@/app/lib/adjacentSplitVideo'
+import {
+  isImageActiveAtTimelineTime,
+  isVideoActiveAtTimelineTime,
+  videoElapsedForMapping,
+} from '@/app/lib/adjacentSplitVideo'
+import { rowClipElapsedAtTime } from '@/app/lib/timelineClipAdjacency'
 import { videoPlaybackMediaUrl, videoSourceTrimBase } from '@/app/lib/videoPlaybackSource'
 import { audioBufferToWav } from '@/app/lib/audioUtils'
 
@@ -291,7 +296,7 @@ export async function exportVideo(
       }
 
       const videosToReady: { el: HTMLVideoElement; time: number }[] = []
-      const ovs = allVideos.filter((v) => isVideoActiveAtTimelineTime(v, allVideos, t))
+      const ovs = allVideos.filter((v) => isVideoActiveAtTimelineTime(v, allVideos, t, images))
       for (const v of ovs) {
         const vEl = videoElements.get(v.id); if (vEl) {
           const elapsed = videoElapsedForMapping(v, t)
@@ -311,7 +316,7 @@ export async function exportVideo(
       }
       for (const row of overlayRowIdsForSeek) {
         const sortedR = getSortedRowItems(row, allVideos, images || [])
-        const pr = findActiveAndNextItems(sortedR, t)
+        const pr = findActiveAndNextItems(sortedR, t, allVideos)
         const tr = checkTransition(pr.activeItem, pr.nextItem, t)
         if (!tr.transitionActive || !pr.activeItem || !pr.nextItem) continue
         if (pr.nextItem.type === 'video') {
@@ -346,7 +351,7 @@ export async function exportVideo(
         | { kind: 'text'; row: number; t0: number; text: TextClass }
       const overlayEntries: OverlayExportEntry[] = []
       for (const img of images || []) {
-        if (img.row < 0 || t < img.startTime || t >= img.endTime) continue
+        if (img.row < 0 || !isImageActiveAtTimelineTime(img, allVideos, images || [], t)) continue
         overlayEntries.push({ kind: 'image', row: img.row, t0: img.startTime, img })
       }
       for (const v of ovs) {
@@ -373,7 +378,7 @@ export async function exportVideo(
       const skipOverlayExportIdsByRow = new Map<number, Set<string>>()
       for (const row of rows) {
         const sortedR = getSortedRowItems(row, allVideos, images || [])
-        const pr = findActiveAndNextItems(sortedR, t)
+        const pr = findActiveAndNextItems(sortedR, t, allVideos)
         const tr = checkTransition(pr.activeItem, pr.nextItem, t)
         if (pr.activeItem && pr.nextItem && tr.transitionActive && tr.progress < 1) {
           const renderedPair = renderClipTransitionPair(ctx, exportCr, t, pr.activeItem, pr.nextItem, tr.progress, (id) => {
@@ -394,14 +399,18 @@ export async function exportVideo(
           const img = entry.img
           const iEl = imageElements.get(img.id); if (!iEl) continue
           ctx.save(); ctx.globalAlpha = img.opacity
+          const imgElapsed = rowClipElapsedAtTime(
+            { id: img.id, type: 'image', startTime: img.startTime, duration: img.duration, item: img },
+            t
+          )
           const prog = calculateAnimationProgress(img, t, img.startTime)
-          const kox = resolveMediaKeyframeTransform(img, t - img.startTime, img.duration)
+          const kox = resolveMediaKeyframeTransform(img, imgElapsed, img.duration)
           const ix = kox.x * xScale
           const iy = kox.y * yScale
           const iw = kox.width * xScale
           const ih = kox.height * yScale
           runWithPlacementRotation(ctx, ix, iy, iw, ih, img.rotation, (ox, oy) => {
-            applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, ox, oy, iw, ih, kox.cropSx, kox.cropSy, kox.cropSw, kox.cropSh, kox.zoomIntensity, img.duration, img.animationDuration, t - img.startTime, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, img.transitionColor, img.transitionFlashMode, img.transitionDirection, img.transitionAxis, img.transitionSlideEasing, img.transitionCircleEasing, img.transitionWipeEasing, img.animationZoomEasing, undefined, img.zoomDistanceIntensity, undefined)
+            applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, ox, oy, iw, ih, kox.cropSx, kox.cropSy, kox.cropSw, kox.cropSh, kox.zoomIntensity, img.duration, img.animationDuration, imgElapsed, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, img.transitionColor, img.transitionFlashMode, img.transitionDirection, img.transitionAxis, img.transitionSlideEasing, img.transitionCircleEasing, img.transitionWipeEasing, img.animationZoomEasing, undefined, img.zoomDistanceIntensity, undefined)
           }, img.flipHorizontal, img.flipVertical)
           ctx.restore()
         } else if (entry.kind === 'video') {

@@ -8,6 +8,14 @@ import {
 } from '@/app/lib/previewVideoFrameCache'
 import { manifestVideoTimelineSpanSeconds } from '@/app/lib/timeUtils'
 import { isSameSourceSplitPair } from '@/app/lib/adjacentSplitVideo'
+import {
+  clipsAreEffectivelyAdjacent,
+  getSortedRowClips,
+  isRowClipActiveAtTimelineTime,
+  type TimelineRowClip,
+} from '@/app/lib/timelineClipAdjacency'
+
+export { getSortedRowClips, rowClipElapsedAtTime } from '@/app/lib/timelineClipAdjacency'
 
 export interface MainItem {
   id: string
@@ -56,22 +64,7 @@ export function clipsTransitionLayoutCompatible(a: VideoClass | ImageClass, b: V
 }
 
 export function getSortedRowItems(row: number, videos: VideoClass[], images: ImageClass[]): MainItem[] {
-  return [
-    ...videos.filter((v) => v.row === row).map((v) => ({
-      id: v.id,
-      type: 'video' as const,
-      item: v,
-      startTime: v.timestamp,
-      duration: manifestVideoTimelineSpanSeconds(v),
-    })),
-    ...images.filter((img) => img.row === row).map((img) => ({
-      id: img.id,
-      type: 'image' as const,
-      item: img,
-      startTime: img.startTime,
-      duration: img.duration,
-    })),
-  ].sort((a, b) => a.startTime - b.startTime)
+  return getSortedRowClips(row, videos, images) as MainItem[]
 }
 
 
@@ -636,11 +629,13 @@ export function calculateSourceTime(
   return speedStart * t + (Math.pow(t, 2) / (2 * D)) * (speedEnd - speedStart)
 }
 
-export function findActiveAndNextItems(items: MainItem[], time: number) {
+export function findActiveAndNextItems(items: MainItem[], time: number, videos?: VideoClass[]) {
   let activeIdx = -1
   for (let i = 0; i < items.length; i++) {
     const it = items[i]
-    if (time >= it.startTime && time < it.startTime + it.duration) activeIdx = i
+    if (isRowClipActiveAtTimelineTime(items as TimelineRowClip[], it as TimelineRowClip, time, videos)) {
+      activeIdx = i
+    }
   }
   const activeItem = activeIdx !== -1 ? items[activeIdx] : null
   const nextItem =
@@ -648,7 +643,7 @@ export function findActiveAndNextItems(items: MainItem[], time: number) {
 
   if (activeItem && activeIdx > 0 && activeItem.item.transition === 'flash') {
     const previousItem = items[activeIdx - 1]
-    const adjacent = Math.abs(previousItem.startTime + previousItem.duration - activeItem.startTime) < 0.01
+    const adjacent = clipsAreEffectivelyAdjacent(previousItem as TimelineRowClip, activeItem as TimelineRowClip)
     const rawTransDur = Math.max(0.1, activeItem.item.transitionDuration ?? 1.0)
     const transDur = Math.min(rawTransDur, previousItem.duration, activeItem.duration)
     const halfDur = transDur * 0.5
@@ -674,7 +669,7 @@ export function checkTransition(activeItem: MainItem | null, nextItem: MainItem 
 
   const isTransitionType = nextItem.item.transition !== 'none'
   if (!isTransitionType) return { transitionActive: false, progress: 0 }
-  const adjacent = Math.abs(activeItem.startTime + activeItem.duration - nextItem.startTime) < 0.01
+  const adjacent = clipsAreEffectivelyAdjacent(activeItem as TimelineRowClip, nextItem as TimelineRowClip)
   if (!adjacent) return { transitionActive: false, progress: 0 }
 
   const isFlashTransition = nextItem.item.transition === 'flash'

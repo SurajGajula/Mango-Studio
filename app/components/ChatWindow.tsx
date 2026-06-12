@@ -187,7 +187,6 @@ async function runNormalizeAudioVolumes(
 export default function ChatWindow() {
   const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState('')
-  const [isProcessing, setIsProcessing] = useState(false)
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -374,7 +373,6 @@ export default function ChatWindow() {
       resumeHistory()
       pushHistory()
     }
-    if (refImages.length > 0) setUploadedFiles([])
     updateStatus('Image generated and added to the timeline.', false)
   }
 
@@ -444,7 +442,6 @@ export default function ChatWindow() {
       resumeHistory()
       pushHistory()
     }
-    if (attachedRefs.length > 0) setUploadedFiles([])
     updateStatus('Image updated in place on the timeline.', false)
   }
 
@@ -488,7 +485,6 @@ export default function ChatWindow() {
       resumeHistory()
       pushHistory()
     }
-    if (refImages.length > 0) setUploadedFiles([])
     updateStatus('Video generated and added to the timeline.', false)
   }
 
@@ -850,8 +846,6 @@ export default function ChatWindow() {
       pushHistory()
     }
 
-    const clearedAttachments = files.some((f) => f.mediaType === 'image' || f.mediaType === 'audio')
-    if (clearedAttachments) setUploadedFiles([])
     updateStatus('Talking animation added with your audio.', false)
   }
 
@@ -1324,7 +1318,7 @@ export default function ChatWindow() {
   }
 
   const handleSend = async () => {
-    if (!inputValue.trim() || isProcessing) return
+    if (!inputValue.trim()) return
 
     const userPrompt = inputValue.trim()
     const userMessage: Message = {
@@ -1336,7 +1330,6 @@ export default function ChatWindow() {
 
     setMessages((prev) => [...prev, userMessage])
     setInputValue('')
-    setIsProcessing(true)
 
     const statusId = `status-${Date.now()}`
     const updateStatus = (text: string, loading: boolean) => {
@@ -1349,6 +1342,11 @@ export default function ChatWindow() {
       ...prev,
       { id: statusId, text: 'Thinking...', isUser: false, loading: true, timestamp: new Date() },
     ])
+
+    const filesSnapshot = [...uploadedFiles]
+    if (filesSnapshot.length > 0) {
+      setUploadedFiles([])
+    }
 
     try {
       const equalSplitRequest = parseEqualSplitPrompt(userPrompt)
@@ -1454,7 +1452,6 @@ export default function ChatWindow() {
         })),
       }
 
-      const filesSnapshot = uploadedFiles
       const uploadedFilesMeta = filesSnapshot.map((f, i) => ({ index: i, name: f.name, type: f.mediaType }))
 
       const response = await fetch('/api/route-prompt', {
@@ -1552,7 +1549,6 @@ export default function ChatWindow() {
           applyNewTexts(data.newTexts || [])
         } else if (data.action === 'replace_images') {
           await applyReplacements(data.replacements || [], filesSnapshot)
-          setUploadedFiles([])
         } else if (data.action === 'replace_with_solid') {
           await applySolidReplacements(data.solidReplacements || [])
         } else if (data.action === 'set_transitions') {
@@ -1579,8 +1575,6 @@ export default function ChatWindow() {
       updateStatus(data.message, false)
     } catch (error) {
       updateStatus(`Error: ${error instanceof Error ? error.message : 'Failed to process'}`, false)
-    } finally {
-      setIsProcessing(false)
     }
   }
 
@@ -1599,7 +1593,7 @@ export default function ChatWindow() {
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key !== 'Enter' || e.shiftKey) return
-    if (isProcessing || !inputValue.trim()) return
+    if (!inputValue.trim()) return
     e.preventDefault()
     handleSend()
   }
@@ -1724,7 +1718,6 @@ export default function ChatWindow() {
               className={styles.composerIconBtn}
               onClick={() => fileInputRef.current?.click()}
               title="Attach files"
-              disabled={isProcessing}
               aria-label="Attach files"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -1735,20 +1728,14 @@ export default function ChatWindow() {
               type="button"
               className={`${styles.composerIconBtn} ${styles.composerSendBtn}`}
               onClick={handleSend}
-              disabled={isProcessing || !inputValue.trim()}
-              title={isProcessing ? 'Processing...' : 'Send'}
+              disabled={!inputValue.trim()}
+              title="Send"
               aria-label="Send"
             >
-              {isProcessing ? (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={styles.spinnerIcon} aria-hidden>
-                  <circle cx="12" cy="12" r="10" strokeDasharray="32" strokeDashoffset="12" />
-                </svg>
-              ) : (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                  <line x1="22" y1="2" x2="11" y2="13" />
-                  <polygon points="22 2 15 22 11 13 2 9 22 2" />
-                </svg>
-              )}
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <line x1="22" y1="2" x2="11" y2="13" />
+                <polygon points="22 2 15 22 11 13 2 9 22 2" />
+              </svg>
             </button>
           </div>
         </div>

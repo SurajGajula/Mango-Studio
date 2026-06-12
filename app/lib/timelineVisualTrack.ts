@@ -1,5 +1,6 @@
 import { ImageClass } from '@/app/models/ImageClass'
 import { VideoClass } from '@/app/models/VideoClass'
+import { TIMELINE_CLIP_GAP_EPSILON } from '@/app/lib/timelineClipAdjacency'
 
 export type VisualTrackItem = {
   id: string
@@ -46,7 +47,7 @@ export function hasMatchingAspectAndSize(a: VisualTrackItem, b: VisualTrackItem)
 export function canEditTransitionBetween(
   previous: VisualTrackItem | null,
   current: VisualTrackItem,
-  adjacencyEpsilon = 0.01
+  adjacencyEpsilon = TIMELINE_CLIP_GAP_EPSILON
 ): boolean {
   if (!previous) return false
   if (Math.abs(current.startTime - previous.endTime) >= adjacencyEpsilon) return false

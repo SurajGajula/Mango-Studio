@@ -13,6 +13,7 @@ import {
   videoSourceTrimBase,
 } from '@/app/lib/videoPlaybackSource'
 import type { VideoClass } from '@/app/models/VideoClass'
+import type { ImageClass } from '@/app/models/ImageClass'
 import { useManifestStore } from '@/app/stores/manifestStore'
 
 export const MAX_ACTIVE_PREVIEW_VIDEOS = 4
@@ -128,7 +129,8 @@ export function purgeOffscreenPreviewVideos(
   videosList: VideoClass[],
   videoElementsRef: MutableRefObject<Map<string, HTMLVideoElement>>,
   persistenceCanvasesRef: MutableRefObject<PersistenceCanvasMap>,
-  releaseDeadlinesRef: MutableRefObject<Map<string, number>>
+  releaseDeadlinesRef: MutableRefObject<Map<string, number>>,
+  imagesList: ImageClass[] = []
 ) {
   const prefetchLead = prefetchLeadForPool(videosList.length, false)
   const ids = [...videoElementsRef.current.keys()]
@@ -138,7 +140,7 @@ export function purgeOffscreenPreviewVideos(
       releasePreviewVideoElement(id, videoElementsRef, persistenceCanvasesRef, releaseDeadlinesRef)
       continue
     }
-    const inTimelineRange = isVideoActiveAtTimelineTime(clip, videosList, playbackTime)
+    const inTimelineRange = isVideoActiveAtTimelineTime(clip, videosList, playbackTime, imagesList)
     const prefetchBeforeStart =
       playbackTime < clip.timestamp && clip.timestamp - playbackTime <= prefetchLead
     if (!inTimelineRange && !prefetchBeforeStart) {
@@ -161,7 +163,8 @@ export function syncManifestVideoPool(
   videosList: VideoClass[],
   videoElementsRef: MutableRefObject<Map<string, HTMLVideoElement>>,
   persistenceCanvasesRef: MutableRefObject<PersistenceCanvasMap>,
-  releaseDeadlinesRef: MutableRefObject<Map<string, number>>
+  releaseDeadlinesRef: MutableRefObject<Map<string, number>>,
+  imagesList: ImageClass[] = []
 ) {
   const now = performance.now()
   const prefetchLead = prefetchLeadForPool(videosList.length, isTimelineScrubbingRef.current)
@@ -178,7 +181,7 @@ export function syncManifestVideoPool(
       releasePreviewVideoElement(id, videoElementsRef, persistenceCanvasesRef, releaseDeadlinesRef)
       return
     }
-    const inTimelineRange = isVideoActiveAtTimelineTime(clip, videosList, playbackTime)
+    const inTimelineRange = isVideoActiveAtTimelineTime(clip, videosList, playbackTime, imagesList)
     const prefetchBeforeStart =
       playbackTime < clip.timestamp && clip.timestamp - playbackTime <= prefetchLead
     if (!inTimelineRange && !prefetchBeforeStart) {
@@ -212,7 +215,7 @@ export function syncManifestVideoPool(
     const contentChanged = prevContentKey !== undefined && prevContentKey !== contentKey
     lastPlaybackContentKeyByClipId.set(clip.id, contentKey)
 
-    const inTimelineRange = isVideoActiveAtTimelineTime(clip, videosList, playbackTime)
+    const inTimelineRange = isVideoActiveAtTimelineTime(clip, videosList, playbackTime, imagesList)
     const prefetchBeforeStart =
       playbackTime < clip.timestamp && clip.timestamp - playbackTime <= prefetchLead
     const isNearPlayhead = inTimelineRange || prefetchBeforeStart
