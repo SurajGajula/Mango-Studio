@@ -112,6 +112,7 @@ export default function PricingPage() {
     <div className={styles.page}>
       <header className={styles.header}>
         <Link href="/" className={styles.logoLink}>
+          <span className={styles.logoMark} aria-hidden="true" />
           Mango Studio
         </Link>
         <div className={styles.headerActions}>
@@ -135,6 +136,8 @@ export default function PricingPage() {
 
       <main className={styles.main}>
         <div className={styles.hero}>
+          <div className={styles.heroGlow} aria-hidden="true" />
+          <p className={styles.heroEyebrow}>Pricing</p>
           <h1 className={styles.heroTitle}>Simple pricing</h1>
         </div>
 
@@ -170,6 +173,7 @@ export default function PricingPage() {
           </article>
 
           <article className={`${styles.planCard} ${styles.proCard}`}>
+            <span className={styles.popularBadge}>Most popular</span>
             <h2 className={styles.planName}>Pro</h2>
             <div className={styles.priceRow}>
               <span className={styles.price}>$0.99</span>
@@ -216,6 +220,16 @@ export default function PricingPage() {
           </article>
         </div>
       </main>
+
+      <footer className={styles.footer}>
+        <span className={styles.footerBrand}>
+          <span className={styles.logoMark} aria-hidden="true" />
+          Mango Studio
+        </span>
+        <Link href="/" className={styles.footerLink}>
+          Back to studio
+        </Link>
+      </footer>
 
       {authOpen ? (
         <AuthModal
