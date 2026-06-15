@@ -2,6 +2,7 @@ import { useManifestStore } from '@/app/stores/manifestStore'
 
 export const livePlaybackTimeRef = { current: 0 }
 export const isTimelineScrubbingRef = { current: false }
+export const isTimelinePlayDragRef = { current: false }
 
 let previewEngineEnabled = false
 

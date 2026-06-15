@@ -1,6 +1,10 @@
 import type { MutableRefObject } from 'react'
-import { isTimelineScrubbingRef } from '@/app/lib/playbackClock'
-import { attachPreviewVideoFrameListeners, invalidatePreviewVideoFrameCache } from '@/app/lib/previewVideoFrameCache'
+import { isTimelineScrubbingRef, wakePreviewLoop } from '@/app/lib/playbackClock'
+import {
+  attachPreviewVideoFrameListeners,
+  invalidatePreviewVideoFrameCache,
+  previewVideoFrameReady,
+} from '@/app/lib/previewVideoFrameCache'
 import { setVideoCrossOriginForUrl } from '@/app/lib/mediaUtils'
 import { manifestVideoTimelineSpanSeconds } from '@/app/lib/timeUtils'
 import {
@@ -158,6 +162,24 @@ export function purgeOffscreenPreviewVideos(
   )
 }
 
+export function activePreviewVideosNeedFrames(
+  playbackTime: number,
+  videosList: VideoClass[],
+  imagesList: ImageClass[],
+  videoElements: Map<string, HTMLVideoElement>
+): boolean {
+  for (let i = 0; i < videosList.length; i++) {
+    const clip = videosList[i]
+    if (clip.row < 0) continue
+    const span = manifestVideoTimelineSpanSeconds(clip)
+    if (span <= 0) continue
+    if (!isVideoActiveAtTimelineTime(clip, videosList, playbackTime, imagesList)) continue
+    const el = videoElements.get(clip.id)
+    if (!el || el.seeking || !previewVideoFrameReady(el)) return true
+  }
+  return false
+}
+
 export function syncManifestVideoPool(
   playbackTime: number,
   videosList: VideoClass[],
@@ -288,6 +310,7 @@ export function syncManifestVideoPool(
           if (Math.abs(video!.currentTime - trimBase) > 0.05) {
             video!.currentTime = trimBase
           }
+          wakePreviewLoop()
         }
       }
       videoElementsRef.current.set(clip.id, video)

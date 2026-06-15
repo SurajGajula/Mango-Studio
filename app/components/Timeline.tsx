@@ -595,7 +595,6 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
         applyZoom(next)
         return
       }
-      if (useManifestStore.getState().isPlaying) return
       e.preventDefault()
       const deltaX = e.deltaX
       const deltaY = e.deltaY

@@ -27,6 +27,7 @@ const Timeline = dynamic(() => import('./Timeline'), {
 
 const ChatWindow = dynamic(() => import('./ChatWindow'), {
   ssr: false,
+  loading: () => <div className={styles.chatSkeleton} aria-busy="true" />,
 })
 
 type RightPanel = 'chat' | 'transitions' | 'animations' | 'font' | 'effects' | 'speed' | 'pitch'
@@ -37,6 +38,7 @@ export default function MainView() {
   const [speedItemId, setSpeedItemId] = useState<string | null>(null)
   const [pitchItemId, setPitchItemId] = useState<string | null>(null)
   const [localPersistReady, setLocalPersistReady] = useState(false)
+  const [chatReady, setChatReady] = useState(false)
   const { user, loading } = useAuth()
   const { projects, activeProjectId, setActiveProjectId, ready: projectsReady } = useProjects(user?.id ?? null)
   const videos = useManifestStore((s) => s.videos)
@@ -52,6 +54,16 @@ export default function MainView() {
 
   const hydrationTokenRef = useRef(0)
   const hydratedProjectRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void import('./ChatWindow').then(() => {
+      if (!cancelled) setChatReady(true)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     if (loading) return
@@ -174,7 +186,8 @@ export default function MainView() {
   )
 
   const showChatPanel = rightPanel === 'chat'
-  const showChatLoading = loading || !localPersistReady
+  const isProjectLoading =
+    !projectsReady || (!!activeProjectId && !localPersistReady) || !chatReady
 
   const renderActivePanel = () => {
     if (rightPanel === 'transitions') {
@@ -224,11 +237,7 @@ export default function MainView() {
         <div className={styles.rightSection}>
           <div className={styles.rightPanelStack}>
             <div className={`${styles.persistentChatPanel} ${showChatPanel ? '' : styles.hiddenPanel}`}>
-              {showChatLoading ? (
-                <div className={styles.chatSkeleton} aria-busy="true" />
-              ) : (
-                <ChatWindow />
-              )}
+              <ChatWindow />
             </div>
             {!showChatPanel && <div className={styles.overlayPanel}>{renderActivePanel()}</div>}
           </div>
@@ -244,6 +253,14 @@ export default function MainView() {
           onOpenPitch={onOpenPitch}
         />
       </div>
+      {isProjectLoading && (
+        <div className={styles.loadingOverlay} role="status" aria-live="polite" aria-busy="true">
+          <div className={styles.loadingContent}>
+            <div className={styles.spinner} aria-hidden />
+            <span className={styles.loadingLabel}>Loading project…</span>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

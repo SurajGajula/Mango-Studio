@@ -19,8 +19,10 @@ import {
   setLivePlaybackTime,
   subscribePreviewVideoPurge,
   subscribePreviewWake,
+  wakePreviewLoop,
 } from '@/app/lib/playbackClock'
 import {
+  activePreviewVideosNeedFrames,
   purgeOffscreenPreviewVideos,
   releasePreviewVideoElement,
   syncManifestVideoPool,
@@ -465,6 +467,7 @@ export function useVideoPlayback(
       const ch = Math.round(rect.height)
       const cr = applyCanvasSizeRef.current(canvas, cw, ch)
       previewLayoutRef.current = { cw, ch, cr }
+      wakePreviewLoop()
     }
     measure()
     const ro = new ResizeObserver(() => {
@@ -920,7 +923,15 @@ export function useVideoPlayback(
 
       const playbackTimeMoved = Math.abs(newTime - lastLoopPlaybackTimeRef.current) > 0.0005
       lastLoopPlaybackTimeRef.current = newTime
-      if (effectiveIsPlaying || playbackTimeMoved) {
+      const pendingVideoFrames =
+        !effectiveIsPlaying &&
+        activePreviewVideosNeedFrames(
+          newTime,
+          state.videos,
+          state.images,
+          videoElementsRef.current
+        )
+      if (effectiveIsPlaying || playbackTimeMoved || pendingVideoFrames) {
         rafRef.current = requestAnimationFrame(loop)
       } else {
         rafRef.current = null
