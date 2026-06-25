@@ -6,6 +6,7 @@ import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useVideoPlayback } from '@/app/lib/useVideoPlayback'
 import { useLivePlaybackTime } from '@/app/hooks/useLivePlaybackTime'
 import { usePreviewInteractions } from '@/app/hooks/preview/usePreviewInteractions'
+import { usePreviewFullscreen } from '@/app/hooks/preview/usePreviewFullscreen'
 import { ImageClass } from '@/app/models/ImageClass'
 import { VideoClass } from '@/app/models/VideoClass'
 import { TextClass } from '@/app/models/TextClass'
@@ -118,8 +119,6 @@ export default function PreviewArea() {
     [editingTextId, editingContent]
   )
 
-  const { contentRect } = useVideoPlayback(canvasRef, containerRef, textEditOverride)
-
   const videos = useManifestStore((state) => state.videos)
   const images = useManifestStore((state) => state.images)
   const texts = useManifestStore((state) => state.texts)
@@ -138,10 +137,12 @@ export default function PreviewArea() {
   const updateVideo = useManifestStore((state) => state.updateVideo)
   const updateText = useManifestStore((state) => state.updateText)
   const pushHistory = useManifestStore((state) => state.pushHistory)
+  const isPlaying = useManifestStore((state) => state.isPlaying)
   const aspectRatio = FIXED_ASPECT_RATIO
 
   const mainVideos = videos.filter((v) => v.row === 0)
   const hasMainContent = mainVideos.length > 0 || images.length > 0
+  const { contentRect } = useVideoPlayback(canvasRef, containerRef, textEditOverride, false)
 
   const logicalW = 1080
   const logicalH = 1920
@@ -172,11 +173,29 @@ export default function PreviewArea() {
     canvasRef, textRefs, getMeasureCtx
   )
 
+  const onEnterFullscreen = useCallback(() => {
+    setSelectedImageId(null)
+    setSelectedVideoId(null)
+    setSelectedTextId(null)
+    setEditingTextId(null)
+    exitCropEdit()
+  }, [
+    setSelectedImageId,
+    setSelectedVideoId,
+    setSelectedTextId,
+    exitCropEdit,
+  ])
+
+  const { isFullscreen, toggleFullscreen, togglePlayPause } = usePreviewFullscreen(
+    containerRef,
+    onEnterFullscreen
+  )
+
   const sortedPreviewLayers = useMemo(() => {
     type Layer =
       | { kind: 'image'; row: number; t0: number; image: ImageClass }
       | { kind: 'video'; row: number; t0: number; video: VideoClass }
-      | { kind: 'text'; row: number; t0: number; text: TextClass }
+      | { kind: 'text'; row: number; t0: number; text: TextClass; isTimelineActive: boolean }
     const layers: Layer[] = []
     for (const image of images) {
       if (!isImageActiveAtTimelineTime(image, videos, images, playbackTime)) continue
@@ -189,8 +208,8 @@ export default function PreviewArea() {
       layers.push({ kind: 'video', row: video.row, t0: video.timestamp, video })
     }
     for (const text of texts) {
-      if (playbackTime < text.startTime || playbackTime >= text.endTime) continue
-      layers.push({ kind: 'text', row: text.row, t0: text.startTime, text })
+      const isTimelineActive = playbackTime >= text.startTime && playbackTime < text.endTime
+      layers.push({ kind: 'text', row: text.row, t0: text.startTime, text, isTimelineActive })
     }
     layers.sort((a, b) => a.row - b.row || a.t0 - b.t0)
     return layers
@@ -224,6 +243,7 @@ export default function PreviewArea() {
   }, [cropEditId, selectedKeyframeId, playbackTime, xScale, yScale, setCropPanState])
 
   const handleCanvasDoubleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (isFullscreen) return
     const canvas = canvasRef.current
     if (!canvas) return
     const rect = canvas.getBoundingClientRect()
@@ -271,7 +291,7 @@ export default function PreviewArea() {
         return
       }
     }
-  }, [videos, sortedPreviewLayers, playbackTime, xScale, yScale, offsetX, offsetY, contentRect, enterCropEdit])
+  }, [isFullscreen, videos, sortedPreviewLayers, playbackTime, xScale, yScale, offsetX, offsetY, contentRect, enterCropEdit])
 
   const handleOverlayContextMenu = useCallback(
     (itemId: string, itemType: 'image' | 'video', e: React.MouseEvent) => {
@@ -292,6 +312,7 @@ export default function PreviewArea() {
 
   const handleCanvasContextMenu = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (isFullscreen) return
       const canvas = canvasRef.current
       if (!canvas) return
       const rect = canvas.getBoundingClientRect()
@@ -366,6 +387,7 @@ export default function PreviewArea() {
       }
     },
     [
+      isFullscreen,
       videos,
       sortedPreviewLayers,
       playbackTime,
@@ -395,17 +417,31 @@ export default function PreviewArea() {
   return (
     <div className={styles.container}>
       <div className={styles.content}>
-        <div ref={containerRef} className={styles.videoContainer}>
+        <div
+          ref={containerRef}
+          className={`${styles.videoContainer} ${isFullscreen ? styles.videoWatchMode : ''}`}
+          tabIndex={-1}
+        >
           <div className={styles.previewLcpShell} aria-hidden />
           <div className={styles.canvasWrapper}>
             <canvas
               ref={canvasRef}
               className={styles.video}
-              onClick={() => { setSelectedImageId(null); setSelectedVideoId(null); setSelectedTextId(null); setEditingTextId(null); if (cropEditId) exitCropEdit() }}
+              onClick={() => {
+                if (isFullscreen) {
+                  togglePlayPause()
+                  return
+                }
+                setSelectedImageId(null)
+                setSelectedVideoId(null)
+                setSelectedTextId(null)
+                setEditingTextId(null)
+                if (cropEditId) exitCropEdit()
+              }}
               onContextMenu={handleCanvasContextMenu}
               onDoubleClick={handleCanvasDoubleClick}
             />
-            {hasMainContent && (
+            {hasMainContent && !isFullscreen && (
               <>
                 <div className={styles.overlayLayer}>
                   {sortedPreviewLayers.map((layer) => {
@@ -471,10 +507,15 @@ export default function PreviewArea() {
                       )
                     }
                     const text = layer.text
+                    const isVisible =
+                      layer.isTimelineActive ||
+                      editingTextId === text.id ||
+                      (selectedTextId === text.id && !isPlaying)
                     return (
                       <TextOverlay
                         key={text.id}
                         text={text}
+                        isVisible={isVisible}
                         xScale={xScale}
                         yScale={yScale}
                         offsetX={offsetX}
@@ -488,7 +529,6 @@ export default function PreviewArea() {
                         handleTextResizeStart={handleTextResizeStart}
                         playbackTime={playbackTime}
                         textRefs={textRefs}
-                        getMeasureCtx={getMeasureCtx}
                       />
                     )
                   })}
@@ -516,6 +556,46 @@ export default function PreviewArea() {
               </>
             )}
           </div>
+          {isFullscreen && (
+            <button
+              type="button"
+              className={styles.playbackButton}
+              onClick={(e) => {
+                e.stopPropagation()
+                togglePlayPause()
+              }}
+              aria-label={isPlaying ? 'Pause' : 'Play'}
+              title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
+            >
+              {isPlaying ? '⏸' : '▶'}
+            </button>
+          )}
+          <button
+            type="button"
+            className={styles.fullscreenButton}
+            onClick={(e) => {
+              e.stopPropagation()
+              toggleFullscreen()
+            }}
+            aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+            title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          >
+            {isFullscreen ? (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <path d="M4 14h6v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M20 10h-6V4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M14 10l7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M3 21l7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <path d="M8 3H5a2 2 0 0 0-2 2v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M21 8V5a2 2 0 0 0-2-2h-3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M3 16v3a2 2 0 0 0 2 2h3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M16 21h3a2 2 0 0 0 2-2v-3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+          </button>
         </div>
       </div>
     </div>

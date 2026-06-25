@@ -22,6 +22,35 @@ async function blobToBase64(blob: Blob): Promise<string> {
   })
 }
 
+type ManifestImageForReference = {
+  url?: string | null
+  startTime: number
+}
+
+export async function resolveManifestImageReferences(
+  imageNumbers: number[],
+  images: ManifestImageForReference[]
+): Promise<GenerationReferenceImage[]> {
+  const sorted = [...images].sort((a, b) => a.startTime - b.startTime)
+  const unique = [...new Set(imageNumbers.filter((n) => Number.isFinite(n) && n >= 1))]
+  const refs: GenerationReferenceImage[] = []
+  for (const n of unique) {
+    if (n > sorted.length) {
+      throw new Error(`Reference image #${n} is out of range (1–${sorted.length}).`)
+    }
+    const image = sorted[n - 1]
+    if (!image.url) {
+      throw new Error(`Reference image #${n} has no source URL.`)
+    }
+    const ref = await resolveImageUrlReference(image.url)
+    if (!ref) {
+      throw new Error(`Failed to load reference image #${n}.`)
+    }
+    refs.push(ref)
+  }
+  return refs
+}
+
 export async function resolveImageUrlReference(url: string): Promise<GenerationReferenceImage | null> {
   const response = await fetch(url)
   if (!response.ok) return null

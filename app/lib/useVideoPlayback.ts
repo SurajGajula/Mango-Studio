@@ -19,7 +19,7 @@ import {
   setLivePlaybackTime,
   subscribePreviewVideoPurge,
   subscribePreviewWake,
-  wakePreviewLoop,
+  wakePreviewLoop as notifyLivePlaybackSubscribers,
 } from '@/app/lib/playbackClock'
 import {
   activePreviewVideosNeedFrames,
@@ -234,19 +234,23 @@ export function useVideoPlayback(
   useEffect(() => {
     disposeRemovedPreviewVideos()
     syncManifestVideoPool(
-      livePlaybackTimeRef.current,
+      getState().playbackTime,
       videos,
       videoElementsRef,
       persistenceCanvasesRef,
       videoReleaseDeadlinesRef,
       images
     )
-  }, [videos, images, disposeRemovedPreviewVideos])
+  }, [videos, images, disposeRemovedPreviewVideos, getState])
 
   useEffect(() => {
-    if (!renderTextsInCanvas || texts.length === 0) return
+    if (texts.length === 0) return
     void preloadTextFonts(texts)
-  }, [texts, renderTextsInCanvas])
+  }, [texts])
+
+  useEffect(() => {
+    notifyLivePlaybackSubscribers()
+  }, [textEditOverride?.id, textEditOverride?.content])
 
   const prefetchImagesNearPlayhead = useCallback((playbackTime: number) => {
     const bucket = Math.floor(playbackTime * 2)
@@ -320,8 +324,8 @@ export function useVideoPlayback(
   useEffect(() => {
     imagePrefetchGenRef.current += 1
     lastImagePrefetchBucketRef.current = -1
-    prefetchImagesNearPlayhead(livePlaybackTimeRef.current)
-  }, [images, prefetchImagesNearPlayhead])
+    prefetchImagesNearPlayhead(getState().playbackTime)
+  }, [images, prefetchImagesNearPlayhead, getState])
 
   useEffect(() => {
     const currentAudioIds = new Set(audios.map((a) => a.id))
@@ -467,7 +471,7 @@ export function useVideoPlayback(
       const ch = Math.round(rect.height)
       const cr = applyCanvasSizeRef.current(canvas, cw, ch)
       previewLayoutRef.current = { cw, ch, cr }
-      wakePreviewLoop()
+      notifyLivePlaybackSubscribers()
     }
     measure()
     const ro = new ResizeObserver(() => {
@@ -923,6 +927,10 @@ export function useVideoPlayback(
 
       const playbackTimeMoved = Math.abs(newTime - lastLoopPlaybackTimeRef.current) > 0.0005
       lastLoopPlaybackTimeRef.current = newTime
+      if (effectiveIsPlaying || playbackTimeMoved) {
+        notifyLivePlaybackSubscribers()
+      }
+
       const pendingVideoFrames =
         !effectiveIsPlaying &&
         activePreviewVideosNeedFrames(
@@ -938,24 +946,24 @@ export function useVideoPlayback(
       }
     }
 
-    const wakePreviewLoop = () => {
+    const startPreviewRafIfIdle = () => {
       if (rafRef.current !== null) return
       rafRef.current = requestAnimationFrame(loop)
     }
 
     rafRef.current = requestAnimationFrame(loop)
 
-    const unsubscribeWake = subscribePreviewWake(wakePreviewLoop)
+    const unsubscribeWake = subscribePreviewWake(startPreviewRafIfIdle)
     const unsubscribePurge = subscribePreviewVideoPurge(purgePreviewVideoPool)
 
     const unsubscribeManifest = useManifestStore.subscribe((state, prev) => {
       if (state.isPlaying) {
-        wakePreviewLoop()
+        startPreviewRafIfIdle()
         return
       }
       if (state.playbackTime !== prev.playbackTime && !isTimelineScrubbingRef.current) {
         livePlaybackTimeRef.current = state.playbackTime
-        wakePreviewLoop()
+        startPreviewRafIfIdle()
       }
       if (
         state.videos !== prev.videos ||
@@ -963,7 +971,7 @@ export function useVideoPlayback(
         state.texts !== prev.texts ||
         state.effects !== prev.effects
       ) {
-        wakePreviewLoop()
+        startPreviewRafIfIdle()
       }
     })
 

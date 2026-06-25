@@ -27,10 +27,12 @@ export async function GET(req: NextRequest) {
     .eq('user_id', user.id)
     .order('name', { ascending: true })
 
-  if (folderId) {
-    foldersQuery = foldersQuery.eq('parent_id', folderId)
-  } else {
-    foldersQuery = foldersQuery.is('parent_id', null)
+  if (!listAll) {
+    if (folderId) {
+      foldersQuery = foldersQuery.eq('parent_id', folderId)
+    } else {
+      foldersQuery = foldersQuery.is('parent_id', null)
+    }
   }
   for (const hiddenFolderId of hiddenFolderIds) {
     foldersQuery = foldersQuery.neq('id', hiddenFolderId)

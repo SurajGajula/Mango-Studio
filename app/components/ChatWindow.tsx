@@ -13,6 +13,7 @@ import type {
   StepGrowthInstruction,
   CropInstruction,
   DeleteTimelineItemInstruction,
+  DeleteLibraryItemInstruction,
   NormalizeAudioVolumesInstruction,
   GenerateImageInstruction,
   EditImageInstruction,
@@ -24,6 +25,7 @@ import type {
 import type { TranscribeSegment } from '@/app/api/transcribe-audio/route'
 import { TextClass } from '@/app/models/TextClass'
 import { captionClipEndTime } from '@/app/lib/textUtils'
+import { buildCenteredTextLayout, centerExistingTextOnCanvas, getSharedTextMeasureCtx } from '@/app/lib/drawTextOverlay'
 import { EffectClass } from '@/app/models/EffectClass'
 import {
   ImageClass,
@@ -61,6 +63,7 @@ import {
   resolveAttachedImageReferences,
   resolveAttachedAudioReference,
   resolveImageUrlReference,
+  resolveManifestImageReferences,
   dataUrlToReferenceImage,
   videoPromptWithReferences,
 } from '@/app/lib/chatGenerationReferences'
@@ -77,6 +80,10 @@ import {
   decodeAudioFromUrl,
   rmsFromAudioBufferTrimmed,
 } from '@/app/lib/audioLoudnessNormalize'
+import {
+  medianPitchHzFromBuffer,
+  pitchShiftToMatchReference,
+} from '@/app/lib/speechPitchMatch'
 import styles from './ChatWindow.module.css'
 
 interface Message {
@@ -187,6 +194,7 @@ async function runNormalizeAudioVolumes(
 export default function ChatWindow() {
   const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState('')
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -246,7 +254,7 @@ export default function ChatWindow() {
         }
         updateVideo(m.id, { timestamp: m.timestamp, duration: m.duration, muted: m.muted, row: m.row, opacity: m.opacity })
       } else if (m.type === 'updateText') {
-        updateText(m.id, {
+        const updates: Partial<TextClass> = {
           startTime: m.startTime,
           endTime: m.endTime,
           row: m.row,
@@ -255,7 +263,23 @@ export default function ChatWindow() {
           fontWeight: m.fontWeight,
           animation: m.animation,
           style: m.style,
-        })
+          textAlign: m.textAlign,
+          x: m.x,
+          y: m.y,
+          width: m.width,
+          height: m.height,
+        }
+        if (m.centerOnCanvas) {
+          const text = useManifestStore.getState().texts.find((t) => t.id === m.id)
+          if (text) {
+            const { logicalW, logicalH } = getLogicalCanvasDimensions(FIXED_ASPECT_RATIO)
+            Object.assign(updates, centerExistingTextOnCanvas(text, getSharedTextMeasureCtx(), logicalW, logicalH))
+          }
+        }
+        if (m.textAlign !== undefined) {
+          updates.textAlign = m.textAlign
+        }
+        updateText(m.id, updates)
       }
       else if (m.type === 'updateAudio') {
         if (m.speedStart !== undefined || m.speedEnd !== undefined) {
@@ -300,11 +324,31 @@ export default function ChatWindow() {
     }
   }
 
+  const runDeleteLibraryItems = async (items: DeleteLibraryItemInstruction[]) => {
+    const assetIds = items.filter((item) => item.type === 'asset').map((item) => item.id)
+    const folderIds = items.filter((item) => item.type === 'folder').map((item) => item.id)
+    if (assetIds.length === 0 && folderIds.length === 0) return
+
+    const response = await fetch('/api/media/delete', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assetIds, folderIds }),
+    })
+    if (!response.ok) {
+      const body = await response.json().catch(() => null)
+      throw new Error(body?.error ?? 'Failed to delete library items')
+    }
+    window.dispatchEvent(new Event('account-media-updated'))
+  }
+
   const applyNewTexts = (newTexts: AddTextInstruction[]) => {
+    const { logicalW, logicalH } = getLogicalCanvasDimensions(FIXED_ASPECT_RATIO)
+    const measureCtx = getSharedTextMeasureCtx()
     for (const t of newTexts) {
       const id = `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       const row = findFreeVisualOverlayRow(t.startTime, t.endTime)
-      addText(new TextClass(id, t.content, t.startTime, t.endTime).copy({ row }))
+      const placement = buildCenteredTextLayout({ content: t.content }, measureCtx, logicalW, logicalH)
+      addText(new TextClass(id, t.content, t.startTime, t.endTime).copy({ row, ...placement }))
     }
   }
 
@@ -313,6 +357,8 @@ export default function ChatWindow() {
     audioTimelineStart: number,
     playbackSpeed: number
   ) => {
+    const { logicalW, logicalH } = getLogicalCanvasDimensions(FIXED_ASPECT_RATIO)
+    const measureCtx = getSharedTextMeasureCtx()
     for (const segment of segments) {
       const startTime = audioTimelineStart + segment.startTime / playbackSpeed
       const segmentEndTime = audioTimelineStart + segment.endTime / playbackSpeed
@@ -328,11 +374,14 @@ export default function ChatWindow() {
       const id = `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       const row = findFreeVisualOverlayRow(startTime, endTime)
       const animation = wordTimings ? 'speech' : 'keyboard'
+      const content = segment.text.trim()
+      const placement = buildCenteredTextLayout({ content }, measureCtx, logicalW, logicalH)
       addText(
-        new TextClass(id, segment.text.trim(), startTime, endTime).copy({
+        new TextClass(id, content, startTime, endTime).copy({
           row,
           animation,
           wordTimings,
+          ...placement,
         })
       )
     }
@@ -344,7 +393,12 @@ export default function ChatWindow() {
     updateStatus: (text: string, loading: boolean) => void
   ) => {
     updateStatus('Generating image...', true)
-    const refImages = await resolveAttachedImageReferences(files)
+    const { images } = useManifestStore.getState()
+    const timelineRefs = spec.referenceImageNumbers?.length
+      ? await resolveManifestImageReferences(spec.referenceImageNumbers, images)
+      : []
+    const attachedRefs = await resolveAttachedImageReferences(files)
+    const refImages = [...timelineRefs, ...attachedRefs]
     const response = await fetch('/api/generate-image', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -451,14 +505,19 @@ export default function ChatWindow() {
     updateStatus: (text: string, loading: boolean) => void
   ) => {
     updateStatus('Generating video...', true)
-    const refImages = await resolveAttachedImageReferences(files)
+    const { images } = useManifestStore.getState()
+    const timelineRefs = spec.referenceImageNumbers?.length
+      ? await resolveManifestImageReferences(spec.referenceImageNumbers, images)
+      : []
+    const attachedRefs = await resolveAttachedImageReferences(files)
+    const refImages = [...timelineRefs, ...attachedRefs].slice(0, 3)
     const response = await fetch('/api/generate-video', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         prompt: videoPromptWithReferences(spec.prompt, refImages.length),
         negativePrompt: spec.negativePrompt,
-        referenceImages: refImages.length > 0 ? refImages.slice(0, 3) : undefined,
+        referenceImages: refImages.length > 0 ? refImages : undefined,
       }),
     })
     const data = await response.json()
@@ -492,6 +551,39 @@ export default function ChatWindow() {
     spec: GenerateSpeechInstruction,
     updateStatus: (text: string, loading: boolean) => void
   ) => {
+    let referenceAudio: { audioBase64: string; mimeType: string } | undefined
+    let referenceTimelineAudio: AudioClass | null = null
+    let referenceBuffer: AudioBuffer | null = null
+
+    if (spec.referenceAudioNumber && !spec.multiSpeaker) {
+      updateStatus(`Loading reference voice from audio #${spec.referenceAudioNumber}...`, true)
+      const { audios } = useManifestStore.getState()
+      const sorted = [...audios].sort((a, b) => a.startTime - b.startTime)
+      const refN = spec.referenceAudioNumber
+      if (refN < 1 || refN > sorted.length) {
+        throw new Error(`Reference audio #${refN} is out of range (1–${sorted.length}).`)
+      }
+      referenceTimelineAudio = sorted[refN - 1]
+      if (!referenceTimelineAudio.url) {
+        throw new Error(`Reference audio #${refN} has no source URL.`)
+      }
+      const refResponse = await fetch(referenceTimelineAudio.url)
+      if (!refResponse.ok) {
+        throw new Error(`Failed to load reference audio #${refN}.`)
+      }
+      const refBlob = await refResponse.blob()
+      referenceAudio = {
+        audioBase64: await blobToBase64(refBlob),
+        mimeType: refBlob.type || 'audio/wav',
+      }
+      const pitchCtx = new AudioContext()
+      try {
+        referenceBuffer = await decodeAudioFromUrl(pitchCtx, referenceTimelineAudio.url)
+      } finally {
+        await pitchCtx.close()
+      }
+    }
+
     updateStatus('Generating speech...', true)
     const response = await fetch('/api/generate-speech', {
       method: 'POST',
@@ -501,6 +593,7 @@ export default function ChatWindow() {
         voiceName: spec.voiceName,
         multiSpeaker: spec.multiSpeaker,
         speakers: spec.speakers,
+        referenceAudio,
       }),
     })
     const data = await response.json()
@@ -524,11 +617,41 @@ export default function ChatWindow() {
     pauseHistory()
     try {
       await addAudioToTimelineAtPlayhead(sourceUrl, name, duration)
+      if (referenceTimelineAudio && referenceBuffer) {
+        const pitchCtx = new AudioContext()
+        try {
+          const generatedBuffer = await decodeAudioFromUrl(pitchCtx, blobUrl)
+          const refHz = medianPitchHzFromBuffer(
+            referenceBuffer,
+            referenceTimelineAudio.trimStart ?? 0,
+            referenceTimelineAudio.trimEnd ?? 0,
+            referenceTimelineAudio.originalDuration
+          )
+          const genHz = medianPitchHzFromBuffer(generatedBuffer)
+          if (refHz && genHz) {
+            const pitch = pitchShiftToMatchReference(
+              refHz,
+              genHz,
+              referenceTimelineAudio.pitch ?? 1
+            )
+            const newAudioId = useSelectionStore.getState().selectedAudioId
+            if (newAudioId) {
+              updateAudio(newAudioId, { pitch })
+            }
+          }
+        } finally {
+          await pitchCtx.close()
+        }
+      }
     } finally {
       resumeHistory()
       pushHistory()
     }
-    updateStatus('Speech generated and added to the timeline.', false)
+    const refSuffix =
+      spec.referenceAudioNumber && !spec.multiSpeaker
+        ? ` matching audio #${spec.referenceAudioNumber}`
+        : ''
+    updateStatus(`Speech generated${refSuffix} and added to the timeline.`, false)
   }
 
   const runTranscribeAudio = async (
@@ -1255,45 +1378,95 @@ export default function ChatWindow() {
   }
 
   const applyReplacements = async (replacements: ReplaceInstruction[], files: UploadedFile[]) => {
-    const uploadedUrlByFileIndex = new Map<number, string>()
+    const audio: { replacement: ReplaceInstruction; file: UploadedFile }[] = []
+    const video: { replacement: ReplaceInstruction; file: UploadedFile }[] = []
+    const image: { replacement: ReplaceInstruction; file: UploadedFile }[] = []
 
-    for (const r of replacements) {
-      const file = files[r.fileIndex]
+    for (const replacement of replacements) {
+      const file = files[replacement.fileIndex]
       if (!file) continue
-
-      if (file.mediaType === 'audio') {
-        const duration = await resolveAudioDurationFromUrl(file.blobUrl)
-        if (validateMediaDuration(duration, 'Audio')) {
-          const blob = await fetch(file.blobUrl).then((res) => res.blob())
-          const uploadFile = new File([blob], file.name, { type: file.mimeType })
-          void uploadToAccountLibrary(uploadFile, duration)
-        }
-        await applyAudioReplacement(r.targetId, file)
-      } else if (file.mediaType === 'video') {
-        const { duration } = await resolveVideoMetadata(file.blobUrl)
-        let sourceUrl = file.blobUrl
-        if (validateMediaDuration(duration, 'Video')) {
-          const blob = await fetch(file.blobUrl).then((res) => res.blob())
-          const uploadFile = new File([blob], file.name, { type: file.mimeType })
-          const assetId = await uploadToAccountLibrary(uploadFile, duration)
-          if (assetId) sourceUrl = accountMediaAssetPlaybackUrl(assetId)
-        }
-        await applyVideoReplacement(r.targetId, file, sourceUrl)
-      } else {
-        let sourceUrl = uploadedUrlByFileIndex.get(r.fileIndex)
-        if (!sourceUrl) {
-          const blob = new Blob(
-            [Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0))],
-            { type: file.mimeType }
-          )
-          const uploadFile = new File([blob], file.name, { type: file.mimeType })
-          const assetId = await uploadToAccountLibrary(uploadFile)
-          sourceUrl = assetId ? accountMediaAssetPlaybackUrl(assetId) : URL.createObjectURL(blob)
-          uploadedUrlByFileIndex.set(r.fileIndex, sourceUrl)
-        }
-        await applyReplacementWithUrl(r.targetId, sourceUrl, file.name)
-      }
+      if (file.mediaType === 'audio') audio.push({ replacement, file })
+      else if (file.mediaType === 'video') video.push({ replacement, file })
+      else image.push({ replacement, file })
     }
+
+    const uploadUrlsForFileIndices = async (
+      fileIndices: number[],
+      upload: (file: UploadedFile) => Promise<string>
+    ): Promise<Map<number, string>> => {
+      const urlByFileIndex = new Map<number, string>()
+      await Promise.all(
+        fileIndices.map(async (fileIndex) => {
+          const file = files[fileIndex]
+          if (!file) return
+          urlByFileIndex.set(fileIndex, await upload(file))
+        })
+      )
+      return urlByFileIndex
+    }
+
+    const uploadImageFile = async (file: UploadedFile): Promise<string> => {
+      const blob = new Blob(
+        [Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0))],
+        { type: file.mimeType }
+      )
+      const uploadFile = new File([blob], file.name, { type: file.mimeType })
+      const assetId = await uploadToAccountLibrary(uploadFile)
+      return assetId ? accountMediaAssetPlaybackUrl(assetId) : URL.createObjectURL(blob)
+    }
+
+    const uploadVideoFile = async (file: UploadedFile): Promise<string> => {
+      const { duration } = await resolveVideoMetadata(file.blobUrl)
+      if (!validateMediaDuration(duration, 'Video')) return file.blobUrl
+      const blob = await fetch(file.blobUrl).then((res) => res.blob())
+      const uploadFile = new File([blob], file.name, { type: file.mimeType })
+      const assetId = await uploadToAccountLibrary(uploadFile, duration)
+      return assetId ? accountMediaAssetPlaybackUrl(assetId) : file.blobUrl
+    }
+
+    await Promise.all([
+      (async () => {
+        const audioFileIndices = [...new Set(audio.map(({ replacement }) => replacement.fileIndex))]
+        await Promise.all(
+          audioFileIndices.map(async (fileIndex) => {
+            const file = files[fileIndex]
+            if (!file) return
+            const duration = await resolveAudioDurationFromUrl(file.blobUrl)
+            if (!validateMediaDuration(duration, 'Audio')) return
+            const blob = await fetch(file.blobUrl).then((res) => res.blob())
+            const uploadFile = new File([blob], file.name, { type: file.mimeType })
+            void uploadToAccountLibrary(uploadFile, duration)
+          })
+        )
+        await Promise.all(
+          audio.map(({ replacement, file }) => applyAudioReplacement(replacement.targetId, file))
+        )
+      })(),
+      (async () => {
+        const videoFileIndices = [...new Set(video.map(({ replacement }) => replacement.fileIndex))]
+        const videoUrlByFileIndex = await uploadUrlsForFileIndices(videoFileIndices, uploadVideoFile)
+        await Promise.all(
+          video.map(({ replacement, file }) =>
+            applyVideoReplacement(
+              replacement.targetId,
+              file,
+              videoUrlByFileIndex.get(replacement.fileIndex) ?? file.blobUrl
+            )
+          )
+        )
+      })(),
+      (async () => {
+        const imageFileIndices = [...new Set(image.map(({ replacement }) => replacement.fileIndex))]
+        const imageUrlByFileIndex = await uploadUrlsForFileIndices(imageFileIndices, uploadImageFile)
+        await Promise.all(
+          image.map(({ replacement, file }) => {
+            const sourceUrl = imageUrlByFileIndex.get(replacement.fileIndex)
+            if (!sourceUrl) return Promise.resolve()
+            return applyReplacementWithUrl(replacement.targetId, sourceUrl, file.name)
+          })
+        )
+      })(),
+    ])
   }
 
   const applySolidReplacements = async (replacements: SolidColorReplaceInstruction[]) => {
@@ -1435,6 +1608,7 @@ export default function ChatWindow() {
           trimStart: a.trimStart,
           trimEnd: a.trimEnd,
           volume: a.volume,
+          pitch: a.pitch,
           playbackSpeed: a.playbackSpeed,
           speedStart: a.speedStart,
           speedEnd: a.speedEnd,
@@ -1454,10 +1628,30 @@ export default function ChatWindow() {
 
       const uploadedFilesMeta = filesSnapshot.map((f, i) => ({ index: i, name: f.name, type: f.mediaType }))
 
+      const libraryResponse = await fetch('/api/media/list?all=1')
+      if (!libraryResponse.ok) {
+        const body = await libraryResponse.json().catch(() => null)
+        throw new Error(body?.error ?? 'Failed to load media library')
+      }
+      const libraryData = await libraryResponse.json()
+      const library = {
+        folders: (libraryData.folders ?? []).map((f: { id: string; name: string; parent_id: string | null }) => ({
+          id: f.id,
+          name: f.name,
+          parent_id: f.parent_id,
+        })),
+        assets: (libraryData.assets ?? []).map((a: { id: string; name: string; kind: string; folder_id: string | null }) => ({
+          id: a.id,
+          name: a.name,
+          kind: a.kind,
+          folder_id: a.folder_id,
+        })),
+      }
+
       const response = await fetch('/api/route-prompt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: userPrompt, manifest, uploadedFiles: uploadedFilesMeta }),
+        body: JSON.stringify({ prompt: userPrompt, manifest, library, uploadedFiles: uploadedFilesMeta }),
       })
 
       const data = await response.json()
@@ -1529,6 +1723,12 @@ export default function ChatWindow() {
           return
         }
         await runAnimateToSpeech(spec, filesSnapshot, updateStatus)
+        return
+      }
+
+      if (data.action === 'delete_library_items') {
+        await runDeleteLibraryItems(data.deleteLibraryItems || [])
+        updateStatus(data.message, false)
         return
       }
 
@@ -1638,6 +1838,14 @@ export default function ChatWindow() {
     setUploadedFiles((prev) => prev.filter((f) => f.id !== id))
   }
 
+  const copyUserMessage = async (id: string, text: string) => {
+    await navigator.clipboard.writeText(text)
+    setCopiedMessageId(id)
+    window.setTimeout(() => {
+      setCopiedMessageId((current) => (current === id ? null : current))
+    }, 2000)
+  }
+
   return (
     <div className={styles.container}>
       <div className={styles.messages}>
@@ -1647,6 +1855,28 @@ export default function ChatWindow() {
             className={`${styles.message} ${message.isUser ? styles.userMessage : styles.botMessage}`}
           >
             <p>{message.text}</p>
+            {message.isUser && (
+              <div className={styles.messageActions}>
+                <button
+                  type="button"
+                  className={styles.copyMessageBtn}
+                  onClick={() => copyUserMessage(message.id, message.text)}
+                  title={copiedMessageId === message.id ? 'Copied' : 'Copy prompt'}
+                  aria-label={copiedMessageId === message.id ? 'Copied' : 'Copy prompt'}
+                >
+                  {copiedMessageId === message.id ? (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                      <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+            )}
             {message.loading && <div className={styles.loadingBar} />}
           </div>
         ))}

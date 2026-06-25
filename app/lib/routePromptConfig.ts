@@ -17,7 +17,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'edit_manifest',
-    description: 'Edit, rearrange, resize, or synchronise existing items on the timeline. Use this when the user asks to change timing, duration, position, row/layer, opacity, playback speed, mute status, or text typography/style of existing images, videos, texts, or audio tracks — for example "make the image the same length as the audio", "move the video to start at 5 seconds", "move images 11-29 to row 0", "set video 2 opacity to 40%", "slow down the video to 0.5x speed", "mute all videos", "make all text negative style", or "change text font to Playfair". For audio, you can also set trimStart and trimEnd to trim the audio file, or set both to 0 to restore the full original length.',
+    description: 'Edit, rearrange, resize, or synchronise existing items on the timeline. Use this when the user asks to change timing, duration, position, row/layer, opacity, playback speed, mute status, or text typography/style of existing images, videos, texts, or audio tracks — for example "make the image the same length as the audio", "move the video to start at 5 seconds", "move images 11-29 to row 0", "set video 2 opacity to 40%", "slow down the video to 0.5x speed", "mute all videos", "make all text negative style", "change text font to Playfair", "center text 1", or "center all text overlays". For audio, you can also set trimStart and trimEnd to trim the audio file, or set both to 0 to restore the full original length.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -103,6 +103,30 @@ export const functionDeclarations: FunctionDeclaration[] = [
                 type: Type.STRING,
                 description: 'Text style mode for text overlays: "normal", "negative", or "highlight". Only for updateText.',
               },
+              textAlign: {
+                type: Type.STRING,
+                description: 'Text alignment inside the overlay box: "left", "center", or "right". Only for updateText.',
+              },
+              centerOnCanvas: {
+                type: Type.BOOLEAN,
+                description: 'When true, center the text overlay on the canvas (position and textAlign). Use for requests like "center text 1" or "center all text". Only for updateText.',
+              },
+              x: {
+                type: Type.NUMBER,
+                description: 'Text overlay x position in logical canvas pixels. Only for updateText.',
+              },
+              y: {
+                type: Type.NUMBER,
+                description: 'Text overlay y position in logical canvas pixels. Only for updateText.',
+              },
+              width: {
+                type: Type.NUMBER,
+                description: 'Text overlay width in logical canvas pixels. Only for updateText.',
+              },
+              height: {
+                type: Type.NUMBER,
+                description: 'Text overlay height in logical canvas pixels. Only for updateText.',
+              },
             },
             required: ['type', 'id'],
           },
@@ -143,6 +167,39 @@ export const functionDeclarations: FunctionDeclaration[] = [
         message: {
           type: Type.STRING,
           description: 'Short confirmation, e.g. "Removed images #19–#31."',
+        },
+      },
+      required: ['items', 'message'],
+    },
+  },
+  {
+    name: 'delete_library_items',
+    description:
+      'Remove one or more items from the account media library (not the timeline). Use when the user asks to delete, remove, or clear library assets or folders — e.g. "delete all non-folder items in the root of the library" (every root asset with folder_id=null, type=asset only), "delete folder Vacation", or "remove asset sunset.mp4 from my library". Include every item to remove in one call with exact ids from the library context. Use type=asset for media files and type=folder for folders. Do NOT use delete_timeline_items for library requests.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        items: {
+          type: Type.ARRAY,
+          description: 'Each entry removes one library asset or folder.',
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              type: {
+                type: Type.STRING,
+                description: 'One of: asset, folder.',
+              },
+              id: {
+                type: Type.STRING,
+                description: 'Exact id from the library context for that item.',
+              },
+            },
+            required: ['type', 'id'],
+          },
+        },
+        message: {
+          type: Type.STRING,
+          description: 'Short confirmation, e.g. "Removed 5 root library assets."',
         },
       },
       required: ['items', 'message'],
@@ -215,7 +272,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'add_text',
-    description: "Add one or more text overlays to the timeline. Use this when the user asks to add, insert, or place text at a specific time range — for example \"add text the length of the first image\" or \"add a subtitle from the second to the fifth image\". Compute startTime and endTime from the manifest data. The content should be taken from the user's prompt, or left as an empty string if not specified.",
+    description: "Add one or more text overlays to the timeline. Use this when the user asks to add, insert, or place text at a specific time range — for example \"add text the length of the first image\" or \"add a subtitle from the second to the fifth image\". Compute startTime and endTime from the manifest data. The content should be taken from the user's prompt, or left as an empty string if not specified. New text overlays are centered on the canvas by default.",
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -585,13 +642,19 @@ export const proFunctionDeclarations: FunctionDeclaration[] = [
   {
     name: 'generate_image',
     description:
-      'Generate a new still image from a text description using AI and add it to the timeline. Use when the user asks to create, generate, draw, paint, make, or produce a new image with no existing timeline target. When the user has attached image files, those are automatically sent as reference images — refine the prompt to describe how they should guide the result. Do NOT use for editing an existing timeline image by number — use edit_image instead. Do NOT use for video, animation, or motion requests.',
+      'Generate a new still image from a text description using AI and add it to the timeline. Use when the user asks to create, generate, draw, paint, make, or produce a new image with no existing timeline target. When the user mentions timeline images for scene, style, or subject guidance — e.g. "in the same room as image 1", "like image 2", "with the character from image 3" — set referenceImageNumbers to those global #N values (sorted by startTime). Attached image files are also sent as references automatically. Refine the prompt to describe how references should guide the result. Do NOT use for editing an existing timeline image by number — use edit_image instead. Do NOT use for video, animation, or motion requests.',
     parameters: {
       type: Type.OBJECT,
       properties: {
         prompt: {
           type: Type.STRING,
           description: "A refined, detailed prompt for image generation based on the user's request.",
+        },
+        referenceImageNumbers: {
+          type: Type.ARRAY,
+          description:
+            '1-based manifest image numbers (#N) to send as reference images when the user cites timeline images for guidance. Omit when no timeline image is referenced.',
+          items: { type: Type.NUMBER },
         },
         message: {
           type: Type.STRING,
@@ -604,13 +667,19 @@ export const proFunctionDeclarations: FunctionDeclaration[] = [
   {
     name: 'generate_video',
     description:
-      'Generate a new video clip with motion from a text description using AI. Use ONLY when the user explicitly asks for a video, clip, animation, or motion over time. When the user has attached image files, those are automatically sent as reference images (up to 3) — refine the prompt to describe how they should guide the video. Do NOT use for still images, photos, pictures, or single-frame visuals — use generate_image instead.',
+      'Generate a new video clip with motion from a text description using AI. Use ONLY when the user explicitly asks for a video, clip, animation, or motion over time. When the user mentions timeline images for scene, style, or subject guidance — e.g. "in the same room as image 1" — set referenceImageNumbers to those global #N values. Attached image files are also sent as references (up to 3 total). Refine the prompt to describe how references should guide the video. Do NOT use for still images, photos, pictures, or single-frame visuals — use generate_image instead.',
     parameters: {
       type: Type.OBJECT,
       properties: {
         prompt: {
           type: Type.STRING,
           description: "A refined, detailed prompt for video generation based on the user's request.",
+        },
+        referenceImageNumbers: {
+          type: Type.ARRAY,
+          description:
+            '1-based manifest image numbers (#N) to send as reference images when the user cites timeline images for guidance. Omit when no timeline image is referenced.',
+          items: { type: Type.NUMBER },
         },
         negativePrompt: {
           type: Type.STRING,
@@ -627,7 +696,7 @@ export const proFunctionDeclarations: FunctionDeclaration[] = [
   {
     name: 'generate_speech',
     description:
-      'Generate spoken audio (text-to-speech) using AI and add it to the timeline at the playhead. Use when the user asks to generate speech, voiceover, narration, read aloud, say something, or create TTS audio — e.g. "generate speech saying welcome to my channel", "create a calm voiceover", "read this aloud in an upbeat voice". Put delivery/style instructions and the exact words to speak in the prompt. For two-person dialogue set multiSpeaker to true, list speakers (names must match labels in the prompt), and format the prompt as a conversation between those speakers.',
+      'Generate spoken audio (text-to-speech) using AI and add it to the timeline at the playhead. Use when the user asks to generate speech, voiceover, narration, read aloud, say something, or create TTS audio — e.g. "generate speech saying welcome to my channel", "create a calm voiceover", "read this aloud in an upbeat voice". Put delivery/style instructions and the exact words to speak in the prompt. When the user asks for new speech in the same voice as an existing timeline clip (e.g. "say X with the voice of audio 2", "same voice as audio 1", "match audio 3\'s voice"), set referenceAudioNumber to that global audio #N (sorted by startTime); the app analyzes delivery from that clip and prepends it to the TTS prompt without changing voiceName. Do not use animate_to_speech for new dialogue — that reuses exact audio for lip-sync only. For two-person dialogue set multiSpeaker to true, list speakers (names must match labels in the prompt), and format the prompt as a conversation between those speakers.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -640,6 +709,11 @@ export const proFunctionDeclarations: FunctionDeclaration[] = [
           type: Type.STRING,
           description:
             'Single-speaker voice name (e.g. Kore, Puck, Aoede, Charon). Defaults to Kore when omitted.',
+        },
+        referenceAudioNumber: {
+          type: Type.NUMBER,
+          description:
+            '1-based manifest audio number (#N) whose delivery and speaking style should be analyzed and prepended to the TTS prompt. Does not change voiceName.',
         },
         multiSpeaker: {
           type: Type.BOOLEAN,
@@ -741,10 +815,10 @@ export const proFunctionDeclarations: FunctionDeclaration[] = [
 ]
 
 export const proSystemInstructionLines =
-  '- generate_image: when the user asks to create a new still image with no existing timeline target (Pro only). Attached image files are sent as references automatically.\n' +
+  '- generate_image: when the user asks to create a new still image with no existing timeline target (Pro only). Attached image files are sent as references automatically. When the user cites timeline images for guidance (e.g. "in the same room as image 1"), set referenceImageNumbers to those global #N values.\n' +
   '- edit_image: when the user asks to edit, change, or restyle an existing timeline image by #N or the selected image (Pro only). The edited result replaces that image\'s source in place. Attached images are extra references.\n' +
-  '- generate_video: when the user explicitly asks for a video clip, animation, or motion over time (Pro only). Attached image files are sent as references automatically (up to 3). Refine the prompt for Veo. Include negativePrompt only if the user specifies things to avoid. Never use for still images.\n' +
-  '- generate_speech: when the user asks to generate speech, voiceover, narration, or text-to-speech audio (Pro only). Put words and delivery/style in prompt; use voiceName for single speaker or multiSpeaker+speakers for dialogue.\n' +
+  '- generate_video: when the user explicitly asks for a video clip, animation, or motion over time (Pro only). Attached image files are sent as references automatically (up to 3). When the user cites timeline images for guidance, set referenceImageNumbers to those global #N values. Refine the prompt for Veo. Include negativePrompt only if the user specifies things to avoid. Never use for still images.\n' +
+  '- generate_speech: when the user asks to generate speech, voiceover, narration, or text-to-speech audio (Pro only). Put words and delivery/style in prompt; use voiceName for single speaker or multiSpeaker+speakers for dialogue. When the user wants new speech matching an existing clip\'s delivery (e.g. "with the voice of audio 2"), set referenceAudioNumber to that global audio #N — the app prepends analyzed delivery notes to the prompt; voiceName stays unchanged unless the user specifies one.\n' +
   '- transcribe_audio: when the user asks to transcribe, caption, or subtitle audio — use audioNumber as global #N by startTime (Pro only)\n' +
   '- animate_to_speech: when the user asks to animate an image or video so a character speaks provided audio with lip-sync (Pro only). Pair a visual with audioNumber or attached audio. For "from the end of video N" / continuation, use videoNumber=N, videoFramePosition="last", appendAfterVideo=true. For in-place talking on a clip, use videoNumber with appendAfterVideo=false. Audio must be 8 seconds or less.\n'
 
@@ -752,10 +826,11 @@ export const tools: Tool[] = [{ functionDeclarations }]
 export const proTools: Tool[] = [{ functionDeclarations: [...functionDeclarations, ...proFunctionDeclarations] }]
 
 export const systemInstruction =
-  'You are a timeline editing assistant for a media studio. Your only job is to call the correct function:\n' +
-    '- delete_timeline_items: when the user asks to delete, remove, or clear one or more timeline items (images, videos, texts, audios, or effects). Map phrases like "images 19–31" to the manifest #N order (sorted by start time for images, by timestamp for videos) and include one { type, id } per item in the items array in a SINGLE call.\n' +
+  'You are a timeline and media library assistant for a media studio. Your only job is to call the correct function:\n' +
+    '- delete_library_items: when the user asks to delete, remove, or clear items from the account media library (assets or folders). "Root" / "library root" means folder_id=null (assets) or parent_id=null (folders). "Non-folder items" means assets only (type=asset), not folders. Map names or per-location #N from the library context and include one { type, id } per item in a SINGLE call. Use delete_timeline_items for timeline items, not this function.\n' +
+    '- delete_timeline_items: when the user asks to delete, remove, or clear one or more timeline items (images, videos, texts, audios, or effects). Map phrases like "images 19–31" to the manifest #N order (sorted by start time for images, by timestamp for videos) and include one { type, id } per item in the items array in a SINGLE call. Do NOT use for account library assets.\n' +
     '- duplicate_timeline_range: when the user asks to duplicate, repeat, or copy a range of images or videos so the copy plays immediately after the original block ends. Use kind "image" or "video" and firstNumber/lastNumber inclusive (same #N as the manifest).\n' +
-  '- edit_manifest: when the user asks to change timing, duration, position, row/layer, opacity, playback speed, mute status, or text typography/style of existing items. You MUST include all affected items as separate entries in the mutations array in a SINGLE call — never call edit_manifest multiple times. For audio mutations (type=updateAudio): ALWAYS use trimStart and trimEnd fields (not endTime). To restore an audio to its full original length set trimStart=0 and trimEnd=0. The active playing duration of an audio is: originalDuration - trimStart - trimEnd. Use playbackSpeed for constant video and audio playback speed changes (e.g. 0.5 for half speed). For speed ramps (e.g. "0.5x start to 0.1x end"), use both speedStart and speedEnd (and optionally speedEasing: "linear" or "ease"). If speedStart/speedEnd are used, they will override any constant playbackSpeed. Use muted for video mute status (true to mute, false to unmute). Use row to move items between timeline rows (e.g. row 0 main visual row). Use opacity (0.0-1.0) for updateImage, updateVideo, and updateText. For text mutations (type=updateText), use fontFamily, fontWeight, animation ("none" or "keyboard"), and style ("normal", "negative", or "highlight") as needed. ALWAYS use the exact id strings from the manifest (e.g. "audio-1234-abc") — never make up or shorten ids.\n' +
+  '- edit_manifest: when the user asks to change timing, duration, position, row/layer, opacity, playback speed, mute status, or text typography/style of existing items. You MUST include all affected items as separate entries in the mutations array in a SINGLE call — never call edit_manifest multiple times. For audio mutations (type=updateAudio): ALWAYS use trimStart and trimEnd fields (not endTime). To restore an audio to its full original length set trimStart=0 and trimEnd=0. The active playing duration of an audio is: originalDuration - trimStart - trimEnd. Use playbackSpeed for constant video and audio playback speed changes (e.g. 0.5 for half speed). For speed ramps (e.g. "0.5x start to 0.1x end"), use both speedStart and speedEnd (and optionally speedEasing: "linear" or "ease"). If speedStart/speedEnd are used, they will override any constant playbackSpeed. Use muted for video mute status (true to mute, false to unmute). Use row to move items between timeline rows (e.g. row 0 main visual row). Use opacity (0.0-1.0) for updateImage, updateVideo, and updateText. For text mutations (type=updateText), use fontFamily, fontWeight, animation ("none", "keyboard", "speech", or "shake"), style ("normal", "negative", or "highlight"), textAlign ("left", "center", or "right"), and centerOnCanvas (true to center the overlay on the canvas) as needed. When centering one or more texts, include every affected text as a separate updateText mutation with centerOnCanvas=true in one edit_manifest call. ALWAYS use the exact id strings from the manifest (e.g. "audio-1234-abc") — never make up or shorten ids.\n' +
   '- split_at_marks: when the user asks to split, cut, or divide images, videos, text overlays, or audio clips at specific positions, or into equal parts (like halves or fourths). When multiple items are named (e.g. "split image 1 and audio 1"), include every item in the splits array in one call. Map "text 1", "image 2", "audio 3", etc. to manifest #N order (texts, images, and audios by startTime, videos by timestamp). Compute absolute timeline split times from the item\'s timing (halves = 1 split at midpoint, fourths = 3 splits at 25%/50%/75%). For videos, times are absolute seconds on the timeline (timestamp + offset within duration). For splitting at audio marks, use splitAtMarksTimelineSeconds from the marks source audio — do not use marksSourceFileSeconds (those are source-file seconds, not timeline positions). Apply those same timeline times to every item being split.\n' +
   '- add_text: when the user asks to add text overlays to the timeline at a computed time range\n' +
   '- add_effect: when the user asks to add visual effects (like "crt-dither", "flashing-black-vignette" / vignette, "black-and-white", "vivid-sharp", "pixel-glitch-scan", or "grainy") over a specific time range; include intensity (0.0–1.0) if specified; for vignette optionally flashSpeed (0.0 = solid edge, 1.0 = full pulse)\n' +

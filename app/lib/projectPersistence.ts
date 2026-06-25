@@ -9,6 +9,7 @@ import type { HistoryEntry } from '@/app/stores/manifest/types'
 import { isPersistedBlobTokenRef, PERSISTED_BLOB_TOKEN_PREFIX } from '@/app/lib/persistedMediaRefs'
 import { repairSnapshotMediaFromAccountLibrary } from '@/app/lib/repairSnapshotMediaFromLibrary'
 import { normalizeVideoAfterSnapshotRevive } from '@/app/lib/videoPlaybackSource'
+import { livePlaybackTimeRef } from '@/app/lib/playbackClock'
 
 const DB_VERSION = 1
 const STORE_META = 'meta'
@@ -651,6 +652,8 @@ async function hydrateSnapshotIntoStore(
     historyIndex = revivedHistory.length - 1
   }
 
+  const playbackTime = typeof snap.playbackTime === 'number' ? snap.playbackTime : 0
+  livePlaybackTimeRef.current = playbackTime
   useManifestStore.setState({
     videos: revivedVideos,
     images: revivedImages,
@@ -659,7 +662,7 @@ async function hydrateSnapshotIntoStore(
     effects: revivedEffects,
     history: revivedHistory,
     historyIndex,
-    playbackTime: typeof snap.playbackTime === 'number' ? snap.playbackTime : 0,
+    playbackTime,
     isPlaying: false,
     isLooping: snap.isLooping ?? false,
     playbackRate: typeof snap.playbackRate === 'number' ? snap.playbackRate : 1,

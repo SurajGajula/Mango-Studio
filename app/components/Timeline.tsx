@@ -4,6 +4,7 @@ import { useRef, useEffect, useState, useCallback, useMemo, useLayoutEffect } fr
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { TextClass } from '@/app/models/TextClass'
+import { buildCenteredTextLayout, getSharedTextMeasureCtx } from '@/app/lib/drawTextOverlay'
 import { formatTime } from '@/app/lib/timeUtils'
 import { findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
 import VideoReplaceModal from './modals/VideoReplaceModal'
@@ -521,34 +522,8 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
     const start = useManifestStore.getState().playbackTime
     const end = start + 5
     const row = findFreeVisualOverlayRow(start, end)
-    const logicalW = 1080
-    const logicalH = 1920
-    const baseFontSize = 96
-    const textWidth = Math.round(logicalW * 0.4)
-    const fontSize = baseFontSize
-    const textLogicalHeight = fontSize * 1.2
-    const defaultX = Math.round((logicalW - textWidth) / 2)
-    const defaultY = Math.round((logicalH - textLogicalHeight) / 2)
-    addText(new TextClass(
-      id,
-      'Text',
-      start,
-      end,
-      defaultX,
-      defaultY,
-      textWidth,
-      undefined,
-      undefined,
-      fontSize,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined, // style
-      undefined, // createdAt
-      row
-    ))
+    const placement = buildCenteredTextLayout({ content: 'Text' }, getSharedTextMeasureCtx())
+    addText(new TextClass(id, 'Text', start, end).copy({ row, ...placement }))
   }
 
   const applyZoom = useCallback((newVisible: number) => {

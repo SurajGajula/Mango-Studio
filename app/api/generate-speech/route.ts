@@ -3,10 +3,19 @@ import { getGenAIClient } from '@/app/lib/genaiClient'
 import { requireProUser } from '@/app/lib/requireProUser'
 import { GEMINI_TTS_MODEL } from '@/app/lib/geminiModels'
 import { normalizeGeminiTtsVoice, pcmToWav } from '@/app/lib/geminiTts'
+import {
+  analyzeSpeechReferenceDelivery,
+  mergeSpeechPromptWithReferenceDelivery,
+} from '@/app/lib/geminiTtsVoiceMatch'
 
 interface SpeechSpeakerInput {
   name: string
   voiceName: string
+}
+
+interface ReferenceAudioInput {
+  audioBase64: string
+  mimeType: string
 }
 
 interface GenerateSpeechRequest {
@@ -14,6 +23,7 @@ interface GenerateSpeechRequest {
   voiceName?: string
   multiSpeaker?: boolean
   speakers?: SpeechSpeakerInput[]
+  referenceAudio?: ReferenceAudioInput
 }
 
 function buildSpeechConfig(body: GenerateSpeechRequest) {
@@ -52,10 +62,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Prompt is required' }, { status: 400 })
     }
 
+    let prompt = body.prompt.trim()
+
+    const referenceAudio = body.referenceAudio
+    const canMatchReference =
+      referenceAudio?.audioBase64 &&
+      typeof referenceAudio.audioBase64 === 'string' &&
+      referenceAudio.mimeType &&
+      typeof referenceAudio.mimeType === 'string' &&
+      !body.multiSpeaker
+
+    if (canMatchReference) {
+      const deliveryNotes = await analyzeSpeechReferenceDelivery({
+        audioBase64: referenceAudio.audioBase64,
+        mimeType: referenceAudio.mimeType,
+      })
+      prompt = mergeSpeechPromptWithReferenceDelivery(prompt, deliveryNotes)
+    }
+
     const ai = getGenAIClient()
     const response = await ai.models.generateContent({
       model: GEMINI_TTS_MODEL,
-      contents: [{ role: 'user', parts: [{ text: body.prompt.trim() }] }],
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
       config: {
         responseModalities: ['AUDIO'],
         speechConfig: buildSpeechConfig(body),

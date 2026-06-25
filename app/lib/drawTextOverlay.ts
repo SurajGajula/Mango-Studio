@@ -1,9 +1,90 @@
 import { TextClass } from '@/app/models/TextClass'
+import { measurePreviewTextDomHeight } from '@/app/lib/measurePreviewTextDom'
 import { getVisibleWordCount, wrapTextToLines } from '@/app/lib/textUtils'
 
 export const TEXT_LINE_HEIGHT = 1.2
+export const DEFAULT_TEXT_FONT_SIZE = 96
+export const DEFAULT_TEXT_WIDTH_RATIO = 0.4
 const LOGICAL_W = 1080
 const LOGICAL_H = 1920
+
+let sharedMeasureCanvas: HTMLCanvasElement | null = null
+
+export function getSharedTextMeasureCtx(): CanvasRenderingContext2D {
+  if (typeof document === 'undefined') {
+    throw new Error('getSharedTextMeasureCtx requires a browser environment')
+  }
+  if (!sharedMeasureCanvas) {
+    sharedMeasureCanvas = document.createElement('canvas')
+  }
+  const ctx = sharedMeasureCanvas.getContext('2d')
+  if (!ctx) throw new Error('Failed to create 2d context for text measurement')
+  return ctx
+}
+
+export function getDefaultTextWidth(logicalW = LOGICAL_W): number {
+  return Math.round(logicalW * DEFAULT_TEXT_WIDTH_RATIO)
+}
+
+type TextLayoutInput = Partial<Pick<TextClass, 'fontSize' | 'fontWeight' | 'fontFamily' | 'width'>> & {
+  content: string
+}
+
+export function buildCenteredTextLayout(
+  input: TextLayoutInput,
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  logicalW = LOGICAL_W,
+  logicalH = LOGICAL_H
+): {
+  x: number
+  y: number
+  width: number
+  height: number
+  fontSize: number
+  textAlign: 'center'
+} {
+  const fontSize = input.fontSize || DEFAULT_TEXT_FONT_SIZE
+  const width = input.width || getDefaultTextWidth(logicalW)
+  const measureTarget = new TextClass(
+    'measure',
+    input.content || 'Text',
+    0,
+    1,
+    0,
+    0,
+    width,
+    undefined,
+    undefined,
+    fontSize,
+    input.fontFamily,
+    undefined,
+    input.fontWeight
+  )
+  const height = Math.round(measurePreviewTextDomHeight(input.content || 'Text', measureTarget, 1))
+  return {
+    x: Math.round((logicalW - width) / 2),
+    y: Math.round((logicalH - height) / 2),
+    width,
+    height,
+    fontSize,
+    textAlign: 'center',
+  }
+}
+
+export function centerExistingTextOnCanvas(
+  text: TextClass,
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  logicalW = LOGICAL_W,
+  logicalH = LOGICAL_H
+): Pick<TextClass, 'x' | 'y' | 'height' | 'textAlign'> {
+  const height = Math.round(measurePreviewTextDomHeight(text.content, text, 1))
+  return {
+    x: Math.round((logicalW - text.width) / 2),
+    y: Math.round((logicalH - height) / 2),
+    height,
+    textAlign: 'center',
+  }
+}
 
 export function resolveCanvasFont(fontFamily: string): string {
   return fontFamily.split(',').map((f) => f.trim()).filter((f) => !f.startsWith('var(')).join(', ')

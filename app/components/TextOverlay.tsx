@@ -1,14 +1,17 @@
 'use client'
 
-import { memo, useRef, useLayoutEffect, useEffect, useMemo } from 'react'
+import { memo, useRef, useLayoutEffect, useEffect, useMemo, useState } from 'react'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { TextClass } from '@/app/models/TextClass'
-import { measureTextOverlayLayout, resolveCanvasFont, TEXT_LINE_HEIGHT } from '@/app/lib/drawTextOverlay'
+import { resolveCanvasFont, TEXT_LINE_HEIGHT } from '@/app/lib/drawTextOverlay'
+import { measurePreviewTextDomHeight, measurePreviewTextLogicalHeight } from '@/app/lib/measurePreviewTextDom'
+import { getVisibleWordCount } from '@/app/lib/textUtils'
 import styles from './PreviewArea.module.css'
 
 interface TextOverlayProps {
   text: TextClass
+  isVisible: boolean
   xScale: number
   yScale: number
   offsetX: number
@@ -22,11 +25,11 @@ interface TextOverlayProps {
   handleTextResizeStart: (textId: string, side: 'left' | 'right', e: React.MouseEvent) => void
   playbackTime: number
   textRefs: React.MutableRefObject<Map<string, HTMLDivElement | null>>
-  getMeasureCtx: () => CanvasRenderingContext2D
 }
 
 function TextOverlayComponent({
   text,
+  isVisible,
   xScale,
   yScale,
   offsetX,
@@ -40,7 +43,6 @@ function TextOverlayComponent({
   handleTextResizeStart,
   playbackTime,
   textRefs,
-  getMeasureCtx,
 }: TextOverlayProps) {
   const updateText = useManifestStore((state) => state.updateText)
   const pushHistory = useManifestStore((state) => state.pushHistory)
@@ -50,15 +52,31 @@ function TextOverlayComponent({
 
   const isSelected = selectedTextId === text.id
   const isEditing = editingTextId === text.id
-  const layout = useMemo(() => {
-    if (xScale <= 0) return null
-    const content = isEditing ? editingContent : text.content
-    return measureTextOverlayLayout(getMeasureCtx(), text, xScale, content)
-  }, [text, isEditing, editingContent, xScale, getMeasureCtx])
-  const overlayHeightPx = layout?.totalHeightPx ?? text.height * yScale
-  const firstLineOffsetPx = layout?.firstLineOffsetPx ?? 0
+  const [measuredHeightPx, setMeasuredHeightPx] = useState<number | null>(null)
   const editTextColor =
     text.style === 'highlight' || text.style === 'negative' ? '#ffffff' : text.color
+  const visibleContent = useMemo(() => {
+    if (isEditing) return editingContent
+    if (text.animation !== 'keyboard' && text.animation !== 'speech') return text.content
+    const words = text.content.split(/\s+/).filter((w) => w.length > 0)
+    if (words.length === 0) return text.content
+    const visibleWordCount = getVisibleWordCount(
+      text.content,
+      text.startTime,
+      text.endTime,
+      playbackTime,
+      text.animation,
+      text.wordTimings
+    )
+    if (visibleWordCount === null || visibleWordCount <= 0) return ''
+    return words.slice(0, visibleWordCount).join(' ')
+  }, [isEditing, editingContent, text, playbackTime])
+  const displayContent = isEditing ? editingContent : visibleContent
+  const fallbackHeightPx = useMemo(() => {
+    if (xScale <= 0) return text.height * yScale
+    return measurePreviewTextDomHeight(displayContent, text, xScale)
+  }, [displayContent, text, xScale, text.height, yScale])
+  const resolvedOverlayHeightPx = measuredHeightPx ?? fallbackHeightPx
   const shakeTransform =
     text.animation === 'shake' && !isEditing
       ? (() => {
@@ -75,19 +93,60 @@ function TextOverlayComponent({
       : undefined
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const editFocusInitializedForId = useRef<string | null>(null)
+  const lastSyncedLogicalHeightRef = useRef(text.height)
 
   useLayoutEffect(() => {
-    if (!isEditing) {
-      editFocusInitializedForId.current = null
+    lastSyncedLogicalHeightRef.current = text.height
+  }, [text.height])
+
+  useLayoutEffect(() => {
+    if (isEditing) {
+      const el = textareaRef.current
+      if (!el) return
+      el.style.height = '0px'
+      const nextHeight = el.scrollHeight
+      el.style.height = `${nextHeight}px`
+      setMeasuredHeightPx(nextHeight)
+      if (editFocusInitializedForId.current === text.id) return
+      editFocusInitializedForId.current = text.id
+      el.focus()
+      const len = el.value.length
+      el.setSelectionRange(len, len)
       return
     }
-    const el = textareaRef.current
-    if (!el || editFocusInitializedForId.current === text.id) return
-    editFocusInitializedForId.current = text.id
-    el.focus()
-    const len = el.value.length
-    el.setSelectionRange(len, len)
-  }, [isEditing, text.id])
+
+    editFocusInitializedForId.current = null
+    const overlay = textRefs.current.get(text.id)
+    if (!overlay) return
+
+    const previousHeight = overlay.style.height
+    overlay.style.height = 'auto'
+    const nextHeight = overlay.scrollHeight
+    overlay.style.height = previousHeight
+    if (nextHeight <= 0) return
+
+    setMeasuredHeightPx(nextHeight)
+
+    if (yScale <= 0) return
+    const logicalHeight = nextHeight / yScale
+    if (Math.abs(logicalHeight - lastSyncedLogicalHeightRef.current) <= 0.5) return
+    lastSyncedLogicalHeightRef.current = logicalHeight
+    updateText(text.id, { height: logicalHeight })
+  }, [
+    isEditing,
+    text.id,
+    displayContent,
+    editingContent,
+    text.width,
+    text.fontSize,
+    text.fontWeight,
+    text.fontFamily,
+    text.textAlign,
+    xScale,
+    yScale,
+    textRefs,
+    updateText,
+  ])
 
   useEffect(() => {
     if (!isEditing) return
@@ -103,20 +162,22 @@ function TextOverlayComponent({
         left: offsetX + text.x * xScale,
         top: offsetY + text.y * yScale,
         width: text.width * xScale,
-        height: overlayHeightPx,
+        height: resolvedOverlayHeightPx,
+        visibility: isVisible ? 'visible' : 'hidden',
+        pointerEvents: isVisible ? 'auto' : 'none',
         fontSize: text.fontSize * xScale,
         lineHeight: TEXT_LINE_HEIGHT,
-        color: isEditing ? editTextColor : 'transparent',
+        color: editTextColor,
         fontWeight: text.fontWeight,
         textAlign: text.textAlign as React.CSSProperties['textAlign'],
         fontFamily: resolveCanvasFont(text.fontFamily),
-        opacity: isEditing ? text.opacity : 1,
+        opacity: text.opacity,
         transform: shakeTransform,
         transformOrigin: 'center',
-        mixBlendMode: isEditing && text.style === 'negative' ? 'difference' : 'normal',
+        mixBlendMode: text.style === 'negative' ? 'difference' : 'normal',
         backgroundColor:
-          isEditing && (text.style === 'negative' || text.style === 'highlight') ? '#000000' : 'transparent',
-        textShadow: isEditing ? undefined : 'none',
+          text.style === 'highlight' ? '#000000' : 'transparent',
+        textShadow: text.style === 'normal' ? undefined : 'none',
         boxSizing: 'border-box',
         overflow: 'visible',
       }}
@@ -164,18 +225,20 @@ function TextOverlayComponent({
             fontWeight: text.fontWeight,
             fontSize: 'inherit',
             lineHeight: TEXT_LINE_HEIGHT,
-            marginTop: -firstLineOffsetPx,
-            height: overlayHeightPx + firstLineOffsetPx,
+            height: resolvedOverlayHeightPx,
             caretColor: editTextColor,
             textShadow: text.style === 'negative' || text.style === 'highlight' ? 'none' : undefined,
           }}
           onChange={(e) => { editingContentRef.current = e.target.value; setEditingContent(e.target.value) }}
           ref={textareaRef}
           onBlur={() => {
-            const nextLayout = measureTextOverlayLayout(getMeasureCtx(), text, xScale, editingContentRef.current)
+            const textarea = textareaRef.current
+            const logicalHeight = textarea && yScale > 0
+              ? textarea.scrollHeight / yScale
+              : measurePreviewTextLogicalHeight(editingContentRef.current, text, yScale)
             updateText(text.id, {
               content: editingContentRef.current,
-              height: nextLayout.totalHeightPx / xScale,
+              height: logicalHeight,
             })
             pushHistory()
             setEditingTextId(null)
@@ -186,7 +249,9 @@ function TextOverlayComponent({
           }}
           onClick={(e) => e.stopPropagation()}
         />
-      ) : null}
+      ) : (
+        displayContent
+      )}
     </div>
   )
 }
@@ -194,6 +259,7 @@ function TextOverlayComponent({
 export default memo(TextOverlayComponent, (prev, next) => {
   return (
     prev.text === next.text &&
+    prev.isVisible === next.isVisible &&
     prev.xScale === next.xScale &&
     prev.yScale === next.yScale &&
     prev.offsetX === next.offsetX &&

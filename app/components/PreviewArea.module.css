@@ -24,6 +24,50 @@
   justify-content: center;
 }
 
+.videoContainer:fullscreen,
+.videoContainer:-webkit-full-screen {
+  background-color: #000000;
+}
+
+.videoContainer:focus {
+  outline: none;
+}
+
+.videoWatchMode .video {
+  cursor: pointer;
+}
+
+.playbackButton,
+.fullscreenButton {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background-color: rgba(0, 0, 0, 0.55);
+  color: #ffffff;
+  cursor: pointer;
+  opacity: 0.75;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.playbackButton:hover,
+.fullscreenButton:hover {
+  opacity: 1;
+  background-color: rgba(0, 0, 0, 0.75);
+}
+
+.playbackButton {
+  right: 52px;
+}
+
 .previewLcpShell {
   position: absolute;
   height: 100%;
@@ -169,7 +213,7 @@
   display: block;
   width: 100%;
   min-height: 0;
-  field-sizing: content;
+  field-sizing: fixed;
   background: transparent;
   border: none;
   outline: none;

@@ -1,6 +1,6 @@
 'use client'
 
-import { Antonio, Playfair_Display } from 'next/font/google'
+import { antonio, playfair } from '@/app/lib/previewFonts'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { TextAnimation, TextStyle } from '@/app/models/TextClass'
@@ -8,8 +8,6 @@ import { SidePanelLayout } from '@/app/components/ui/SidePanelLayout'
 import layout from '@/app/components/ui/SidePanelLayout.module.css'
 import styles from './TransitionsPanel.module.css'
 
-const playfair = Playfair_Display({ subsets: ['latin'], display: 'swap' })
-const antonio = Antonio({ subsets: ['latin'], weight: '300', display: 'swap' })
 const panelFontClass = [playfair.className, antonio.className].join(' ')
 
 interface Props {

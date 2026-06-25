@@ -118,6 +118,39 @@
   color: #0f0f0f;
 }
 
+.messageActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.35rem;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.userMessage:hover .messageActions,
+.userMessage:focus-within .messageActions {
+  opacity: 1;
+}
+
+.copyMessageBtn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #666666;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.copyMessageBtn:hover {
+  background-color: rgba(0, 0, 0, 0.08);
+  color: #0f0f0f;
+}
+
 .botMessage {
   align-self: flex-start;
   color: #ffffff;

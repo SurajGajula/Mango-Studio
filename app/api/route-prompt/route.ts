@@ -12,6 +12,7 @@ import {
   proSystemInstructionLines,
   FunctionCallingConfigMode,
 } from '@/app/lib/routePromptConfig'
+import { buildLibraryContext, SerializedLibrary } from '@/app/lib/buildLibraryContext'
 
 interface ManifestItem {
   id: string
@@ -42,6 +43,7 @@ interface ManifestItem {
   speedEasing?: 'linear' | 'ease'
   muted?: boolean
   volume?: number
+  pitch?: number
   opacity?: number
   row?: number
   fontFamily?: string
@@ -66,6 +68,7 @@ interface UploadedFileMeta {
 interface RoutePromptRequest {
   prompt: string
   manifest?: SerializedManifest
+  library?: SerializedLibrary
   uploadedFiles?: UploadedFileMeta[]
 }
 
@@ -95,6 +98,12 @@ export interface ManifestMutation {
   fontWeight?: string
   animation?: 'none' | 'keyboard' | 'speech' | 'shake'
   style?: 'normal' | 'negative' | 'highlight'
+  textAlign?: 'left' | 'center' | 'right'
+  centerOnCanvas?: boolean
+  x?: number
+  y?: number
+  width?: number
+  height?: number
 }
 
 export interface SplitInstruction {
@@ -170,8 +179,14 @@ export interface DeleteTimelineItemInstruction {
   id: string
 }
 
+export interface DeleteLibraryItemInstruction {
+  type: 'asset' | 'folder'
+  id: string
+}
+
 export interface GenerateImageInstruction {
   prompt: string
+  referenceImageNumbers?: number[]
 }
 
 export interface EditImageInstruction {
@@ -183,6 +198,7 @@ export interface EditImageInstruction {
 export interface GenerateVideoInstruction {
   prompt: string
   negativePrompt?: string
+  referenceImageNumbers?: number[]
 }
 
 export interface TranscribeAudioInstruction {
@@ -194,6 +210,7 @@ export interface GenerateSpeechInstruction {
   voiceName?: string
   multiSpeaker?: boolean
   speakers?: { name: string; voiceName: string }[]
+  referenceAudioNumber?: number
 }
 
 export interface AnimateToSpeechInstruction {
@@ -218,6 +235,7 @@ type RoutedAction =
   | 'set_crop'
   | 'add_effect'
   | 'delete_timeline_items'
+  | 'delete_library_items'
   | 'duplicate_timeline_range'
   | 'normalize_audio_volumes'
   | 'generate_image'
@@ -239,6 +257,7 @@ interface RoutePromptResponse {
   stepGrowth?: StepGrowthInstruction[]
   crops?: CropInstruction[]
   deleteItems?: DeleteTimelineItemInstruction[]
+  deleteLibraryItems?: DeleteLibraryItemInstruction[]
   duplicateRange?: { kind: 'image' | 'video'; firstNumber: number; lastNumber: number }
   normalizeAudioVolumes?: NormalizeAudioVolumesInstruction
   imageGeneration?: GenerateImageInstruction
@@ -254,6 +273,7 @@ const editingFunctionNames = [
   'no_op',
   'edit_manifest',
   'delete_timeline_items',
+  'delete_library_items',
   'duplicate_timeline_range',
   'split_at_marks',
   'replace_images',
@@ -275,6 +295,12 @@ const proFunctionNames = [
   'animate_to_speech',
 ] as const
 
+
+function parseReferenceImageNumbers(args: Record<string, unknown> | undefined): number[] | undefined {
+  const raw = Array.isArray(args?.referenceImageNumbers) ? args.referenceImageNumbers : []
+  const numbers = raw.filter((n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 1)
+  return numbers.length > 0 ? numbers : undefined
+}
 
 function buildUploadedFilesContext(files: UploadedFileMeta[]): string {
   const lines = [`Attached files (${files.length}):`]
@@ -334,8 +360,9 @@ function buildManifestContext(manifest: SerializedManifest): string {
       const timelineSplitStr = timelineSplits.length ? timelineSplits.map((t) => `${t.toFixed(3)}s`).join(', ') : 'none'
       const activeDur = Math.max(0, origDur - ts - te)
       const vol = aud.volume ?? 1
+      const pitch = aud.pitch ?? 1
       lines.push(
-        `  - #${i + 1} id="${aud.id}" name="${aud.name}" activeStartTime=${aud.startTime}s originalDuration=${origDur}s trimStart=${ts}s trimEnd=${te}s volume=${vol} (timeline gain 0–4; perceived loudness also depends on the file) playbackSpeed=${aud.playbackSpeed ?? 1}x activeDuration=${activeDur.toFixed(3)}s (to restore to originalDuration set trimStart=0 trimEnd=0) marksSourceFileSeconds=[${markStr}] splitAtMarksTimelineSeconds=[${timelineSplitStr}] (marksSourceFileSeconds are positions in the original audio file; splitAtMarksTimelineSeconds are the absolute timeline times to use in split_at_marks)`
+        `  - #${i + 1} id="${aud.id}" name="${aud.name}" activeStartTime=${aud.startTime}s originalDuration=${origDur}s trimStart=${ts}s trimEnd=${te}s volume=${vol} pitch=${pitch}x (timeline gain 0–4; pitch 0.5–1.5 playback-rate shift) playbackSpeed=${aud.playbackSpeed ?? 1}x activeDuration=${activeDur.toFixed(3)}s (to restore to originalDuration set trimStart=0 trimEnd=0) marksSourceFileSeconds=[${markStr}] splitAtMarksTimelineSeconds=[${timelineSplitStr}] (marksSourceFileSeconds are positions in the original audio file; splitAtMarksTimelineSeconds are the absolute timeline times to use in split_at_marks)`
       )
     })
   }
@@ -497,6 +524,7 @@ export async function POST(request: NextRequest) {
 
     const ai = getGenAIClient()
     const manifestContext = body.manifest ? '\n\n' + buildManifestContext(body.manifest) : ''
+    const libraryContext = body.library ? '\n\n' + buildLibraryContext(body.library) : ''
     const filesContext = body.uploadedFiles?.length ? '\n\n' + buildUploadedFilesContext(body.uploadedFiles) : ''
     const isPro = profile.is_pro
     const allowedFunctionNames = isPro
@@ -514,7 +542,7 @@ export async function POST(request: NextRequest) {
       contents: [
         {
           role: 'user',
-          parts: [{ text: body.prompt.trim() + manifestContext + filesContext }],
+          parts: [{ text: body.prompt.trim() + manifestContext + libraryContext + filesContext }],
         },
       ],
       config: {
@@ -573,6 +601,12 @@ export async function POST(request: NextRequest) {
         action: 'delete_timeline_items',
         deleteItems: (args?.items as DeleteTimelineItemInstruction[]) || [],
         message: (args?.message as string) || 'Items removed.',
+      }
+    } else if (action === 'delete_library_items') {
+      result = {
+        action: 'delete_library_items',
+        deleteLibraryItems: (args?.items as DeleteLibraryItemInstruction[]) || [],
+        message: (args?.message as string) || 'Library items removed.',
       }
     } else if (action === 'duplicate_timeline_range') {
       const kind = args?.kind === 'video' ? 'video' : 'image'
@@ -653,6 +687,7 @@ export async function POST(request: NextRequest) {
           action: 'generate_image',
           imageGeneration: {
             prompt: (args?.prompt as string) || body.prompt.trim(),
+            referenceImageNumbers: parseReferenceImageNumbers(args),
           },
           message: (args?.message as string) || 'Generating image...',
         }
@@ -688,6 +723,7 @@ export async function POST(request: NextRequest) {
           videoGeneration: {
             prompt: (args?.prompt as string) || body.prompt.trim(),
             negativePrompt: (args?.negativePrompt as string) || undefined,
+            referenceImageNumbers: parseReferenceImageNumbers(args),
           },
           message: (args?.message as string) || 'Generating video...',
         }
@@ -716,6 +752,8 @@ export async function POST(request: NextRequest) {
             voiceName: typeof args?.voiceName === 'string' ? args.voiceName : undefined,
             multiSpeaker: args?.multiSpeaker === true,
             speakers: speakers.length > 0 ? speakers : undefined,
+            referenceAudioNumber:
+              typeof args?.referenceAudioNumber === 'number' ? args.referenceAudioNumber : undefined,
           },
           message: (args?.message as string) || 'Generating speech...',
         }
