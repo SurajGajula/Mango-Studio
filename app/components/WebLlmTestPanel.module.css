@@ -1,0 +1,298 @@
+.page {
+  min-height: 100vh;
+  background: #0a0a0a;
+  color: #f2f2f2;
+  padding: 1.5rem;
+  box-sizing: border-box;
+}
+
+.header {
+  max-width: 960px;
+  margin: 0 auto 1.25rem;
+}
+
+.title {
+  margin: 0 0 0.35rem;
+  font-size: 1.35rem;
+  font-weight: 600;
+}
+
+.subtitle {
+  margin: 0;
+  color: #9a9a9a;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.panel {
+  max-width: 960px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.statusCard,
+.section {
+  background: #121212;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.statusRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  font-size: 0.85rem;
+}
+
+.statusLabel {
+  color: #888;
+}
+
+.statusValue {
+  color: #f5f5f5;
+}
+
+.statusValueOk {
+  color: #7dcea0;
+}
+
+.statusValueBad {
+  color: #f1948a;
+}
+
+.sectionTitle {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.fieldGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.field input {
+  width: 100%;
+  box-sizing: border-box;
+  background: #0d0d0d;
+  color: #f2f2f2;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 0.65rem 0.75rem;
+  font: inherit;
+}
+
+.checkboxRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+  color: #ccc;
+}
+
+.primaryButton {
+  background: #fff;
+  color: #000;
+  border: none;
+  border-radius: 6px;
+  padding: 0.55rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.secondaryButton {
+  background: #1a1a1a;
+  color: #f2f2f2;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 0.55rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.helpText,
+.errorText {
+  margin: 0 0 0.75rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.helpText {
+  color: #9a9a9a;
+}
+
+.errorText {
+  color: #f1948a;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.label {
+  font-size: 0.8rem;
+  color: #aaa;
+}
+
+.select,
+.textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: #0d0d0d;
+  color: #f2f2f2;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 0.65rem 0.75rem;
+  font: inherit;
+}
+
+.textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.buttonRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.button {
+  background: #fff;
+  color: #000;
+  border: none;
+  border-radius: 6px;
+  padding: 0.55rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.buttonSecondary {
+  background: #1a1a1a;
+  color: #f2f2f2;
+  border: 1px solid #333;
+}
+
+.progressBar {
+  width: 100%;
+  height: 8px;
+  background: #222;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: linear-gradient(90deg, #d4a574, #f0d7b5);
+  transition: width 0.2s ease;
+}
+
+.progressText {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  color: #9a9a9a;
+}
+
+.output {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: #ddd;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #777;
+  line-height: 1.45;
+}
+
+.policyGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.policyCard {
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  padding: 0.75rem;
+  background: #0d0d0d;
+}
+
+.tierSafe,
+.tierTry,
+.tierCloud {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+.tierSafe {
+  color: #7dcea0;
+}
+
+.tierTry {
+  color: #d4a574;
+}
+
+.tierCloud {
+  color: #f1948a;
+}
+
+.resultsTableWrap {
+  overflow: auto;
+  margin-bottom: 0.75rem;
+}
+
+.resultsTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.resultsTable th,
+.resultsTable td {
+  border-bottom: 1px solid #2a2a2a;
+  padding: 0.45rem 0.5rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.resultsTable th {
+  color: #aaa;
+  font-weight: 600;
+}
+
+.link {
+  color: #d4a574;
+}

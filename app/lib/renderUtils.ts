@@ -7,7 +7,6 @@ import {
   videoHasDecodedPreviewFrame,
 } from '@/app/lib/previewVideoFrameCache'
 import { manifestVideoTimelineSpanSeconds } from '@/app/lib/timeUtils'
-import { isSameSourceSplitPair } from '@/app/lib/adjacentSplitVideo'
 import {
   clipsAreEffectivelyAdjacent,
   getSortedRowClips,
@@ -657,15 +656,6 @@ export function findActiveAndNextItems(items: MainItem[], time: number, videos?:
 
 export function checkTransition(activeItem: MainItem | null, nextItem: MainItem | null, time: number) {
   if (!activeItem || !nextItem) return { transitionActive: false, progress: 0 }
-
-  if (
-    activeItem.type === 'video' &&
-    nextItem.type === 'video' &&
-    isSameSourceSplitPair(activeItem.item as VideoClass, nextItem.item as VideoClass) &&
-    nextItem.item.transition !== 'flash'
-  ) {
-    return { transitionActive: false, progress: 0 }
-  }
 
   const isTransitionType = nextItem.item.transition !== 'none'
   if (!isTransitionType) return { transitionActive: false, progress: 0 }

@@ -48,7 +48,7 @@ export async function DELETE(req: NextRequest) {
 
     try {
       const deletedAssetCount = await batchDeleteMediaAssets(supabase, r2, user.id, assetIds, hiddenFolderIds)
-      const deletedFolderCount = await batchDeleteMediaFolders(supabase, user.id, folderIds, hiddenFolderIds)
+      const deletedFolderCount = await batchDeleteMediaFolders(supabase, r2, user.id, folderIds, hiddenFolderIds)
       return NextResponse.json({
         ok: true,
         deletedAssetCount,
@@ -73,7 +73,7 @@ export async function DELETE(req: NextRequest) {
 
   if (folderId) {
     try {
-      await deleteMediaFolder(supabase, user.id, folderId, hiddenFolderIds)
+      await deleteMediaFolder(supabase, r2, user.id, folderId, hiddenFolderIds)
       return NextResponse.json({ ok: true })
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Failed to delete folder'

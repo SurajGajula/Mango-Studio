@@ -45,15 +45,17 @@ describe('adjacentSplitVideo', () => {
     expect(videoTimelineActiveEnd(first, videos)).toBeGreaterThan(first.timestamp + manifestVideoTimelineSpanSeconds(first))
   })
 
-  it('skips non-flash transitions between same-source split segments', () => {
+  it('allows non-flash transitions between same-source split segments', () => {
     const a = new VideoClass('v1', 'clip', '/x.mp4', 3, 0, undefined, undefined, 6, 0, 3)
     const b = new VideoClass('v2', 'clip', '/x.mp4', 3, 3, undefined, undefined, 6, 3, 0).copy({
       transition: 'fade',
       transitionDuration: 1,
     })
     const items = getSortedRowItems(0, [a, b], [])
-    const tr = checkTransition(items[0], items[1], 3.1)
-    expect(tr.transitionActive).toBe(false)
+    const tr = checkTransition(items[0], items[1], 2.5)
+    expect(tr.transitionActive).toBe(true)
+    expect(tr.progress).toBeGreaterThan(0)
+    expect(tr.progress).toBeLessThan(1)
   })
 
   it('allows flash transitions between same-source split segments', () => {

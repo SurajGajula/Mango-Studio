@@ -6,92 +6,33 @@
   border-left: 1px solid #333333;
 }
 
-.header {
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid #222;
+.localModeBar {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.6rem 0.85rem;
+  border-bottom: 1px solid #222;
   background-color: #0d0d0d;
 }
 
-.userInfo {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-}
-
-.userEmail {
-  font-size: 0.75rem;
-  color: #888;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 150px;
-}
-
-.requestCount {
-  font-size: 0.65rem;
-  color: #555;
-}
-
-.headerButtons {
+.localModeToggle {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-}
-
-.proButton {
-  background: white;
-  color: black;
-  border: none;
-  font-size: 0.75rem;
-  font-weight: 600;
-  padding: 0.4rem 0.8rem;
-  border-radius: 4px;
+  gap: 0.45rem;
+  font-size: 0.78rem;
+  color: #ddd;
   cursor: pointer;
-  transition: opacity 0.2s;
+  user-select: none;
 }
 
-.proButton:hover {
-  opacity: 0.9;
+.localModeToggle input {
+  accent-color: #d4a574;
 }
 
-.manageButton {
-  background: #000;
-  color: #fff;
-  border: 1px solid #333;
-  font-size: 0.75rem;
-  font-weight: 600;
-  padding: 0.4rem 0.8rem;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.manageButton:hover {
-  background-color: #111;
-  border-color: #555;
-}
-
-.signOutButton {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  background: none;
-  border: 1px solid #333;
-  color: #aaa;
-  font-size: 0.75rem;
-  padding: 0.4rem 0.6rem;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.signOutButton:hover {
-  background-color: #222;
-  border-color: #444;
-  color: #fff;
+.localModeHint {
+  font-size: 0.68rem;
+  color: #666;
+  line-height: 1.35;
 }
 
 .messages {

@@ -45,8 +45,43 @@ export async function deleteMediaAsset(
   }
 }
 
+async function collectDescendantFolderIds(
+  supabase: SupabaseClient,
+  userId: string,
+  rootFolderId: string,
+  hiddenFolderIds: string[]
+): Promise<string[]> {
+  const descendantIds: string[] = []
+  const queue = [rootFolderId]
+
+  while (queue.length > 0) {
+    const parentId = queue.shift()!
+    const { data: children, error } = await supabase
+      .from('media_folders')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('parent_id', parentId)
+
+    if (error) {
+      throw new Error(error.message)
+    }
+
+    for (const child of children ?? []) {
+      const childId = child.id as string
+      if (hiddenFolderIds.includes(childId)) {
+        throw new Error('System folders cannot be deleted')
+      }
+      descendantIds.push(childId)
+      queue.push(childId)
+    }
+  }
+
+  return descendantIds
+}
+
 export async function deleteMediaFolder(
   supabase: SupabaseClient,
+  r2: R2Client,
   userId: string,
   folderId: string,
   hiddenFolderIds: string[]
@@ -55,31 +90,39 @@ export async function deleteMediaFolder(
     throw new Error('System folders cannot be deleted')
   }
 
-  const [{ count: childFolderCount }, { count: childAssetCount }] = await Promise.all([
-    supabase
-      .from('media_folders')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .eq('parent_id', folderId),
-    supabase
-      .from('media_assets')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .eq('folder_id', folderId),
-  ])
+  const descendantIds = await collectDescendantFolderIds(supabase, userId, folderId, hiddenFolderIds)
+  const folderIds = [folderId, ...descendantIds]
 
-  if ((childFolderCount ?? 0) > 0 || (childAssetCount ?? 0) > 0) {
-    throw new Error('Folder must be empty before deleting')
+  const { data: assets, error: assetsError } = await supabase
+    .from('media_assets')
+    .select('id')
+    .eq('user_id', userId)
+    .in('folder_id', folderIds)
+
+  if (assetsError) {
+    throw new Error(assetsError.message)
   }
 
-  const { error: deleteError } = await supabase
-    .from('media_folders')
-    .delete()
-    .eq('id', folderId)
-    .eq('user_id', userId)
+  if (assets && assets.length > 0) {
+    await batchDeleteMediaAssets(
+      supabase,
+      r2,
+      userId,
+      assets.map((asset) => asset.id as string),
+      hiddenFolderIds
+    )
+  }
 
-  if (deleteError) {
-    throw new Error(deleteError.message)
+  for (const id of [...folderIds].reverse()) {
+    const { error: deleteError } = await supabase
+      .from('media_folders')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', userId)
+
+    if (deleteError) {
+      throw new Error(deleteError.message)
+    }
   }
 }
 
@@ -142,6 +185,7 @@ export async function batchDeleteMediaAssets(
 
 export async function batchDeleteMediaFolders(
   supabase: SupabaseClient,
+  r2: R2Client,
   userId: string,
   folderIds: string[],
   hiddenFolderIds: string[]
@@ -150,7 +194,7 @@ export async function batchDeleteMediaFolders(
 
   const uniqueFolderIds = [...new Set(folderIds)]
   for (const folderId of uniqueFolderIds) {
-    await deleteMediaFolder(supabase, userId, folderId, hiddenFolderIds)
+    await deleteMediaFolder(supabase, r2, userId, folderId, hiddenFolderIds)
   }
 
   return uniqueFolderIds.length

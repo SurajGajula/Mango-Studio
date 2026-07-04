@@ -1,5 +1,0 @@
-export const GEMINI_ROUTE_MODEL = 'gemini-3.1-flash-lite'
-export const GEMINI_TRANSCRIBE_MODEL = 'gemini-3.1-flash-lite'
-export const GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image'
-export const GEMINI_TTS_MODEL = 'gemini-3.1-flash-tts-preview'
-export const VEO_VIDEO_MODEL = 'veo-3.1-fast-generate-preview'

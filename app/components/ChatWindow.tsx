@@ -7,6 +7,7 @@ import type {
   SplitInstruction,
   ReplaceInstruction,
   SolidColorReplaceInstruction,
+  AddSolidImageInstruction,
   AddTextInstruction,
   AddEffectInstruction,
   TransitionInstruction,
@@ -15,16 +16,9 @@ import type {
   DeleteTimelineItemInstruction,
   DeleteLibraryItemInstruction,
   NormalizeAudioVolumesInstruction,
-  GenerateImageInstruction,
-  EditImageInstruction,
-  GenerateVideoInstruction,
-  GenerateSpeechInstruction,
-  TranscribeAudioInstruction,
-  AnimateToSpeechInstruction,
-} from '@/app/api/route-prompt/route'
-import type { TranscribeSegment } from '@/app/api/transcribe-audio/route'
+  ChatRoutePromptResponse,
+} from '@/app/lib/chatRouteTypes'
 import { TextClass } from '@/app/models/TextClass'
-import { captionClipEndTime } from '@/app/lib/textUtils'
 import { buildCenteredTextLayout, centerExistingTextOnCanvas, getSharedTextMeasureCtx } from '@/app/lib/drawTextOverlay'
 import { EffectClass } from '@/app/models/EffectClass'
 import {
@@ -46,45 +40,24 @@ import {
 } from '@/app/lib/timeline'
 import { findFreeVisualOverlayRow } from '@/app/lib/overlayRowUtils'
 import { createSolidColorDataUrl } from '@/app/lib/solidColorImage'
+import { addSolidColorImageAtRange } from '@/app/lib/addSolidImageAtRange'
 import { FIXED_ASPECT_RATIO } from '@/app/lib/aspectRatio'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { AudioClass } from '@/app/models/AudioClass'
 import { VideoClass as VideoModel } from '@/app/models/VideoClass'
-import {
-  resolveAudioDurationFromUrl,
-  addVideoToTimelineAtPlayhead,
-  addVideoToTimelineAtTime,
-  addAudioToTimelineAtPlayhead,
-} from '@/app/lib/timelineMediaInsert'
-import { addImageAtCurrentPlayhead } from '@/app/lib/addImageAtPlayhead'
-import {
-  imageEditPrompt,
-  imagePromptWithReferences,
-  resolveAttachedImageReferences,
-  resolveAttachedAudioReference,
-  resolveImageUrlReference,
-  resolveManifestImageReferences,
-  dataUrlToReferenceImage,
-  videoPromptWithReferences,
-} from '@/app/lib/chatGenerationReferences'
-import {
-  captureVideoFrameDataUrl,
-  captureTimeForVideoFramePosition,
-  type VideoFramePosition,
-  videoTimelineEndSeconds,
-} from '@/app/lib/captureVideoFrame'
-import { replaceVideoAudioTrack } from '@/app/lib/videoExporter'
-import { VEO_MAX_SPEECH_SECONDS } from '@/app/lib/veoDurationSeconds'
+import { resolveAudioDurationFromUrl } from '@/app/lib/timelineMediaInsert'
 import {
   AUDIO_VOLUME_SLIDER_MAX,
   decodeAudioFromUrl,
   rmsFromAudioBufferTrimmed,
 } from '@/app/lib/audioLoudnessNormalize'
-import {
-  medianPitchHzFromBuffer,
-  pitchShiftToMatchReference,
-} from '@/app/lib/speechPitchMatch'
 import styles from './ChatWindow.module.css'
+import {
+  isLocalChatModelReady,
+  routeLocalChatPrompt,
+  warmLocalChatEngine,
+} from '@/app/lib/webLlm/localChatRouter'
+import { getLoadedWebLlmModelId } from '@/app/lib/webLlm/webLlmTestEngine'
 
 interface Message {
   id: string
@@ -103,34 +76,7 @@ interface UploadedFile {
   mediaType: 'image' | 'audio' | 'video'
 }
 
-interface EqualSplitRequest {
-  kind: 'image' | 'text' | 'video'
-  itemNumber: number
-  parts: number
-}
-
 const AUDIO_RMS_FLOOR = 1e-7
-
-function base64ToBlob(base64: string, mimeType: string): Blob {
-  const byteCharacters = atob(base64)
-  const byteNumbers = new Array(byteCharacters.length)
-  for (let i = 0; i < byteCharacters.length; i++) {
-    byteNumbers[i] = byteCharacters.charCodeAt(i)
-  }
-  return new Blob([new Uint8Array(byteNumbers)], { type: mimeType })
-}
-
-async function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const result = reader.result as string
-      resolve(result.split(',')[1] ?? '')
-    }
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(blob)
-  })
-}
 
 async function runNormalizeAudioVolumes(
   instruction: NormalizeAudioVolumesInstruction,
@@ -194,6 +140,7 @@ async function runNormalizeAudioVolumes(
 export default function ChatWindow() {
   const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState('')
+  const [localModelWarming, setLocalModelWarming] = useState(false)
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -227,6 +174,25 @@ export default function ChatWindow() {
   const addVideo = useManifestStore((state) => state.addVideo)
   const addAudio = useManifestStore((state) => state.addAudio)
   const duplicateTimelineRange = useManifestStore((state) => state.duplicateTimelineRange)
+  useEffect(() => {
+    if (isLocalChatModelReady()) {
+      setLocalModelWarming(false)
+      return
+    }
+
+    let cancelled = false
+    setLocalModelWarming(true)
+    void warmLocalChatEngine().finally(() => {
+      if (!cancelled) {
+        setLocalModelWarming(false)
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   useEffect(() => {
     if (pendingPrompt) {
       setInputValue(pendingPrompt)
@@ -352,625 +318,12 @@ export default function ChatWindow() {
     }
   }
 
-  const applyTranscriptionSegments = (
-    segments: TranscribeSegment[],
-    audioTimelineStart: number,
-    playbackSpeed: number
-  ) => {
-    const { logicalW, logicalH } = getLogicalCanvasDimensions(FIXED_ASPECT_RATIO)
-    const measureCtx = getSharedTextMeasureCtx()
-    for (const segment of segments) {
-      const startTime = audioTimelineStart + segment.startTime / playbackSpeed
-      const segmentEndTime = audioTimelineStart + segment.endTime / playbackSpeed
-      const wordTimings =
-        segment.words.length > 0
-          ? segment.words.map((word) => ({
-              text: word.text,
-              startTime: (word.startTime - segment.startTime) / playbackSpeed,
-              endTime: (word.endTime - segment.startTime) / playbackSpeed,
-            }))
-          : undefined
-      const endTime = captionClipEndTime(startTime, segmentEndTime, wordTimings)
-      const id = `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-      const row = findFreeVisualOverlayRow(startTime, endTime)
-      const animation = wordTimings ? 'speech' : 'keyboard'
-      const content = segment.text.trim()
-      const placement = buildCenteredTextLayout({ content }, measureCtx, logicalW, logicalH)
-      addText(
-        new TextClass(id, content, startTime, endTime).copy({
-          row,
-          animation,
-          wordTimings,
-          ...placement,
-        })
-      )
+  const applyNewSolidImages = async (newSolidImages: AddSolidImageInstruction[]) => {
+    for (const image of newSolidImages) {
+      await addSolidColorImageAtRange(image.color, image.startTime, image.endTime)
     }
   }
 
-  const runGenerateImage = async (
-    spec: GenerateImageInstruction,
-    files: UploadedFile[],
-    updateStatus: (text: string, loading: boolean) => void
-  ) => {
-    updateStatus('Generating image...', true)
-    const { images } = useManifestStore.getState()
-    const timelineRefs = spec.referenceImageNumbers?.length
-      ? await resolveManifestImageReferences(spec.referenceImageNumbers, images)
-      : []
-    const attachedRefs = await resolveAttachedImageReferences(files)
-    const refImages = [...timelineRefs, ...attachedRefs]
-    const response = await fetch('/api/generate-image', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prompt: imagePromptWithReferences(spec.prompt, refImages.length),
-        referenceImages: refImages.length > 0 ? refImages : undefined,
-      }),
-    })
-    const data = await response.json()
-    if (!response.ok || !data.success) {
-      throw new Error(data.error || 'Failed to generate image')
-    }
-    if (!data.image_base64) {
-      throw new Error('No image was returned')
-    }
-    const mimeType = data.image_mime_type || 'image/png'
-    const blob = base64ToBlob(data.image_base64, mimeType)
-    const name = spec.prompt.substring(0, 50) + (spec.prompt.length > 50 ? '...' : '')
-    const uploadFile = new File([blob], `generated-${Date.now()}.png`, { type: mimeType })
-    const assetId = await uploadToAccountLibrary(uploadFile)
-    const sourceUrl = assetId ? accountMediaAssetPlaybackUrl(assetId) : URL.createObjectURL(blob)
-    pauseHistory()
-    try {
-      await addImageAtCurrentPlayhead(sourceUrl, name)
-    } finally {
-      resumeHistory()
-      pushHistory()
-    }
-    updateStatus('Image generated and added to the timeline.', false)
-  }
-
-  const resolveEditTargetImage = (spec: EditImageInstruction) => {
-    const { images } = useManifestStore.getState()
-    if (spec.target === 'selected') {
-      const selectedImageId = useSelectionStore.getState().selectedImageId
-      if (!selectedImageId) {
-        throw new Error('No image is selected. Select an image or specify an image number.')
-      }
-      const image = images.find((i) => i.id === selectedImageId)
-      if (!image) throw new Error('Selected image was not found on the timeline.')
-      return image
-    }
-    const imageNumber = spec.imageNumber
-    if (imageNumber === undefined || !Number.isFinite(imageNumber)) {
-      throw new Error('Missing image number to edit.')
-    }
-    const sorted = [...images].sort((a, b) => a.startTime - b.startTime)
-    if (imageNumber < 1 || imageNumber > sorted.length) {
-      throw new Error(`Image #${imageNumber} is out of range (1–${sorted.length}).`)
-    }
-    return sorted[imageNumber - 1]
-  }
-
-  const runEditImage = async (
-    spec: EditImageInstruction,
-    files: UploadedFile[],
-    updateStatus: (text: string, loading: boolean) => void
-  ) => {
-    updateStatus('Editing image...', true)
-    const targetImage = resolveEditTargetImage(spec)
-    if (!targetImage.url) {
-      throw new Error('Target image has no source URL.')
-    }
-    const sourceRef = await resolveImageUrlReference(targetImage.url)
-    if (!sourceRef) {
-      throw new Error('Failed to load the timeline image to edit.')
-    }
-    const attachedRefs = await resolveAttachedImageReferences(files)
-    const referenceImages = [sourceRef, ...attachedRefs]
-    const response = await fetch('/api/generate-image', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prompt: imageEditPrompt(spec.prompt, true, attachedRefs.length),
-        referenceImages,
-      }),
-    })
-    const data = await response.json()
-    if (!response.ok || !data.success) {
-      throw new Error(data.error || 'Failed to edit image')
-    }
-    if (!data.image_base64) {
-      throw new Error('No edited image was returned')
-    }
-    const mimeType = data.image_mime_type || 'image/png'
-    const blob = base64ToBlob(data.image_base64, mimeType)
-    const name = spec.prompt.substring(0, 50) + (spec.prompt.length > 50 ? '...' : '')
-    const uploadFile = new File([blob], `edited-${Date.now()}.png`, { type: mimeType })
-    const assetId = await uploadToAccountLibrary(uploadFile)
-    const sourceUrl = assetId ? accountMediaAssetPlaybackUrl(assetId) : URL.createObjectURL(blob)
-    pauseHistory()
-    try {
-      await applyReplacementWithUrl(targetImage.id, sourceUrl, name)
-    } finally {
-      resumeHistory()
-      pushHistory()
-    }
-    updateStatus('Image updated in place on the timeline.', false)
-  }
-
-  const runGenerateVideo = async (
-    spec: GenerateVideoInstruction,
-    files: UploadedFile[],
-    updateStatus: (text: string, loading: boolean) => void
-  ) => {
-    updateStatus('Generating video...', true)
-    const { images } = useManifestStore.getState()
-    const timelineRefs = spec.referenceImageNumbers?.length
-      ? await resolveManifestImageReferences(spec.referenceImageNumbers, images)
-      : []
-    const attachedRefs = await resolveAttachedImageReferences(files)
-    const refImages = [...timelineRefs, ...attachedRefs].slice(0, 3)
-    const response = await fetch('/api/generate-video', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prompt: videoPromptWithReferences(spec.prompt, refImages.length),
-        negativePrompt: spec.negativePrompt,
-        referenceImages: refImages.length > 0 ? refImages : undefined,
-      }),
-    })
-    const data = await response.json()
-    if (!response.ok || !data.success) {
-      throw new Error(data.error || 'Failed to generate video')
-    }
-    if (!data.video_base64) {
-      throw new Error('No video was returned')
-    }
-    const mimeType = data.video_mime_type || 'video/mp4'
-    const blob = base64ToBlob(data.video_base64, mimeType)
-    const title = spec.prompt.substring(0, 50) + (spec.prompt.length > 50 ? '...' : '')
-    const uploadFile = new File([blob], `generated-${Date.now()}.mp4`, { type: mimeType })
-    const { duration } = await resolveVideoMetadata(URL.createObjectURL(blob))
-    if (!validateMediaDuration(duration, 'Video')) {
-      throw new Error('Generated video exceeds upload duration limit.')
-    }
-    const assetId = await uploadToAccountLibrary(uploadFile, duration)
-    const sourceUrl = assetId ? accountMediaAssetPlaybackUrl(assetId) : URL.createObjectURL(blob)
-    pauseHistory()
-    try {
-      await addVideoToTimelineAtPlayhead(sourceUrl, title)
-    } finally {
-      resumeHistory()
-      pushHistory()
-    }
-    updateStatus('Video generated and added to the timeline.', false)
-  }
-
-  const runGenerateSpeech = async (
-    spec: GenerateSpeechInstruction,
-    updateStatus: (text: string, loading: boolean) => void
-  ) => {
-    let referenceAudio: { audioBase64: string; mimeType: string } | undefined
-    let referenceTimelineAudio: AudioClass | null = null
-    let referenceBuffer: AudioBuffer | null = null
-
-    if (spec.referenceAudioNumber && !spec.multiSpeaker) {
-      updateStatus(`Loading reference voice from audio #${spec.referenceAudioNumber}...`, true)
-      const { audios } = useManifestStore.getState()
-      const sorted = [...audios].sort((a, b) => a.startTime - b.startTime)
-      const refN = spec.referenceAudioNumber
-      if (refN < 1 || refN > sorted.length) {
-        throw new Error(`Reference audio #${refN} is out of range (1–${sorted.length}).`)
-      }
-      referenceTimelineAudio = sorted[refN - 1]
-      if (!referenceTimelineAudio.url) {
-        throw new Error(`Reference audio #${refN} has no source URL.`)
-      }
-      const refResponse = await fetch(referenceTimelineAudio.url)
-      if (!refResponse.ok) {
-        throw new Error(`Failed to load reference audio #${refN}.`)
-      }
-      const refBlob = await refResponse.blob()
-      referenceAudio = {
-        audioBase64: await blobToBase64(refBlob),
-        mimeType: refBlob.type || 'audio/wav',
-      }
-      const pitchCtx = new AudioContext()
-      try {
-        referenceBuffer = await decodeAudioFromUrl(pitchCtx, referenceTimelineAudio.url)
-      } finally {
-        await pitchCtx.close()
-      }
-    }
-
-    updateStatus('Generating speech...', true)
-    const response = await fetch('/api/generate-speech', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prompt: spec.prompt,
-        voiceName: spec.voiceName,
-        multiSpeaker: spec.multiSpeaker,
-        speakers: spec.speakers,
-        referenceAudio,
-      }),
-    })
-    const data = await response.json()
-    if (!response.ok || !data.success) {
-      throw new Error(data.error || 'Failed to generate speech')
-    }
-    if (!data.audio_base64) {
-      throw new Error('No speech audio was returned')
-    }
-    const mimeType = data.audio_mime_type || 'audio/wav'
-    const blob = base64ToBlob(data.audio_base64, mimeType)
-    const name = spec.prompt.substring(0, 50) + (spec.prompt.length > 50 ? '...' : '')
-    const uploadFile = new File([blob], `speech-${Date.now()}.wav`, { type: mimeType })
-    const blobUrl = URL.createObjectURL(blob)
-    const duration = await resolveAudioDurationFromUrl(blobUrl)
-    if (!validateMediaDuration(duration, 'Audio')) {
-      throw new Error('Generated speech exceeds upload duration limit.')
-    }
-    const assetId = await uploadToAccountLibrary(uploadFile, duration)
-    const sourceUrl = assetId ? accountMediaAssetPlaybackUrl(assetId) : blobUrl
-    pauseHistory()
-    try {
-      await addAudioToTimelineAtPlayhead(sourceUrl, name, duration)
-      if (referenceTimelineAudio && referenceBuffer) {
-        const pitchCtx = new AudioContext()
-        try {
-          const generatedBuffer = await decodeAudioFromUrl(pitchCtx, blobUrl)
-          const refHz = medianPitchHzFromBuffer(
-            referenceBuffer,
-            referenceTimelineAudio.trimStart ?? 0,
-            referenceTimelineAudio.trimEnd ?? 0,
-            referenceTimelineAudio.originalDuration
-          )
-          const genHz = medianPitchHzFromBuffer(generatedBuffer)
-          if (refHz && genHz) {
-            const pitch = pitchShiftToMatchReference(
-              refHz,
-              genHz,
-              referenceTimelineAudio.pitch ?? 1
-            )
-            const newAudioId = useSelectionStore.getState().selectedAudioId
-            if (newAudioId) {
-              updateAudio(newAudioId, { pitch })
-            }
-          }
-        } finally {
-          await pitchCtx.close()
-        }
-      }
-    } finally {
-      resumeHistory()
-      pushHistory()
-    }
-    const refSuffix =
-      spec.referenceAudioNumber && !spec.multiSpeaker
-        ? ` matching audio #${spec.referenceAudioNumber}`
-        : ''
-    updateStatus(`Speech generated${refSuffix} and added to the timeline.`, false)
-  }
-
-  const runTranscribeAudio = async (
-    spec: TranscribeAudioInstruction,
-    updateStatus: (text: string, loading: boolean) => void
-  ) => {
-    updateStatus('Transcribing audio...', true)
-    const { audios } = useManifestStore.getState()
-    const sorted = [...audios].sort((a, b) => a.startTime - b.startTime)
-    const audioNumber = spec.audioNumber
-    if (audioNumber < 1 || audioNumber > sorted.length) {
-      throw new Error(`Audio #${audioNumber} is out of range (1–${sorted.length}).`)
-    }
-    const audio = sorted[audioNumber - 1]
-    if (!audio.url) {
-      throw new Error(`Audio #${audioNumber} has no source URL.`)
-    }
-    const response = await fetch(audio.url)
-    if (!response.ok) {
-      throw new Error(`Failed to load audio #${audioNumber}.`)
-    }
-    const blob = await response.blob()
-    const audioBase64 = await blobToBase64(blob)
-    const transcribeResponse = await fetch('/api/transcribe-audio', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        audioBase64,
-        mimeType: blob.type || 'audio/mpeg',
-        trimStart: audio.trimStart ?? 0,
-        trimEnd: audio.trimEnd ?? 0,
-        originalDuration: audio.originalDuration,
-      }),
-    })
-    const data = await transcribeResponse.json()
-    if (!transcribeResponse.ok || !data.success) {
-      throw new Error(data.error || 'Failed to transcribe audio')
-    }
-    const segments = (data.segments ?? []) as TranscribeSegment[]
-    if (segments.length === 0) {
-      throw new Error('No speech detected in the audio.')
-    }
-    const playbackSpeed = audio.playbackSpeed ?? 1
-    pauseHistory()
-    try {
-      applyTranscriptionSegments(segments, audio.startTime, playbackSpeed)
-    } finally {
-      resumeHistory()
-      pushHistory()
-    }
-    updateStatus(`Added ${segments.length} subtitle segments from audio #${audioNumber}.`, false)
-  }
-
-  const resolveTimelineAudioForSpeech = async (audioNumber: number) => {
-    const { audios } = useManifestStore.getState()
-    const sorted = [...audios].sort((a, b) => a.startTime - b.startTime)
-    if (audioNumber < 1 || audioNumber > sorted.length) {
-      throw new Error(`Audio #${audioNumber} is out of range (1–${sorted.length}).`)
-    }
-    const audio = sorted[audioNumber - 1]
-    if (!audio.url) {
-      throw new Error(`Audio #${audioNumber} has no source URL.`)
-    }
-    const response = await fetch(audio.url)
-    if (!response.ok) {
-      throw new Error(`Failed to load audio #${audioNumber}.`)
-    }
-    const blob = await response.blob()
-    const trimStart = audio.trimStart ?? 0
-    const trimEnd = audio.trimEnd ?? 0
-    const originalDuration = audio.originalDuration
-    const regionDuration =
-      originalDuration !== undefined
-        ? Math.max(0, originalDuration - trimStart - trimEnd)
-        : await resolveAudioDurationFromUrl(URL.createObjectURL(blob))
-    if (regionDuration > VEO_MAX_SPEECH_SECONDS) {
-      throw new Error(`Audio #${audioNumber} must be ${VEO_MAX_SPEECH_SECONDS} seconds or less for talking animation.`)
-    }
-    return {
-      audioBase64: await blobToBase64(blob),
-      mimeType: blob.type || 'audio/mpeg',
-      trimStart,
-      trimEnd,
-      originalDuration,
-      regionDuration,
-      audioBlob: blob,
-      name: audio.name,
-    }
-  }
-
-  const runAnimateToSpeech = async (
-    spec: AnimateToSpeechInstruction,
-    files: UploadedFile[],
-    updateStatus: (text: string, loading: boolean) => void
-  ) => {
-    updateStatus('Preparing talking animation...', true)
-
-    let firstFrame: { base64: string; mimeType: string } | null = null
-    let targetImage: ImageClass | null = null
-    let targetVideo: VideoModel | null = null
-    let appendAtTime: number | undefined
-    const visualTarget = spec.visualTarget ?? 'selected'
-    const { images, videos, playbackTime } = useManifestStore.getState()
-    const sortedVideos = [...videos].sort((a, b) => a.timestamp - b.timestamp)
-
-    const resolveVideoFrame = async (video: VideoModel, framePosition: VideoFramePosition) => {
-      const captureTime = captureTimeForVideoFramePosition(video, framePosition, playbackTime)
-      const dataUrl = await captureVideoFrameDataUrl(video, captureTime)
-      return dataUrlToReferenceImage(dataUrl)
-    }
-
-    if (visualTarget === 'attached') {
-      const attachedImages = await resolveAttachedImageReferences(files)
-      if (attachedImages.length === 0) {
-        throw new Error('Attach an image file to animate, or specify an image/video number.')
-      }
-      firstFrame = attachedImages[0]
-    } else if (visualTarget === 'image_number') {
-      const imageNumber = spec.imageNumber
-      if (imageNumber === undefined || !Number.isFinite(imageNumber)) {
-        throw new Error('Missing image number to animate.')
-      }
-      const sorted = [...images].sort((a, b) => a.startTime - b.startTime)
-      if (imageNumber < 1 || imageNumber > sorted.length) {
-        throw new Error(`Image #${imageNumber} is out of range (1–${sorted.length}).`)
-      }
-      targetImage = sorted[imageNumber - 1]
-      if (!targetImage.url) throw new Error(`Image #${imageNumber} has no source URL.`)
-      firstFrame = await resolveImageUrlReference(targetImage.url)
-    } else if (visualTarget === 'video_number') {
-      const videoNumber = spec.videoNumber
-      if (videoNumber === undefined || !Number.isFinite(videoNumber)) {
-        throw new Error('Missing video number to animate.')
-      }
-      if (videoNumber < 1 || videoNumber > sortedVideos.length) {
-        throw new Error(`Video #${videoNumber} is out of range (1–${sortedVideos.length}).`)
-      }
-      const sourceVideo = sortedVideos[videoNumber - 1]
-      const framePosition = spec.videoFramePosition ?? 'playhead'
-      const appendAfter = spec.appendAfterVideo ?? framePosition === 'last'
-      firstFrame = await resolveVideoFrame(sourceVideo, framePosition)
-      if (appendAfter) {
-        appendAtTime = videoTimelineEndSeconds(sourceVideo)
-      } else {
-        targetVideo = sourceVideo
-      }
-    } else {
-      const selectedImageId = useSelectionStore.getState().selectedImageId
-      const selectedVideoId = useSelectionStore.getState().selectedVideoId
-      if (selectedImageId) {
-        targetImage = images.find((i) => i.id === selectedImageId) ?? null
-        if (!targetImage?.url) throw new Error('Selected image has no source URL.')
-        firstFrame = await resolveImageUrlReference(targetImage.url)
-      } else if (selectedVideoId) {
-        const sourceVideo = videos.find((v) => v.id === selectedVideoId) ?? null
-        if (!sourceVideo) throw new Error('Selected video was not found on the timeline.')
-        const framePosition = spec.videoFramePosition ?? 'playhead'
-        const appendAfter = spec.appendAfterVideo ?? framePosition === 'last'
-        firstFrame = await resolveVideoFrame(sourceVideo, framePosition)
-        if (appendAfter) {
-          appendAtTime = videoTimelineEndSeconds(sourceVideo)
-        } else {
-          targetVideo = sourceVideo
-        }
-      } else {
-        const attachedImages = await resolveAttachedImageReferences(files)
-        if (attachedImages.length > 0) {
-          firstFrame = attachedImages[0]
-        } else {
-          throw new Error(
-            'Select an image or video, specify a number (e.g. from the end of video 1), or attach an image file.'
-          )
-        }
-      }
-    }
-
-    if (!firstFrame) {
-      throw new Error('Failed to load the visual source for animation.')
-    }
-
-    let audioPayload: {
-      audioBase64: string
-      mimeType: string
-      trimStart: number
-      trimEnd: number
-      originalDuration?: number
-      regionDuration: number
-      audioBlob: Blob
-      name: string
-    }
-
-    if (spec.audioNumber !== undefined) {
-      audioPayload = await resolveTimelineAudioForSpeech(spec.audioNumber)
-    } else {
-      const attachedAudio = await resolveAttachedAudioReference(files)
-      if (!attachedAudio) {
-        throw new Error('Specify an audio track number or attach an audio file in chat.')
-      }
-      const duration = await resolveAudioDurationFromUrl(URL.createObjectURL(attachedAudio.blob))
-      if (duration > VEO_MAX_SPEECH_SECONDS) {
-        throw new Error(`Attached audio must be ${VEO_MAX_SPEECH_SECONDS} seconds or less for talking animation.`)
-      }
-      audioPayload = {
-        audioBase64: attachedAudio.base64,
-        mimeType: attachedAudio.mimeType,
-        trimStart: 0,
-        trimEnd: 0,
-        regionDuration: duration,
-        audioBlob: attachedAudio.blob,
-        name: files.find((f) => f.mediaType === 'audio')?.name ?? 'Speech',
-      }
-    }
-
-    updateStatus('Generating lip-sync animation...', true)
-    const response = await fetch('/api/animate-to-speech', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        firstFrame,
-        audioBase64: audioPayload.audioBase64,
-        mimeType: audioPayload.mimeType,
-        trimStart: audioPayload.trimStart,
-        trimEnd: audioPayload.trimEnd,
-        originalDuration: audioPayload.originalDuration,
-        motionPrompt: spec.motionPrompt,
-      }),
-    })
-    const data = await response.json()
-    if (!response.ok || !data.success) {
-      throw new Error(data.error || 'Failed to animate to speech')
-    }
-    if (!data.video_base64) {
-      throw new Error('No talking video was returned')
-    }
-
-    updateStatus('Applying your audio track...', true)
-    const generatedBlob = base64ToBlob(data.video_base64, data.video_mime_type || 'video/mp4')
-    const muxedBlob = await replaceVideoAudioTrack(generatedBlob, audioPayload.audioBlob, {
-      trimStartSeconds: audioPayload.trimStart,
-      durationSeconds: audioPayload.regionDuration,
-    })
-    const title = `Talking: ${audioPayload.name}`.substring(0, 50)
-    const uploadFile = new File([muxedBlob], `talking-${Date.now()}.mp4`, { type: 'video/mp4' })
-    const { duration } = await resolveVideoMetadata(URL.createObjectURL(muxedBlob))
-    if (!validateMediaDuration(duration, 'Video')) {
-      throw new Error('Generated talking video exceeds upload duration limit.')
-    }
-    const assetId = await uploadToAccountLibrary(uploadFile, duration)
-    const sourceUrl = assetId ? accountMediaAssetPlaybackUrl(assetId) : URL.createObjectURL(muxedBlob)
-    const aspectRatio = FIXED_ASPECT_RATIO
-    const [rw, rh] = ASPECT_RATIOS[aspectRatio]
-
-    pauseHistory()
-    try {
-      if (targetImage) {
-        const crop = await computeMediaCropForAspect(
-          sourceUrl,
-          'video',
-          aspectRatio,
-          targetImage.width,
-          targetImage.height,
-          targetImage.cropAspect ?? aspectRatio
-        )
-        const videoInstance = new VideoModel(
-          `video-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          title,
-          sourceUrl,
-          duration,
-          targetImage.startTime,
-          undefined,
-          undefined,
-          undefined,
-          0,
-          0,
-          undefined,
-          targetImage.x,
-          targetImage.y,
-          targetImage.width,
-          targetImage.height,
-          targetImage.opacity,
-          targetImage.animation as AnimationMode,
-          targetImage.transition as TransitionMode,
-          targetImage.zoomIntensity,
-          targetImage.transitionDuration,
-          targetImage.animationDuration,
-          targetImage.animationZoomEasing,
-          undefined,
-          undefined,
-          undefined,
-          targetImage.transitionSlideEasing,
-          targetImage.transitionCircleEasing,
-          targetImage.row,
-          true,
-          crop.cropAspect ?? targetImage.cropAspect,
-          crop.cropSx ?? targetImage.cropSx,
-          crop.cropSy ?? targetImage.cropSy,
-          crop.cropSw ?? targetImage.cropSw,
-          crop.cropSh ?? targetImage.cropSh,
-          undefined,
-          undefined,
-          undefined,
-          1
-        )
-        replaceImageWithVideo(targetImage.id, videoInstance)
-      } else if (targetVideo) {
-        replaceVideoSource(targetVideo.id, sourceUrl, title)
-        updateVideo(targetVideo.id, { duration, muted: false })
-      } else if (appendAtTime !== undefined) {
-        await addVideoToTimelineAtTime(sourceUrl, title, appendAtTime)
-      } else {
-        await addVideoToTimelineAtPlayhead(sourceUrl, title)
-      }
-    } finally {
-      resumeHistory()
-      pushHistory()
-    }
-
-    updateStatus('Talking animation added with your audio.', false)
-  }
 
   const applyNewEffects = (newEffects: AddEffectInstruction[]) => {
     for (const e of newEffects) {
@@ -1476,20 +829,6 @@ export default function ChatWindow() {
     }
   }
 
-  const parseEqualSplitPrompt = (prompt: string): EqualSplitRequest | null => {
-    const normalized = prompt.toLowerCase().replace(/#/g, ' ')
-    const match = normalized.match(
-      /split\s+(image|text|video)\s+(\d+)\s+(?:into|in|to)\s+(\d+)\s+(?:equal\s+)?(?:parts?|pieces?|segments?)/i
-    )
-    if (!match) return null
-    const kind = match[1].toLowerCase() as EqualSplitRequest['kind']
-    const itemNumber = Number.parseInt(match[2], 10)
-    const parts = Number.parseInt(match[3], 10)
-    if (!Number.isFinite(itemNumber) || !Number.isFinite(parts)) return null
-    if (itemNumber < 1 || parts < 2) return null
-    return { kind, itemNumber, parts }
-  }
-
   const handleSend = async () => {
     if (!inputValue.trim()) return
 
@@ -1522,69 +861,6 @@ export default function ChatWindow() {
     }
 
     try {
-      const equalSplitRequest = parseEqualSplitPrompt(userPrompt)
-      if (equalSplitRequest) {
-        const { images, texts, videos } = useManifestStore.getState()
-        const { kind, itemNumber, parts } = equalSplitRequest
-
-        let targetId: string | undefined
-        let rangeStart = 0
-        let rangeEnd = 0
-
-        if (kind === 'image') {
-          const target = [...images].sort((a, b) => a.startTime - b.startTime)[itemNumber - 1]
-          if (!target) {
-            updateStatus(`Error: image #${itemNumber} was not found.`, false)
-            return
-          }
-          targetId = target.id
-          rangeStart = target.startTime
-          rangeEnd = target.endTime
-        } else if (kind === 'text') {
-          const target = [...texts].sort((a, b) => a.startTime - b.startTime)[itemNumber - 1]
-          if (!target) {
-            updateStatus(`Error: text #${itemNumber} was not found.`, false)
-            return
-          }
-          targetId = target.id
-          rangeStart = target.startTime
-          rangeEnd = target.endTime
-        } else {
-          const target = [...videos].sort((a, b) => a.timestamp - b.timestamp)[itemNumber - 1]
-          if (!target) {
-            updateStatus(`Error: video #${itemNumber} was not found.`, false)
-            return
-          }
-          targetId = target.id
-          rangeStart = target.timestamp
-          rangeEnd = target.timestamp + (target.duration ?? 0)
-        }
-
-        const duration = rangeEnd - rangeStart
-        if (!(duration > 0)) {
-          updateStatus(`Error: ${kind} #${itemNumber} has invalid duration.`, false)
-          return
-        }
-
-        const splitTimes: number[] = []
-        for (let i = 1; i < parts; i++) {
-          splitTimes.push(rangeStart + (duration * i) / parts)
-        }
-
-        pauseHistory()
-        try {
-          if (kind === 'image') splitImageAtTimes(targetId, splitTimes)
-          else if (kind === 'text') splitTextAtTimes(targetId, splitTimes)
-          else splitVideoAtTimes(targetId, splitTimes)
-        } finally {
-          resumeHistory()
-          pushHistory()
-        }
-
-        updateStatus(`Split ${kind} #${itemNumber} into ${parts} equal parts.`, false)
-        return
-      }
-
       const { videos, images, texts, audios, effects } = useManifestStore.getState()
       const manifest = {
         images: images.map((i) => ({ id: i.id, name: i.name, startTime: i.startTime, endTime: i.endTime, row: i.row, animation: i.animation, transition: i.transition, zoomIntensity: i.zoomIntensity, zoomDistanceIntensity: i.zoomDistanceIntensity, transitionDuration: i.transitionDuration, animationDuration: i.animationDuration, animationZoomEasing: i.animationZoomEasing, cropAspect: i.cropAspect, transitionColor: i.transitionColor, transitionFlashMode: i.transitionFlashMode, transitionDirection: i.transitionDirection, transitionAxis: i.transitionAxis, transitionSlideEasing: i.transitionSlideEasing, transitionCircleEasing: i.transitionCircleEasing, transitionWipeEasing: i.transitionWipeEasing })),
@@ -1628,107 +904,25 @@ export default function ChatWindow() {
 
       const uploadedFilesMeta = filesSnapshot.map((f, i) => ({ index: i, name: f.name, type: f.mediaType }))
 
-      const libraryResponse = await fetch('/api/media/list?all=1')
-      if (!libraryResponse.ok) {
-        const body = await libraryResponse.json().catch(() => null)
-        throw new Error(body?.error ?? 'Failed to load media library')
-      }
-      const libraryData = await libraryResponse.json()
-      const library = {
-        folders: (libraryData.folders ?? []).map((f: { id: string; name: string; parent_id: string | null }) => ({
-          id: f.id,
-          name: f.name,
-          parent_id: f.parent_id,
-        })),
-        assets: (libraryData.assets ?? []).map((a: { id: string; name: string; kind: string; folder_id: string | null }) => ({
-          id: a.id,
-          name: a.name,
-          kind: a.kind,
-          folder_id: a.folder_id,
-        })),
-      }
-
-      const response = await fetch('/api/route-prompt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: userPrompt, manifest, library, uploadedFiles: uploadedFilesMeta }),
+      updateStatus(isLocalChatModelReady() ? 'Routing locally...' : 'Loading local model...', true)
+      const data: ChatRoutePromptResponse = await routeLocalChatPrompt({
+        prompt: userPrompt,
+        manifest,
+        uploadedFiles: uploadedFilesMeta,
+        onModelProgress: (report) => {
+          const progress = Math.round(report.progress * 100)
+          updateStatus(report.text || `Loading local model ${progress}%`, true)
+        },
       })
 
-      const data = await response.json()
-
-      if (!response.ok || data.error) {
-        updateStatus(`Error: ${data.error || 'Failed to process request'}`, false)
-        return
-      }
-
       if (data.action === 'no_op') {
-        updateStatus(data.message, false)
-        return
-      }
-
-      if (data.action === 'generate_image') {
-        const spec = data.imageGeneration as GenerateImageInstruction | undefined
-        if (!spec?.prompt) {
-          updateStatus('Error: Missing image generation parameters.', false)
-          return
-        }
-        await runGenerateImage(spec, filesSnapshot, updateStatus)
-        return
-      }
-
-      if (data.action === 'edit_image') {
-        const spec = data.editImage as EditImageInstruction | undefined
-        if (!spec?.prompt) {
-          updateStatus('Error: Missing image edit parameters.', false)
-          return
-        }
-        await runEditImage(spec, filesSnapshot, updateStatus)
-        return
-      }
-
-      if (data.action === 'generate_video') {
-        const spec = data.videoGeneration as GenerateVideoInstruction | undefined
-        if (!spec?.prompt) {
-          updateStatus('Error: Missing video generation parameters.', false)
-          return
-        }
-        await runGenerateVideo(spec, filesSnapshot, updateStatus)
-        return
-      }
-
-      if (data.action === 'generate_speech') {
-        const spec = data.speechGeneration as GenerateSpeechInstruction | undefined
-        if (!spec?.prompt) {
-          updateStatus('Error: Missing speech generation parameters.', false)
-          return
-        }
-        await runGenerateSpeech(spec, updateStatus)
-        return
-      }
-
-      if (data.action === 'transcribe_audio') {
-        const spec = data.transcribeAudio as TranscribeAudioInstruction | undefined
-        if (!spec?.audioNumber) {
-          updateStatus('Error: Missing transcription parameters.', false)
-          return
-        }
-        await runTranscribeAudio(spec, updateStatus)
-        return
-      }
-
-      if (data.action === 'animate_to_speech') {
-        const spec = data.animateToSpeech as AnimateToSpeechInstruction | undefined
-        if (!spec) {
-          updateStatus('Error: Missing talking animation parameters.', false)
-          return
-        }
-        await runAnimateToSpeech(spec, filesSnapshot, updateStatus)
+        updateStatus(data.message ?? 'No changes made.', false)
         return
       }
 
       if (data.action === 'delete_library_items') {
         await runDeleteLibraryItems(data.deleteLibraryItems || [])
-        updateStatus(data.message, false)
+        updateStatus(data.message ?? 'Done.', false)
         return
       }
 
@@ -1747,6 +941,8 @@ export default function ChatWindow() {
           applySplits(data.splits || [])
         } else if (data.action === 'add_text') {
           applyNewTexts(data.newTexts || [])
+        } else if (data.action === 'add_solid_image') {
+          await applyNewSolidImages(data.newSolidImages || [])
         } else if (data.action === 'replace_images') {
           await applyReplacements(data.replacements || [], filesSnapshot)
         } else if (data.action === 'replace_with_solid') {
@@ -1772,7 +968,7 @@ export default function ChatWindow() {
         pushHistory()
       }
 
-      updateStatus(data.message, false)
+      updateStatus(data.message ?? 'Done.', false)
     } catch (error) {
       updateStatus(`Error: ${error instanceof Error ? error.message : 'Failed to process'}`, false)
     }
@@ -1848,6 +1044,13 @@ export default function ChatWindow() {
 
   return (
     <div className={styles.container}>
+      <div className={styles.localModeBar}>
+        <span className={styles.localModeHint}>
+          {localModelWarming
+            ? 'Loading local model in background...'
+            : `Local AI routes timeline edits.${getLoadedWebLlmModelId() ? ` Model: ${getLoadedWebLlmModelId()}.` : ''}`}
+        </span>
+      </div>
       <div className={styles.messages}>
         {messages.map((message) => (
           <div
