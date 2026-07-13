@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 
 import { spawn } from 'node:child_process'
-import { mkdir, readdir, rename } from 'node:fs/promises'
+import { mkdir, readdir } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
+
+const ONBOARDING_STEP_IDS = ['welcome', 'upload', 'timeline', 'export', 'complete']
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.resolve(__dirname, '..')
@@ -54,9 +56,13 @@ async function convertToMp4(sourcePath, destinationPath) {
   })
 }
 
-async function clickNext(page, delayMs = 1800) {
+async function waitForStep(page, stepId, holdMs) {
+  await page.locator(`[data-onboarding-step="${stepId}"]`).waitFor({ state: 'visible' })
+  await sleep(holdMs)
+}
+
+async function clickNext(page) {
   await page.locator('[data-onboarding-step] button').filter({ hasText: 'Next' }).click()
-  await sleep(delayMs)
 }
 
 async function main() {
@@ -78,16 +84,22 @@ async function main() {
     })
     const page = await context.newPage()
     await page.goto(previewUrl, { waitUntil: 'networkidle' })
-    await sleep(1200)
 
-    await clickNext(page, 2200)
-    await clickNext(page, 2200)
-    await clickNext(page, 2200)
-    await clickNext(page, 2200)
-    await page.locator('[data-onboarding-step] button').filter({ hasText: 'Start editing' }).click()
-    await sleep(1500)
+    for (const stepId of ONBOARDING_STEP_IDS) {
+      const holdMs = stepId === 'complete' ? 4000 : 2500
+      await waitForStep(page, stepId, holdMs)
+      if (stepId !== 'complete') {
+        await clickNext(page)
+      }
+    }
 
+    await page.locator('[data-onboarding-step="complete"] button').filter({ hasText: 'Start editing' }).click()
+    await sleep(2000)
+
+    await page.close()
+    await sleep(500)
     await context.close()
+    await sleep(500)
 
     const files = await readdir(videoDir)
     const webmFile = files.find((file) => file.endsWith('.webm'))
