@@ -1,0 +1,153 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  background: #0f0f0f;
+  color: #fff;
+  overflow: hidden;
+}
+
+.editorShell {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.leftPanel,
+.chatPanel {
+  width: 25%;
+  min-width: 220px;
+  border-right: 1px solid #222;
+  background: #0d0d0d;
+  display: flex;
+  flex-direction: column;
+}
+
+.chatPanel {
+  border-right: none;
+  border-left: 1px solid #222;
+}
+
+.panelHeader,
+.mediaHeader,
+.chatHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid #222;
+  font-size: 0.85rem;
+}
+
+.email {
+  color: #888;
+}
+
+.badge {
+  border: 1px solid #333;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.72rem;
+  color: #bbb;
+}
+
+.uploadButton,
+.exportButton,
+.toolbarButton,
+.playButton {
+  border: 1px solid #333;
+  background: #1a1a1a;
+  color: #fff;
+  border-radius: 6px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.78rem;
+  cursor: default;
+}
+
+.exportButton {
+  background: #ffc44d;
+  color: #111;
+  border-color: #ffc44d;
+  font-weight: 700;
+}
+
+.libraryPlaceholder {
+  padding: 1rem;
+  color: #777;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.hint {
+  margin-top: 0.75rem;
+  color: #999;
+}
+
+.previewPanel {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #111;
+}
+
+.previewFrame {
+  width: min(320px, 70%);
+  aspect-ratio: 9 / 16;
+  border: 1px dashed #333;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #666;
+  font-size: 0.85rem;
+}
+
+.chatBody {
+  padding: 1rem;
+  color: #777;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.timelineSection {
+  border-top: 1px solid #222;
+  background: #141414;
+  min-height: 180px;
+}
+
+.playbackBar {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid #222;
+}
+
+.playButton {
+  width: 2rem;
+  height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.timecode {
+  color: #888;
+  font-size: 0.78rem;
+  margin-right: auto;
+}
+
+.timelineTracks {
+  padding: 1rem;
+}
+
+.emptyTrack {
+  border: 1px dashed #333;
+  border-radius: 8px;
+  padding: 1.5rem;
+  text-align: center;
+  color: #666;
+  font-size: 0.82rem;
+}

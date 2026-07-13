@@ -88,6 +88,28 @@
   border-color: #555;
 }
 
+.helpButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  background: none;
+  border: 1px solid #333;
+  color: #ffc44d;
+  font-size: 0.85rem;
+  font-weight: 700;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.helpButton:hover {
+  background-color: rgba(255, 196, 77, 0.12);
+  border-color: rgba(255, 196, 77, 0.45);
+  color: #ffd77a;
+}
+
 .signOutButton {
   display: flex;
   align-items: center;

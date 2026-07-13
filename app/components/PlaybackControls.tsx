@@ -185,6 +185,7 @@ function PlaybackControls({
         </button>
         <button
           className={styles.exportButton}
+          data-onboarding="export"
           onClick={handleExport}
           disabled={isExporting || (videos.filter((v) => v.row === 0).length === 0 && images.filter((img) => img.row === 0).length === 0)}
         >
