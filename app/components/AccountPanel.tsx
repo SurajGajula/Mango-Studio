@@ -34,9 +34,10 @@ type AccountPanelProps = {
   projects: UserProject[]
   activeProjectId: string | null
   onSelectProject: (projectId: string | null) => void
+  onReplayOnboarding?: () => void
 }
 
-export default function AccountPanel({ projects, activeProjectId, onSelectProject }: AccountPanelProps) {
+export default function AccountPanel({ projects, activeProjectId, onSelectProject, onReplayOnboarding }: AccountPanelProps) {
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [folderTrail, setFolderTrail] = useState<Array<{ id: string | null; name: string }>>([{ id: null, name: 'Root' }])
   const uploadInputRef = useRef<HTMLInputElement>(null)
@@ -242,6 +243,16 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
                 Pro
               </button>
             )}
+            {onReplayOnboarding ? (
+              <button
+                type="button"
+                className={styles.helpButton}
+                onClick={onReplayOnboarding}
+                title="Replay getting started tour"
+              >
+                ?
+              </button>
+            ) : null}
             <button type="button" className={styles.signOutButton} onClick={handleSignOut} title="Sign Out">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
@@ -296,7 +307,12 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
         <div className={styles.mediaSectionHeader}>
           <p className={styles.mediaSectionLabel}>Media</p>
           <div className={styles.mediaActions}>
-            <button type="button" className={styles.mediaActionButton} onClick={() => uploadInputRef.current?.click()}>
+            <button
+              type="button"
+              className={styles.mediaActionButton}
+              data-onboarding="upload"
+              onClick={() => uploadInputRef.current?.click()}
+            >
               Upload
             </button>
             <button type="button" className={styles.mediaActionButton} onClick={() => setNameModal({ type: 'new-folder' })}>

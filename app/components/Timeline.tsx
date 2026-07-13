@@ -710,7 +710,7 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
           onChange={handleAudioReplaceSelect}
           style={{ display: 'none' }}
         />
-        <div className={styles.timelineWrapper}>
+        <div className={styles.timelineWrapper} data-onboarding="timeline">
           <PlaybackControls
             totalDuration={totalDuration}
             formatTime={formatTime}

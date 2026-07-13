@@ -16,3 +16,5 @@ public/ffmpeg
 .DS_Store
 
 docs/
+
+artifacts/

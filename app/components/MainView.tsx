@@ -18,6 +18,8 @@ import {
   useUserProjectPersistence,
 } from '@/app/lib/projectPersistence'
 import { useProjects } from '@/app/hooks/useProjects'
+import { useOnboardingTour } from '@/app/hooks/useOnboardingTour'
+import OnboardingTour from './onboarding/OnboardingTour'
 import styles from './MainView.module.css'
 
 const Timeline = dynamic(() => import('./Timeline'), {
@@ -39,6 +41,7 @@ export default function MainView() {
   const [pitchItemId, setPitchItemId] = useState<string | null>(null)
   const [localPersistReady, setLocalPersistReady] = useState(false)
   const [chatReady, setChatReady] = useState(false)
+  const [forceOnboarding, setForceOnboarding] = useState(false)
   const { user, loading } = useAuth()
   const { projects, activeProjectId, setActiveProjectId, ready: projectsReady } = useProjects(user?.id ?? null)
   const videos = useManifestStore((s) => s.videos)
@@ -91,6 +94,22 @@ export default function MainView() {
   }, [localPersistReady])
 
   useUserProjectPersistence(localPersistReady ? user : null, activeProjectId)
+
+  const showChatPanel = rightPanel === 'chat'
+  const isProjectLoading =
+    !projectsReady || (!!activeProjectId && !localPersistReady) || !chatReady
+
+  const onboarding = useOnboardingTour(user?.id, !isProjectLoading, { force: forceOnboarding })
+
+  const handleReplayOnboarding = useCallback(() => {
+    setForceOnboarding(true)
+    onboarding.restart()
+  }, [onboarding])
+
+  const handleOnboardingComplete = useCallback(() => {
+    setForceOnboarding(false)
+    onboarding.complete()
+  }, [onboarding])
 
   useEffect(() => {
     if (rightPanel === 'chat' || rightPanel === 'effects') return
@@ -185,10 +204,6 @@ export default function MainView() {
     [audios, selectAudio]
   )
 
-  const showChatPanel = rightPanel === 'chat'
-  const isProjectLoading =
-    !projectsReady || (!!activeProjectId && !localPersistReady) || !chatReady
-
   const renderActivePanel = () => {
     if (rightPanel === 'transitions') {
       return (
@@ -229,6 +244,7 @@ export default function MainView() {
             projects={projects}
             activeProjectId={activeProjectId}
             onSelectProject={setActiveProjectId}
+            onReplayOnboarding={handleReplayOnboarding}
           />
         </div>
         <div className={styles.previewContainer}>
@@ -261,6 +277,9 @@ export default function MainView() {
           </div>
         </div>
       )}
+      {onboarding.active && !isProjectLoading ? (
+        <OnboardingTour onComplete={handleOnboardingComplete} onSkip={handleOnboardingComplete} />
+      ) : null}
     </div>
   )
 }
