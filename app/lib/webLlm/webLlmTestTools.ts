@@ -326,7 +326,7 @@ export const WEB_LLM_EFFECT_TOOL: WebLlmChatTool = {
   function: {
     name: 'add_effect',
     description:
-      'Add visual effects over a time range. Types: crt-dither, flashing-black-vignette, black-and-white, vivid-sharp, pixel-glitch-scan, grainy.',
+      'Add visual effects over a time range. Types: crt-dither, flashing-black-vignette, blur-vignette, cool-tone, black-and-white, contrast, vivid-sharp, pixel-glitch-scan, grainy.',
     parameters: {
       type: 'object',
       properties: {

@@ -56,6 +56,7 @@ export class VideoClass {
   sourceUrl?: string
   sourceTrimStart?: number
   sourceDuration?: number
+  proxyUrl?: string
   playbackSpeed: number
   speedStart?: number
   speedEnd?: number
@@ -202,6 +203,7 @@ export class VideoClass {
     this.sourceUrl = sourceUrl
     this.sourceTrimStart = sourceTrimStart
     this.sourceDuration = sourceDuration
+    this.proxyUrl = undefined
     this.playbackSpeed = playbackSpeed ?? 1
     this.speedStart = speedStart ?? this.playbackSpeed
     this.speedEnd = speedEnd ?? this.playbackSpeed
@@ -230,7 +232,7 @@ export class VideoClass {
   }
 
   copy(updates: Partial<VideoClass>): VideoClass {
-    return new VideoClass(
+    const next = new VideoClass(
       updates.id ?? this.id,
       updates.title ?? this.title,
       updates.url ?? this.url,
@@ -283,5 +285,7 @@ export class VideoClass {
       updates.flipVertical ?? this.flipVertical,
       updates.reversed ?? this.reversed
     )
+    next.proxyUrl = 'proxyUrl' in updates ? updates.proxyUrl : this.proxyUrl
+    return next
   }
 }

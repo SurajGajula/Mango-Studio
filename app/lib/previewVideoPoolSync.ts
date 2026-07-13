@@ -12,7 +12,7 @@ import {
   videoTimelineActiveEnd,
 } from '@/app/lib/adjacentSplitVideo'
 import {
-  videoPlaybackContentKey,
+  uniqueVideoMediaUrlCount,
   videoPlaybackMediaUrl,
   videoSourceTrimBase,
 } from '@/app/lib/videoPlaybackSource'
@@ -20,33 +20,40 @@ import type { VideoClass } from '@/app/models/VideoClass'
 import type { ImageClass } from '@/app/models/ImageClass'
 import { useManifestStore } from '@/app/stores/manifestStore'
 
-export const MAX_ACTIVE_PREVIEW_VIDEOS = 4
-export const MAX_ACTIVE_PREVIEW_VIDEOS_MANY_CLIPS = 3
+export const MAX_ACTIVE_PREVIEW_VIDEOS = 3
+export const MAX_ACTIVE_PREVIEW_VIDEOS_MANY_CLIPS = 2
 export const PREVIEW_VIDEO_RELEASE_GRACE_MS = 500
-export const PREVIEW_VIDEO_PREFETCH_SEC = 10
-export const PREVIEW_VIDEO_PREFETCH_SEC_MANY_CLIPS = 4
-export const PREVIEW_VIDEO_SCRUB_PREFETCH_SEC = 8
-export const PREVIEW_VIDEO_SCRUB_PREFETCH_SEC_MANY_CLIPS = 5
-const MANY_TIMELINE_VIDEOS = 3
+export const PREVIEW_VIDEO_PREFETCH_SEC = 6
+export const PREVIEW_VIDEO_PREFETCH_SEC_MANY_CLIPS = 3
+export const PREVIEW_VIDEO_SCRUB_PREFETCH_SEC = 5
+export const PREVIEW_VIDEO_SCRUB_PREFETCH_SEC_MANY_CLIPS = 3
+const MANY_UNIQUE_SOURCES = 3
 
-function prefetchLeadForPool(videoCount: number, scrubbing: boolean): number {
+function prefetchLeadForPool(uniqueSources: number, scrubbing: boolean): number {
+  if (uniqueSources <= 2) {
+    return scrubbing ? PREVIEW_VIDEO_SCRUB_PREFETCH_SEC : PREVIEW_VIDEO_PREFETCH_SEC
+  }
   if (scrubbing) {
-    return videoCount > MANY_TIMELINE_VIDEOS
+    return uniqueSources > MANY_UNIQUE_SOURCES
       ? PREVIEW_VIDEO_SCRUB_PREFETCH_SEC_MANY_CLIPS
       : PREVIEW_VIDEO_SCRUB_PREFETCH_SEC
   }
-  return videoCount > MANY_TIMELINE_VIDEOS
+  return uniqueSources > MANY_UNIQUE_SOURCES
     ? PREVIEW_VIDEO_PREFETCH_SEC_MANY_CLIPS
     : PREVIEW_VIDEO_PREFETCH_SEC
 }
 
-function maxActivePreviewVideos(videoCount: number): number {
-  return videoCount > 6 ? MAX_ACTIVE_PREVIEW_VIDEOS_MANY_CLIPS : MAX_ACTIVE_PREVIEW_VIDEOS
+function maxActivePreviewVideos(uniqueSources: number): number {
+  if (uniqueSources <= 0) return MAX_ACTIVE_PREVIEW_VIDEOS_MANY_CLIPS
+  if (uniqueSources <= 2) return Math.max(uniqueSources, MAX_ACTIVE_PREVIEW_VIDEOS_MANY_CLIPS)
+  return uniqueSources > MANY_UNIQUE_SOURCES
+    ? MAX_ACTIVE_PREVIEW_VIDEOS_MANY_CLIPS
+    : MAX_ACTIVE_PREVIEW_VIDEOS
 }
 
 type PersistenceCanvasMap = Map<string, { current: HTMLCanvasElement; accumulation: HTMLCanvasElement }>
 
-const lastPlaybackContentKeyByClipId = new Map<string, string>()
+const lastMediaUrlByClipId = new Map<string, string>()
 
 function resolvedVideoElementSrc(src: string): string {
   if (src.startsWith('blob:') || src.startsWith('http')) return src
@@ -66,6 +73,31 @@ function videoElementSrcMatches(el: HTMLVideoElement, src: string): boolean {
   return resolvedMediaHref(current) === resolvedMediaHref(src)
 }
 
+function previewPoolKey(clip: VideoClass): string {
+  return videoPlaybackMediaUrl(clip) || clip.id
+}
+
+function uniquePreviewElements(map: Map<string, HTMLVideoElement>): HTMLVideoElement[] {
+  return [...new Set(map.values())]
+}
+
+function clipIdsForElement(
+  map: Map<string, HTMLVideoElement>,
+  el: HTMLVideoElement
+): string[] {
+  const ids: string[] = []
+  map.forEach((value, id) => {
+    if (value === el) ids.push(id)
+  })
+  return ids
+}
+
+function destroyPreviewVideoElement(video: HTMLVideoElement) {
+  video.pause()
+  video.src = ''
+  video.load()
+}
+
 export function releasePreviewVideoElement(
   id: string,
   videoElementsRef: MutableRefObject<Map<string, HTMLVideoElement>>,
@@ -74,15 +106,14 @@ export function releasePreviewVideoElement(
 ) {
   releaseDeadlinesRef.current.delete(id)
   const video = videoElementsRef.current.get(id)
-  if (!video) {
-    persistenceCanvasesRef.current.delete(id)
-    return
-  }
-  video.pause()
-  video.src = ''
-  video.load()
   videoElementsRef.current.delete(id)
   persistenceCanvasesRef.current.delete(id)
+  lastMediaUrlByClipId.delete(id)
+  if (!video) return
+  for (const el of videoElementsRef.current.values()) {
+    if (el === video) return
+  }
+  destroyPreviewVideoElement(video)
 }
 
 function clipDistanceFromPlayhead(
@@ -99,6 +130,21 @@ function clipDistanceFromPlayhead(
   return playbackTime - end
 }
 
+function elementDistanceFromPlayhead(
+  el: HTMLVideoElement,
+  playbackTime: number,
+  videosList: VideoClass[],
+  videoElementsRef: MutableRefObject<Map<string, HTMLVideoElement>>
+): number {
+  let best = Number.POSITIVE_INFINITY
+  for (const id of clipIdsForElement(videoElementsRef.current, el)) {
+    const clip = videosList.find((v) => v.id === id)
+    if (!clip) continue
+    best = Math.min(best, clipDistanceFromPlayhead(clip, playbackTime, videosList))
+  }
+  return best
+}
+
 function enforceMaxActivePreviewVideos(
   playbackTime: number,
   videosList: VideoClass[],
@@ -107,25 +153,32 @@ function enforceMaxActivePreviewVideos(
   releaseDeadlinesRef: MutableRefObject<Map<string, number>>,
   maxActive: number
 ) {
-  while (videoElementsRef.current.size > maxActive) {
-    let farthestId: string | null = null
+  while (uniquePreviewElements(videoElementsRef.current).length > maxActive) {
+    let farthestEl: HTMLVideoElement | null = null
     let farthestDist = -1
-    videoElementsRef.current.forEach((_, id) => {
-      const clip = videosList.find((v) => v.id === id)
-      if (!clip) {
-        farthestId = id
-        farthestDist = Number.POSITIVE_INFINITY
-        return
-      }
-      const dist = clipDistanceFromPlayhead(clip, playbackTime, videosList)
+    for (const el of uniquePreviewElements(videoElementsRef.current)) {
+      const dist = elementDistanceFromPlayhead(el, playbackTime, videosList, videoElementsRef)
       if (dist > farthestDist) {
         farthestDist = dist
-        farthestId = id
+        farthestEl = el
       }
-    })
-    if (!farthestId) break
-    releasePreviewVideoElement(farthestId, videoElementsRef, persistenceCanvasesRef, releaseDeadlinesRef)
+    }
+    if (!farthestEl) break
+    for (const id of clipIdsForElement(videoElementsRef.current, farthestEl)) {
+      releasePreviewVideoElement(id, videoElementsRef, persistenceCanvasesRef, releaseDeadlinesRef)
+    }
   }
+}
+
+function isClipNearPlayhead(
+  clip: VideoClass,
+  videosList: VideoClass[],
+  playbackTime: number,
+  imagesList: ImageClass[],
+  prefetchLead: number
+): boolean {
+  if (isVideoActiveAtTimelineTime(clip, videosList, playbackTime, imagesList)) return true
+  return playbackTime < clip.timestamp && clip.timestamp - playbackTime <= prefetchLead
 }
 
 export function purgeOffscreenPreviewVideos(
@@ -136,7 +189,8 @@ export function purgeOffscreenPreviewVideos(
   releaseDeadlinesRef: MutableRefObject<Map<string, number>>,
   imagesList: ImageClass[] = []
 ) {
-  const prefetchLead = prefetchLeadForPool(videosList.length, false)
+  const uniqueSources = uniqueVideoMediaUrlCount(videosList)
+  const prefetchLead = prefetchLeadForPool(uniqueSources, false)
   const ids = [...videoElementsRef.current.keys()]
   for (const id of ids) {
     const clip = videosList.find((v) => v.id === id)
@@ -144,10 +198,7 @@ export function purgeOffscreenPreviewVideos(
       releasePreviewVideoElement(id, videoElementsRef, persistenceCanvasesRef, releaseDeadlinesRef)
       continue
     }
-    const inTimelineRange = isVideoActiveAtTimelineTime(clip, videosList, playbackTime, imagesList)
-    const prefetchBeforeStart =
-      playbackTime < clip.timestamp && clip.timestamp - playbackTime <= prefetchLead
-    if (!inTimelineRange && !prefetchBeforeStart) {
+    if (!isClipNearPlayhead(clip, videosList, playbackTime, imagesList, prefetchLead)) {
       releasePreviewVideoElement(id, videoElementsRef, persistenceCanvasesRef, releaseDeadlinesRef)
     }
   }
@@ -158,7 +209,7 @@ export function purgeOffscreenPreviewVideos(
     videoElementsRef,
     persistenceCanvasesRef,
     releaseDeadlinesRef,
-    maxActivePreviewVideos(videosList.length)
+    maxActivePreviewVideos(uniqueSources)
   )
 }
 
@@ -180,6 +231,75 @@ export function activePreviewVideosNeedFrames(
   return false
 }
 
+function createPreviewVideoElement(clip: VideoClass, clipSrc: string, preload: 'auto' | 'metadata') {
+  const video = document.createElement('video')
+  video.preload = preload
+  video.playsInline = true
+  setVideoCrossOriginForUrl(video, clipSrc)
+  video.src = resolvedVideoElementSrc(clipSrc)
+  video.onloadedmetadata = () => {
+    const currentClip = useManifestStore.getState().videos.find((v) => v.id === clip.id)
+    if (!currentClip) return
+    const elDur = video.duration
+    const trimBase = videoSourceTrimBase(currentClip)
+    const hasTrim = trimBase > 0 || currentClip.trimEnd > 0
+    const cd = currentClip.duration
+    const needsTimelineDuration = cd == null || !(cd > 0)
+    const storedOrig = currentClip.originalDuration ?? 0
+    const patch: Record<string, number> = {}
+    if (elDur > 0 && needsTimelineDuration && !hasTrim) {
+      patch.duration = elDur
+    }
+    if (elDur > storedOrig + 0.05 && !hasTrim) {
+      patch.originalDuration = elDur
+    }
+    if (Object.keys(patch).length > 0) {
+      useManifestStore.getState().updateVideo(clip.id, patch)
+    }
+    if (Math.abs(video.currentTime - trimBase) > 0.05) {
+      video.currentTime = trimBase
+    }
+    wakePreviewLoop()
+  }
+  attachPreviewVideoFrameListeners(video)
+  return video
+}
+
+function findExistingElementForUrl(
+  mediaUrl: string,
+  videoElementsRef: MutableRefObject<Map<string, HTMLVideoElement>>,
+  freeByUrl: Map<string, HTMLVideoElement>
+): HTMLVideoElement | undefined {
+  const href = resolvedMediaHref(resolvedVideoElementSrc(mediaUrl))
+  const free = freeByUrl.get(href) || freeByUrl.get(resolvedMediaHref(mediaUrl))
+  if (free) {
+    freeByUrl.delete(href)
+    freeByUrl.delete(resolvedMediaHref(mediaUrl))
+    return free
+  }
+  for (const el of uniquePreviewElements(videoElementsRef.current)) {
+    if (videoElementSrcMatches(el, mediaUrl)) return el
+  }
+  return undefined
+}
+
+function parkElementIfUnused(
+  el: HTMLVideoElement,
+  videoElementsRef: MutableRefObject<Map<string, HTMLVideoElement>>,
+  freeByUrl: Map<string, HTMLVideoElement>
+) {
+  for (const other of videoElementsRef.current.values()) {
+    if (other === el) return
+  }
+  if ([...freeByUrl.values()].includes(el)) return
+  const src = el.currentSrc || el.src || ''
+  if (!src) {
+    destroyPreviewVideoElement(el)
+    return
+  }
+  freeByUrl.set(resolvedMediaHref(src), el)
+}
+
 export function syncManifestVideoPool(
   playbackTime: number,
   videosList: VideoClass[],
@@ -189,168 +309,139 @@ export function syncManifestVideoPool(
   imagesList: ImageClass[] = []
 ) {
   const now = performance.now()
-  const prefetchLead = prefetchLeadForPool(videosList.length, isTimelineScrubbingRef.current)
-  const maxActive = maxActivePreviewVideos(videosList.length)
+  const uniqueSources = uniqueVideoMediaUrlCount(videosList)
+  const prefetchLead = prefetchLeadForPool(uniqueSources, isTimelineScrubbingRef.current)
+  const maxActive = maxActivePreviewVideos(uniqueSources)
+  const currentIds = new Set(videosList.map((v) => v.id))
+
+  lastMediaUrlByClipId.forEach((_, id) => {
+    if (!currentIds.has(id)) lastMediaUrlByClipId.delete(id)
+  })
+
+  const freeByUrl = new Map<string, HTMLVideoElement>()
+  videoElementsRef.current.forEach((el, id) => {
+    if (currentIds.has(id)) return
+    releaseDeadlinesRef.current.delete(id)
+    videoElementsRef.current.delete(id)
+    persistenceCanvasesRef.current.delete(id)
+    lastMediaUrlByClipId.delete(id)
+    parkElementIfUnused(el, videoElementsRef, freeByUrl)
+  })
+
+  const nearClips = videosList
+    .filter((clip) => isClipNearPlayhead(clip, videosList, playbackTime, imagesList, prefetchLead))
+    .sort((a, b) => a.timestamp - b.timestamp)
+
+  const nearIds = new Set(nearClips.map((c) => c.id))
+
+  for (const id of [...videoElementsRef.current.keys()]) {
+    if (nearIds.has(id)) {
+      releaseDeadlinesRef.current.delete(id)
+      continue
+    }
+    const deadline = releaseDeadlinesRef.current.get(id)
+    if (isTimelineScrubbingRef.current) {
+      if (!deadline) {
+        releaseDeadlinesRef.current.set(id, now + PREVIEW_VIDEO_RELEASE_GRACE_MS)
+      }
+      continue
+    }
+    if (deadline && now < deadline) continue
+    const el = videoElementsRef.current.get(id)
+    videoElementsRef.current.delete(id)
+    persistenceCanvasesRef.current.delete(id)
+    releaseDeadlinesRef.current.delete(id)
+    lastMediaUrlByClipId.delete(id)
+    if (el) parkElementIfUnused(el, videoElementsRef, freeByUrl)
+  }
 
   releaseDeadlinesRef.current.forEach((deadline, id) => {
     if (now < deadline) return
-    if (!videoElementsRef.current.has(id)) {
+    if (nearIds.has(id)) {
       releaseDeadlinesRef.current.delete(id)
       return
     }
-    const clip = videosList.find((v) => v.id === id)
-    if (!clip) {
-      releasePreviewVideoElement(id, videoElementsRef, persistenceCanvasesRef, releaseDeadlinesRef)
-      return
-    }
-    const inTimelineRange = isVideoActiveAtTimelineTime(clip, videosList, playbackTime, imagesList)
-    const prefetchBeforeStart =
-      playbackTime < clip.timestamp && clip.timestamp - playbackTime <= prefetchLead
-    if (!inTimelineRange && !prefetchBeforeStart) {
-      releasePreviewVideoElement(id, videoElementsRef, persistenceCanvasesRef, releaseDeadlinesRef)
-    } else {
-      releaseDeadlinesRef.current.delete(id)
-    }
+    const el = videoElementsRef.current.get(id)
+    videoElementsRef.current.delete(id)
+    persistenceCanvasesRef.current.delete(id)
+    releaseDeadlinesRef.current.delete(id)
+    lastMediaUrlByClipId.delete(id)
+    if (el) parkElementIfUnused(el, videoElementsRef, freeByUrl)
   })
 
-  const sortedVideos = [...videosList].sort((a, b) => a.timestamp - b.timestamp)
-  const currentIds = new Set(sortedVideos.map((v) => v.id))
+  const neededByUrl = new Map<string, VideoClass[]>()
+  for (const clip of nearClips) {
+    const mediaUrl = previewPoolKey(clip)
+    if (!mediaUrl) continue
+    const list = neededByUrl.get(mediaUrl) || []
+    list.push(clip)
+    neededByUrl.set(mediaUrl, list)
+  }
 
-  lastPlaybackContentKeyByClipId.forEach((_, id) => {
-    if (!currentIds.has(id)) lastPlaybackContentKeyByClipId.delete(id)
-  })
-
-  const removedElements = new Map<string, HTMLVideoElement>()
-  videoElementsRef.current.forEach((el, id) => {
-    if (!currentIds.has(id)) {
-      releaseDeadlinesRef.current.delete(id)
-      removedElements.set(el.src, el)
-      videoElementsRef.current.delete(id)
-      persistenceCanvasesRef.current.delete(id)
-    }
-  })
-
-  sortedVideos.forEach((clip) => {
-    const clipSrc = videoPlaybackMediaUrl(clip)
-    const contentKey = videoPlaybackContentKey(clip)
-    const prevContentKey = lastPlaybackContentKeyByClipId.get(clip.id)
-    const contentChanged = prevContentKey !== undefined && prevContentKey !== contentKey
-    lastPlaybackContentKeyByClipId.set(clip.id, contentKey)
-
-    const inTimelineRange = isVideoActiveAtTimelineTime(clip, videosList, playbackTime, imagesList)
-    const prefetchBeforeStart =
-      playbackTime < clip.timestamp && clip.timestamp - playbackTime <= prefetchLead
-    const isNearPlayhead = inTimelineRange || prefetchBeforeStart
-    let video = videoElementsRef.current.get(clip.id)
-
-    if (!isNearPlayhead && !video) return
-
-    if (isNearPlayhead) {
-      releaseDeadlinesRef.current.delete(clip.id)
-    }
-
-    if (video && contentChanged) {
-      releasePreviewVideoElement(
-        clip.id,
-        videoElementsRef,
-        persistenceCanvasesRef,
-        releaseDeadlinesRef
+  neededByUrl.forEach((clips, mediaUrl) => {
+    const primary =
+      clips.find((c) => isVideoActiveAtTimelineTime(c, videosList, playbackTime, imagesList)) ||
+      clips.reduce((best, clip) =>
+        clipDistanceFromPlayhead(clip, playbackTime, videosList) <
+        clipDistanceFromPlayhead(best, playbackTime, videosList)
+          ? clip
+          : best
       )
-      video = undefined
-    }
 
-    if (!video && clipSrc && isNearPlayhead) {
-      const resolvedSrc = resolvedVideoElementSrc(clipSrc)
-      video =
-        removedElements.get(resolvedMediaHref(resolvedSrc)) ||
-        removedElements.get(resolvedMediaHref(clipSrc)) ||
-        removedElements.get(resolvedSrc) ||
-        removedElements.get(clipSrc)
+    let video =
+      clips
+        .map((clip) => videoElementsRef.current.get(clip.id))
+        .find((el): el is HTMLVideoElement => !!el) ||
+      findExistingElementForUrl(mediaUrl, videoElementsRef, freeByUrl)
+    const inTimelineRange = isVideoActiveAtTimelineTime(
+      primary,
+      videosList,
+      playbackTime,
+      imagesList
+    )
 
-      if (video) {
-        removedElements.delete(video.src)
-        invalidatePreviewVideoFrameCache(video)
-        setVideoCrossOriginForUrl(video, clipSrc)
-        attachPreviewVideoFrameListeners(video)
-        if (!videoElementSrcMatches(video, clipSrc)) {
-          video.pause()
-          video.src = resolvedSrc
-          video.load()
-        } else {
-          const trimBase = videoSourceTrimBase(clip)
-          if (Math.abs(video.currentTime - trimBase) > 0.05) {
-            video.currentTime = trimBase
-          }
-        }
-      } else {
-        video = document.createElement('video')
-        video.preload = inTimelineRange ? 'auto' : 'metadata'
-        video.playsInline = true
-        setVideoCrossOriginForUrl(video, clipSrc)
-        video.src = resolvedSrc
-        video.onloadedmetadata = () => {
-          const currentClip = useManifestStore.getState().videos.find((v) => v.id === clip.id)
-          if (!currentClip) return
-          const elDur = video!.duration
-          const trimBase = videoSourceTrimBase(currentClip)
-          const hasTrim = trimBase > 0 || currentClip.trimEnd > 0
-          const cd = currentClip.duration
-          const needsTimelineDuration = cd == null || !(cd > 0)
-          const storedOrig = currentClip.originalDuration ?? 0
-          const patch: Record<string, number> = {}
-          if (elDur > 0 && needsTimelineDuration && !hasTrim) {
-            patch.duration = elDur
-          }
-          if (elDur > storedOrig + 0.05 && !hasTrim) {
-            patch.originalDuration = elDur
-          }
-          if (Object.keys(patch).length > 0) {
-            useManifestStore.getState().updateVideo(clip.id, patch)
-          }
-          if (Math.abs(video!.currentTime - trimBase) > 0.05) {
-            video!.currentTime = trimBase
-          }
-          wakePreviewLoop()
-        }
-      }
-      videoElementsRef.current.set(clip.id, video)
+    if (!video) {
+      video = createPreviewVideoElement(primary, mediaUrl, inTimelineRange ? 'auto' : 'metadata')
+    } else {
       attachPreviewVideoFrameListeners(video)
-    } else if (video && clipSrc && !videoElementSrcMatches(video, clipSrc) && isNearPlayhead) {
-      video.pause()
-      invalidatePreviewVideoFrameCache(video)
-      setVideoCrossOriginForUrl(video, clipSrc)
-      video.src = resolvedVideoElementSrc(clipSrc)
-      video.load()
-    } else if (video && !isNearPlayhead) {
-      const deadline = releaseDeadlinesRef.current.get(clip.id)
-      if (isTimelineScrubbingRef.current) {
-        if (!deadline) {
-          releaseDeadlinesRef.current.set(clip.id, now + PREVIEW_VIDEO_RELEASE_GRACE_MS)
-        }
-        return
-      }
-      if (deadline && now < deadline) return
-      const srcActive = (video.currentSrc || video.src || '').length > 0
-      if (srcActive) {
+      if (!videoElementSrcMatches(video, mediaUrl)) {
+        invalidatePreviewVideoFrameCache(video)
+        setVideoCrossOriginForUrl(video, mediaUrl)
         video.pause()
-        video.src = ''
+        video.src = resolvedVideoElementSrc(mediaUrl)
         video.load()
+      } else if (inTimelineRange && video.preload !== 'auto') {
+        video.preload = 'auto'
       }
-      videoElementsRef.current.delete(clip.id)
-      persistenceCanvasesRef.current.delete(clip.id)
-      releaseDeadlinesRef.current.delete(clip.id)
-      video = undefined
     }
 
-    if (video && video.muted !== clip.muted) {
-      video.muted = clip.muted
+    for (const clip of clips) {
+      const prevUrl = lastMediaUrlByClipId.get(clip.id)
+      if (prevUrl && prevUrl !== mediaUrl) {
+        const oldEl = videoElementsRef.current.get(clip.id)
+        videoElementsRef.current.delete(clip.id)
+        if (oldEl && oldEl !== video) {
+          parkElementIfUnused(oldEl, videoElementsRef, freeByUrl)
+        }
+      }
+      lastMediaUrlByClipId.set(clip.id, mediaUrl)
+      videoElementsRef.current.set(clip.id, video)
+      releaseDeadlinesRef.current.delete(clip.id)
+      if (clip.id === primary.id) {
+        video.muted = clip.muted
+      }
     }
   })
 
-  removedElements.forEach((el) => {
-    el.pause()
-    el.src = ''
-    el.load()
+  freeByUrl.forEach((el) => {
+    let stillUsed = false
+    for (const other of videoElementsRef.current.values()) {
+      if (other === el) {
+        stillUsed = true
+        break
+      }
+    }
+    if (!stillUsed) destroyPreviewVideoElement(el)
   })
 
   enforceMaxActivePreviewVideos(

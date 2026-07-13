@@ -9,6 +9,8 @@
 
 node_modules
 
+*.tsbuildinfo
+
 public/ffmpeg
 
 .DS_Store

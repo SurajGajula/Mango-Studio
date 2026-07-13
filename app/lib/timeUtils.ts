@@ -104,6 +104,6 @@ export function calculateTotalDuration(
   const imageDuration = (images || []).reduce((max, img) => Math.max(max, img.endTime), 0)
   const textDuration = (texts || []).reduce((max, txt) => Math.max(max, txt.endTime), 0)
 
-  const audioItemsDuration = (audios || []).reduce((max, aud) => Math.max(max, (aud.startTime ?? 0) + ((aud.originalDuration ?? 0) - (aud.trimStart ?? 0) - (aud.trimEnd ?? 0)) / (aud.playbackSpeed ?? 1)), 0)
+  const audioItemsDuration = (audios || []).reduce((max, aud) => Math.max(max, aud.endTime ?? 0), 0)
   return Math.max(videoDuration, imageDuration, textDuration, audioItemsDuration)
 }

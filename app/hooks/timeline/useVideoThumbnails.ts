@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { generateVideoThumbnails } from '@/app/lib/mediaUtils'
+import { generateVideoThumbnails, revokeThumbnailUrls } from '@/app/lib/mediaUtils'
 import { VideoClass } from '@/app/models/VideoClass'
 import {
   videoThumbnailCacheKey,
@@ -67,6 +67,7 @@ export function useVideoThumbnails(videos: VideoClass[]) {
         const next = new Map(prev)
         for (const key of next.keys()) {
           if (!activeKeys.has(key)) {
+            revokeThumbnailUrls(next.get(key))
             next.delete(key)
             changed = true
           }
@@ -89,10 +90,17 @@ export function useVideoThumbnails(videos: VideoClass[]) {
         processingKeysRef.current.add(cacheKey)
         try {
           await generateVideoThumbnails(cacheKey, missing, (time, data) => {
-            if (cancelled) return
+            if (cancelled) {
+              if (data.startsWith('blob:')) URL.revokeObjectURL(data)
+              return
+            }
             setVideoThumbnails((prev) => {
               const next = new Map(prev)
               const urlMap = new Map(next.get(cacheKey) || [])
+              const previous = urlMap.get(time)
+              if (previous && previous.startsWith('blob:') && previous !== data) {
+                URL.revokeObjectURL(previous)
+              }
               urlMap.set(time, data)
               next.set(cacheKey, urlMap)
               return next
@@ -155,6 +163,14 @@ export function useVideoThumbnails(videos: VideoClass[]) {
       if (timeoutId) clearTimeout(timeoutId)
     }
   }, [videos])
+
+  useEffect(() => {
+    return () => {
+      for (const urlMap of videoThumbnailsRef.current.values()) {
+        revokeThumbnailUrls(urlMap)
+      }
+    }
+  }, [])
 
   return { videoThumbnails, setVideoThumbnails }
 }

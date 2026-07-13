@@ -65,14 +65,39 @@ function resetAudioElementForLoop(el: HTMLAudioElement, restartAt: number) {
   }
 }
 
-const AUDIO_PREFETCH_BEFORE_SEC = 35
+const AUDIO_PREFETCH_BEFORE_SEC = 12
+const AUDIO_KEEP_AFTER_SEC = 2
+const IMAGE_PREFETCH_WINDOW_SEC = 20
+const IMAGE_BITMAP_CACHE_MAX = 12
+const IMAGE_BITMAP_MAX_EDGE = 1280
 const STORE_PLAYBACK_PUSH_INTERVAL_SEC = 0.05
 
+function isAudioNearPlayhead(audioItem: AudioClass, playbackTime: number): boolean {
+  return (
+    playbackTime >= audioItem.startTime - AUDIO_PREFETCH_BEFORE_SEC &&
+    playbackTime < audioItem.endTime + AUDIO_KEEP_AFTER_SEC
+  )
+}
+
+async function createDownscaledImageBitmap(blob: Blob): Promise<ImageBitmap> {
+  const full = await createImageBitmap(blob)
+  const maxEdge = Math.max(full.width, full.height)
+  if (maxEdge <= IMAGE_BITMAP_MAX_EDGE) return full
+  const scale = IMAGE_BITMAP_MAX_EDGE / maxEdge
+  const resized = await createImageBitmap(full, {
+    resizeWidth: Math.max(1, Math.round(full.width * scale)),
+    resizeHeight: Math.max(1, Math.round(full.height * scale)),
+    resizeQuality: 'medium',
+  })
+  full.close()
+  return resized
+}
+
 function isAudioElementReady(el: HTMLAudioElement): boolean {
-  if (el.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return false
+  if (el.readyState < HTMLMediaElement.HAVE_METADATA) return false
   if (el.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) return false
   const duration = el.duration
-  return !Number.isNaN(duration)
+  return Number.isFinite(duration) && duration > 0
 }
 
 type PersistenceCanvasMap = Map<string, { current: HTMLCanvasElement; accumulation: HTMLCanvasElement }>
@@ -197,10 +222,37 @@ export function useVideoPlayback(
   )
 
   const rebuildAllPreviewAudios = useCallback(
-    (items: AudioClass[]) => {
+    (items: AudioClass[], playbackTime?: number) => {
+      const t = playbackTime ?? getState().playbackTime
       items.forEach((item) => {
         disposePreviewAudio(item.id)
-        installPreviewAudio(item)
+      })
+      items.forEach((item) => {
+        if (isAudioNearPlayhead(item, t)) {
+          installPreviewAudio(item)
+        }
+      })
+    },
+    [disposePreviewAudio, installPreviewAudio, getState]
+  )
+
+  const syncPreviewAudioPool = useCallback(
+    (playbackTime: number, items: AudioClass[]) => {
+      const keepIds = new Set<string>()
+      for (const item of items) {
+        if (!isPlaybackFetchableUrl(item.url)) continue
+        if (!isAudioNearPlayhead(item, playbackTime)) continue
+        keepIds.add(item.id)
+        const el = audioElementsRef.current.get(item.id)
+        if (!el) {
+          installPreviewAudio(item)
+        } else if (!audioElementSrcMatches(el, item.url)) {
+          disposePreviewAudio(item.id)
+          installPreviewAudio(item)
+        }
+      }
+      audioElementsRef.current.forEach((_, id) => {
+        if (!keepIds.has(id)) disposePreviewAudio(id)
       })
     },
     [disposePreviewAudio, installPreviewAudio]
@@ -276,13 +328,38 @@ export function useVideoPlayback(
       }
     })
 
-    images.forEach((image) => {
-      const isNearPlayhead =
-        Math.abs(image.startTime - playbackTime) < 60 ||
+    const nearImages = images.filter((image) => {
+      return (
+        Math.abs(image.startTime - playbackTime) < IMAGE_PREFETCH_WINDOW_SEC ||
+        Math.abs(image.endTime - playbackTime) < IMAGE_PREFETCH_WINDOW_SEC ||
         isImageActiveAtTimelineTime(image, videos, images, playbackTime)
+      )
+    })
 
-      if (!isNearPlayhead) return
+    const nearUrls = new Set(nearImages.map((image) => image.url))
+    urlCacheRef.current.forEach((bitmap, url) => {
+      if (nearUrls.has(url)) return
+      bitmap.close()
+      urlCacheRef.current.delete(url)
+      imageBitmapsRef.current.forEach((bmp, id) => {
+        if (bmp === bitmap) imageBitmapsRef.current.delete(id)
+      })
+    })
 
+    while (urlCacheRef.current.size > IMAGE_BITMAP_CACHE_MAX) {
+      const oldestUrl = urlCacheRef.current.keys().next().value
+      if (!oldestUrl) break
+      const bitmap = urlCacheRef.current.get(oldestUrl)
+      if (bitmap) {
+        bitmap.close()
+        imageBitmapsRef.current.forEach((bmp, id) => {
+          if (bmp === bitmap) imageBitmapsRef.current.delete(id)
+        })
+      }
+      urlCacheRef.current.delete(oldestUrl)
+    }
+
+    nearImages.forEach((image) => {
       if (imageUrlsRef.current.get(image.id) !== image.url) {
         imageBitmapsRef.current.delete(image.id)
         imageUrlsRef.current.set(image.id, image.url)
@@ -299,13 +376,29 @@ export function useVideoPlayback(
             try {
               const response = await fetch(image.url)
               const blob = await response.blob()
-              const newBitmap = await createImageBitmap(blob)
+              const newBitmap = await createDownscaledImageBitmap(blob)
               if (gen !== imagePrefetchGenRef.current) {
                 newBitmap.close()
                 return
               }
+              const existing = urlCacheRef.current.get(image.url)
+              if (existing && existing !== newBitmap) existing.close()
+              urlCacheRef.current.delete(image.url)
               urlCacheRef.current.set(image.url, newBitmap)
+              while (urlCacheRef.current.size > IMAGE_BITMAP_CACHE_MAX) {
+                const oldestUrl = urlCacheRef.current.keys().next().value
+                if (!oldestUrl || oldestUrl === image.url) break
+                const oldBitmap = urlCacheRef.current.get(oldestUrl)
+                if (oldBitmap) {
+                  oldBitmap.close()
+                  imageBitmapsRef.current.forEach((bmp, id) => {
+                    if (bmp === oldBitmap) imageBitmapsRef.current.delete(id)
+                  })
+                }
+                urlCacheRef.current.delete(oldestUrl)
+              }
               imageBitmapsRef.current.set(image.id, newBitmap)
+              notifyLivePlaybackSubscribers()
             } catch (e) {
               if (gen === imagePrefetchGenRef.current) {
                 console.error('Failed to load image bitmap', image.url, e)
@@ -315,7 +408,10 @@ export function useVideoPlayback(
             }
           })()
         } else {
+          urlCacheRef.current.delete(image.url)
+          urlCacheRef.current.set(image.url, bitmap)
           imageBitmapsRef.current.set(image.id, bitmap)
+          notifyLivePlaybackSubscribers()
         }
       }
     })
@@ -328,27 +424,8 @@ export function useVideoPlayback(
   }, [images, prefetchImagesNearPlayhead, getState])
 
   useEffect(() => {
-    const currentAudioIds = new Set(audios.map((a) => a.id))
-    audioElementsRef.current.forEach((_, id) => {
-      if (!currentAudioIds.has(id)) {
-        disposePreviewAudio(id)
-      }
-    })
-
-    audios.forEach((audioItem) => {
-      if (!isPlaybackFetchableUrl(audioItem.url)) {
-        disposePreviewAudio(audioItem.id)
-        return
-      }
-      const el = audioElementsRef.current.get(audioItem.id)
-      if (!el) {
-        installPreviewAudio(audioItem)
-      } else if (!audioElementSrcMatches(el, audioItem.url)) {
-        disposePreviewAudio(audioItem.id)
-        installPreviewAudio(audioItem)
-      }
-    })
-  }, [audios, disposePreviewAudio, installPreviewAudio])
+    syncPreviewAudioPool(getState().playbackTime, audios)
+  }, [audios, syncPreviewAudioPool, getState])
 
   // Resume audio context on user interaction to satisfy browser policies
   useEffect(() => {
@@ -387,7 +464,7 @@ export function useVideoPlayback(
           audioCanPlayListenersRef.current.delete(audioItem.id)
         }
       })
-      rebuildAllPreviewAudios(state.audios)
+      rebuildAllPreviewAudios(state.audios, state.playbackTime)
     }
     document.addEventListener('visibilitychange', onVisibility)
     return () => document.removeEventListener('visibilitychange', onVisibility)
@@ -403,6 +480,10 @@ export function useVideoPlayback(
       }
       audioPendingStartRef.current.clear()
       audioCanPlayListenersRef.current.clear()
+      urlCacheRef.current.forEach((bitmap) => bitmap.close())
+      urlCacheRef.current.clear()
+      imageBitmapsRef.current.clear()
+      imageUrlsRef.current.clear()
     }
   }, [disposePreviewAudio])
 
@@ -582,6 +663,7 @@ export function useVideoPlayback(
         state.images
       )
       prefetchImagesNearPlayhead(newTime)
+      syncPreviewAudioPool(newTime, state.audios)
 
       const canvas = canvasRef.current; const container = containerRef.current
       
@@ -631,7 +713,7 @@ export function useVideoPlayback(
         audioPlayPromisesRef.current.clear()
         audioWarmupUntilRef.current.clear()
         audioPendingStartRef.current.clear()
-        rebuildAllPreviewAudios(state.audios)
+        rebuildAllPreviewAudios(state.audios, newTime)
       }
 
       const playbackJustStarted = effectiveIsPlaying && !wasPlayingRef.current
@@ -642,7 +724,7 @@ export function useVideoPlayback(
         audioPlayPromisesRef.current.clear()
         audioWarmupUntilRef.current.clear()
         audioPendingStartRef.current.clear()
-        rebuildAllPreviewAudios(state.audios)
+        rebuildAllPreviewAudios(state.audios, newTime)
       } else if (playbackJustStarted && !didWrapPlayback) {
         audioPlayPromisesRef.current.clear()
         audioWarmupUntilRef.current.clear()
@@ -747,8 +829,9 @@ export function useVideoPlayback(
             if (!el.paused) {
               return
             }
+            const pendingTarget = clampAudioSeekTime(el, syncTarget)
             audioPendingStartRef.current.set(audioItem.id, {
-              syncTarget: clampAudioSeekTime(el, syncTarget),
+              syncTarget: pendingTarget,
               effectiveVol,
               timestamp,
             })
@@ -770,6 +853,15 @@ export function useVideoPlayback(
               }
               el.addEventListener('canplay', canPlayListener)
               audioCanPlayListenersRef.current.set(audioItem.id, canPlayListener)
+            }
+            if (!audioPlayPromisesRef.current.has(audioItem.id)) {
+              nodes.gain.gain.setValueAtTime(0, audioCtx.currentTime)
+              audioWarmupUntilRef.current.set(audioItem.id, timestamp + 140)
+              const p = el.play()
+              audioPlayPromisesRef.current.set(audioItem.id, p)
+              p.catch(() => {}).finally(() => {
+                audioPlayPromisesRef.current.delete(audioItem.id)
+              })
             }
             return
           }
@@ -982,7 +1074,7 @@ export function useVideoPlayback(
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
       rafRef.current = null
     }
-  }, [getState, canvasRef, containerRef, getAudioCtx, renderTextsInCanvas, rebuildAllPreviewAudios, prefetchImagesNearPlayhead, purgePreviewVideoPool])
+  }, [getState, canvasRef, containerRef, getAudioCtx, renderTextsInCanvas, rebuildAllPreviewAudios, prefetchImagesNearPlayhead, purgePreviewVideoPool, syncPreviewAudioPool])
 
   useEffect(() => { return () => { 
     videoElementsRef.current.forEach((_, id) => {

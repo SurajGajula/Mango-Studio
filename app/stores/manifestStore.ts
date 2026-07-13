@@ -9,6 +9,7 @@ import { createEffectSlice } from './manifest/effectSlice'
 import { createHistorySlice } from './manifest/historySlice'
 import { createGeneralSlice } from './manifest/generalSlice'
 import { clearFileObjectUrlCache } from '@/app/lib/fileObjectUrlCache'
+import { clearVideoProxyCache } from '@/app/lib/mediaProxy'
 import { livePlaybackTimeRef } from '@/app/lib/playbackClock'
 
 export const useManifestStore = create<ManifestStore>((set, get) => ({
@@ -25,6 +26,7 @@ export const useManifestStore = create<ManifestStore>((set, get) => ({
   ...createHistorySlice(set, get),
   resetStore: () => {
     clearFileObjectUrlCache()
+    clearVideoProxyCache()
     livePlaybackTimeRef.current = 0
     set({
       videos: [],

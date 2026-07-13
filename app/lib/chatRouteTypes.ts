@@ -55,7 +55,7 @@ export interface AddSolidImageInstruction {
 }
 
 export interface AddEffectInstruction {
-  type: 'crt-dither' | 'flashing-black-vignette' | 'black-and-white' | 'vivid-sharp' | 'pixel-glitch-scan' | 'grainy'
+  type: 'crt-dither' | 'flashing-black-vignette' | 'blur-vignette' | 'cool-tone' | 'black-and-white' | 'contrast' | 'vivid-sharp' | 'pixel-glitch-scan' | 'grainy'
   startTime: number
   endTime: number
   intensity?: number

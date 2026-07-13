@@ -6,7 +6,7 @@ export const LOCAL_CHAT_ROUTING_INSTRUCTION =
   '- split_at_marks: split images, videos, texts, or audios into equal parts or at timeline positions. Expand ranges (images 2-9). One splits entry per item with exact manifest id. For N equal parts, times are absolute seconds: start+span*k/N for k=1..N-1. Images/texts/audios use startTime/endTime; videos use timestamp and duration.\n' +
   '- duplicate_timeline_range: duplicate a contiguous range of images or videos by manifest #N.\n' +
   '- set_crop: set aspect ratio crop (16:9, 4:3, 1:1, 3:4, 9:16, none) on images or videos.\n' +
-  '- add_effect: add crt-dither, vignette, black-and-white, vivid-sharp, pixel-glitch-scan, or grainy over a time range.\n' +
+  '- add_effect: add crt-dither, vignette, blur-vignette, cool-tone, black-and-white, contrast, vivid-sharp, pixel-glitch-scan, or grainy over a time range.\n' +
   '- set_step_growth: make an image grow in equal steps to full frame.\n' +
   '- normalize_audio_volumes: match target audio loudness to a reference audio.\n' +
   '- add_text: add overlays with content, startTime, and endTime.\n' +

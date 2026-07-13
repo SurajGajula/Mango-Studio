@@ -498,7 +498,6 @@ export async function generateVideoThumbnails(
 
   const thumbnails = new Map<number, string>()
   
-  // Sort seconds to minimize seeking distance
   const sortedSeconds = [...seconds].sort((a, b) => a - b)
 
   let lastSeekTime = -1
@@ -526,17 +525,35 @@ export async function generateVideoThumbnails(
     lastSeekTime = s
     
     ctx.drawImage(video, 0, 0, thumbWidth, thumbHeight)
-    const data = canvas.toDataURL('image/jpeg', 0.42)
+    const data = await new Promise<string>((resolve, reject) => {
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            reject(new Error('Failed to create thumbnail blob'))
+            return
+          }
+          resolve(URL.createObjectURL(blob))
+        },
+        'image/jpeg',
+        0.42
+      )
+    })
     thumbnails.set(s, data)
     
     if (onProgress) {
       onProgress(s, data)
     }
     
-    // Yield to event loop to keep UI responsive
     await new Promise(r => setTimeout(r, 0))
   }
 
   video.src = ''
   return thumbnails
+}
+
+export function revokeThumbnailUrls(urlMap: Map<number, string> | undefined) {
+  if (!urlMap) return
+  for (const url of urlMap.values()) {
+    if (url.startsWith('blob:')) URL.revokeObjectURL(url)
+  }
 }

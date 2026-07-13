@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { filterRootVisibleFolders } from '@/app/lib/accountMediaFolderTree'
 import { findSystemFolderIds } from '@/app/lib/accountMediaSystemFolders'
 import { createClient } from '@/app/utils/supabase/server'
 
@@ -21,6 +22,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ folders: [], assets: [] })
   }
 
+  const atRootBrowse = !listAll && !folderId && !search
+
   let foldersQuery = supabase
     .from('media_folders')
     .select('*')
@@ -28,20 +31,23 @@ export async function GET(req: NextRequest) {
     .order('name', { ascending: true })
 
   if (!listAll) {
-    if (folderId) {
+    if (search) {
+      foldersQuery = foldersQuery.ilike('name', `%${search}%`)
+    } else if (folderId) {
       foldersQuery = foldersQuery.eq('parent_id', folderId)
-    } else {
-      foldersQuery = foldersQuery.is('parent_id', null)
     }
   }
   for (const hiddenFolderId of hiddenFolderIds) {
     foldersQuery = foldersQuery.neq('id', hiddenFolderId)
   }
 
-  const { data: folders, error: foldersError } = await foldersQuery
+  const { data: foldersData, error: foldersError } = await foldersQuery
   if (foldersError) {
     return NextResponse.json({ error: foldersError.message }, { status: 500 })
   }
+
+  const allVisibleFolders = foldersData ?? []
+  const folders = atRootBrowse ? filterRootVisibleFolders(allVisibleFolders) : allVisibleFolders
 
   let assetsQuery = supabase
     .from('media_assets')
@@ -55,7 +61,10 @@ export async function GET(req: NextRequest) {
     } else if (folderId) {
       assetsQuery = assetsQuery.eq('folder_id', folderId)
     } else {
-      assetsQuery = assetsQuery.is('folder_id', null)
+      const folderIds = allVisibleFolders.map((folder) => folder.id as string)
+      if (folderIds.length > 0) {
+        assetsQuery = assetsQuery.or(`folder_id.is.null,folder_id.not.in.(${folderIds.join(',')})`)
+      }
     }
   }
 
@@ -64,13 +73,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: assetsError.message }, { status: 500 })
   }
 
+  const hiddenFolderIdSet = new Set(hiddenFolderIds)
   const visibleAssets = (assets ?? []).filter((asset) => {
     if (!asset.folder_id) return true
-    return !hiddenFolderIds.includes(asset.folder_id)
+    return !hiddenFolderIdSet.has(asset.folder_id)
   })
 
   return NextResponse.json({
-    folders: folders ?? [],
+    folders,
     assets: visibleAssets,
   })
 }

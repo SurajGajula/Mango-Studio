@@ -40,12 +40,45 @@ const EFFECT_OPTIONS: { value: EffectType; label: string; icon: React.ReactNode 
     ),
   },
   {
+    value: 'blur-vignette',
+    label: 'Blur Vignette',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <circle cx="12" cy="12" r="5" />
+        <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+      </svg>
+    ),
+  },
+  {
+    value: 'cool-tone',
+    label: 'Cool Tone',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" opacity="0.35" />
+        <circle cx="12" cy="12" r="5" />
+        <path d="M12 7a5 5 0 0 1 0 10" fill="currentColor" stroke="none" opacity="0.4" />
+      </svg>
+    ),
+  },
+  {
     value: 'black-and-white',
     label: 'Black & White',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="10" />
         <path d="M12 2a10 10 0 0 1 0 20V2z" fill="currentColor" stroke="none" opacity="0.35" />
+      </svg>
+    ),
+  },
+  {
+    value: 'contrast',
+    label: 'Contrast',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M12 2v20" />
+        <path d="M12 2a10 10 0 0 1 0 20" fill="currentColor" stroke="none" />
       </svg>
     ),
   },
@@ -122,7 +155,7 @@ export default function EffectsPanel({ onClose }: Props) {
       start,
       end,
       row,
-      value === 'black-and-white' ? 1 : 0.5
+      value === 'contrast' ? 1 : 0.5
     ))
   }
 
@@ -194,20 +227,26 @@ export default function EffectsPanel({ onClose }: Props) {
           </>
         )}
 
-        {(activeEffect?.type === 'black-and-white' ||
+        {(activeEffect?.type === 'contrast' ||
           activeEffect?.type === 'vivid-sharp' ||
           activeEffect?.type === 'pixel-glitch-scan' ||
-          activeEffect?.type === 'grainy') && (
+          activeEffect?.type === 'grainy' ||
+          activeEffect?.type === 'blur-vignette' ||
+          activeEffect?.type === 'cool-tone') && (
           <div className={styles.durationControl} style={{ marginTop: '2rem' }}>
             <div className={styles.durationHeader}>
               <span className={styles.durationLabel}>
-                {activeEffect.type === 'black-and-white'
+                {activeEffect.type === 'contrast'
                   ? 'Contrast'
                   : activeEffect.type === 'vivid-sharp'
                     ? 'Sharpness'
                     : activeEffect.type === 'grainy'
                       ? 'Grain'
-                      : 'Block size'}
+                      : activeEffect.type === 'blur-vignette'
+                        ? 'Blur'
+                        : activeEffect.type === 'cool-tone'
+                          ? 'Cool'
+                          : 'Block size'}
               </span>
               <span className={styles.durationValue}>{((activeEffect.intensity ?? 0.5) * 100).toFixed(0)}%</span>
             </div>

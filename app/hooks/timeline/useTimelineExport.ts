@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
-import { exportVideo, ExportProgress } from '@/app/lib/videoExporter'
+import { exportVideo, ExportProgress, terminateFFmpeg } from '@/app/lib/videoExporter'
 import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { TextClass } from '@/app/models/TextClass'
@@ -48,6 +48,7 @@ export function useTimelineExport({
     clearPreview()
     setExportProgress(null)
     setExportModalOpen(false)
+    terminateFFmpeg()
   }, [clearPreview])
 
   const handleExport = useCallback(async () => {

@@ -28,7 +28,7 @@ export function shouldPlayExtractedVideoFromSource(video: VideoClass): boolean {
   return false
 }
 
-export function videoPlaybackMediaUrl(video: VideoClass): string {
+export function videoFullResMediaUrl(video: VideoClass): string {
   if (shouldPlayExtractedVideoFromSource(video)) {
     return video.sourceUrl!
   }
@@ -36,6 +36,22 @@ export function videoPlaybackMediaUrl(video: VideoClass): string {
   if (url && (url.startsWith('blob:') || isPlaybackFetchableUrl(url))) return url
   if (video.sourceUrl && isPlaybackFetchableUrl(video.sourceUrl)) return video.sourceUrl
   return url || video.sourceUrl || ''
+}
+
+export function videoExportMediaUrl(video: VideoClass): string {
+  return videoFullResMediaUrl(video)
+}
+
+export function videoPlaybackMediaUrl(video: VideoClass): string {
+  const proxy = video.proxyUrl
+  if (
+    proxy &&
+    (proxy.startsWith('blob:') || isPlaybackFetchableUrl(proxy)) &&
+    !isPersistedBlobTokenRef(proxy)
+  ) {
+    return proxy
+  }
+  return videoFullResMediaUrl(video)
 }
 
 export function videoSourceTrimBase(video: VideoClass): number {
@@ -121,22 +137,15 @@ export function normalizeVideoAfterSnapshotRevive(video: VideoClass): VideoClass
     sourceUrl: undefined,
     sourceTrimStart: undefined,
     sourceDuration: undefined,
+    proxyUrl: undefined,
   })
 }
 
-export function videoPlaybackContentKey(video: VideoClass): string {
-  return [
-    videoPlaybackMediaUrl(video),
-    video.url ?? '',
-    video.sourceUrl ?? '',
-    videoSourceTrimBase(video),
-    video.trimStart ?? 0,
-    video.sourceTrimStart ?? '',
-    videoPlaybackTrimEnd(video),
-    video.trimEnd ?? 0,
-    video.originalDuration ?? '',
-    video.sourceDuration ?? '',
-    video.duration ?? '',
-    video.playbackSpeed ?? 1,
-  ].join('|')
+export function uniqueVideoMediaUrlCount(videos: VideoClass[]): number {
+  const urls = new Set<string>()
+  for (const video of videos) {
+    const url = videoPlaybackMediaUrl(video)
+    if (url) urls.add(url)
+  }
+  return urls.size
 }

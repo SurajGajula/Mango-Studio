@@ -414,14 +414,21 @@ async function buildProjectSnapshotPayload(): Promise<{
   const blobWrites = new Map<string, Blob>()
   const blobUrlToToken = new Map<string, string>()
 
+  const stripProxy = (v: unknown) => {
+    if (!v || typeof v !== 'object') return v
+    const copy = { ...(v as Record<string, unknown>) }
+    delete copy.proxyUrl
+    return copy
+  }
+
   const raw = {
-    videos: s.videos.map((v) => JSON.parse(JSON.stringify(v))),
+    videos: s.videos.map((v) => stripProxy(JSON.parse(JSON.stringify(v)))),
     images: s.images.map((i) => JSON.parse(JSON.stringify(i))),
     texts: s.texts.map((t) => JSON.parse(JSON.stringify(t))),
     audios: s.audios.map((a) => JSON.parse(JSON.stringify(a))),
     effects: s.effects.map((e) => JSON.parse(JSON.stringify(e))),
     history: s.history.map((h) => ({
-      videos: h.videos.map((v) => JSON.parse(JSON.stringify(v))),
+      videos: h.videos.map((v) => stripProxy(JSON.parse(JSON.stringify(v)))),
       images: h.images.map((i) => JSON.parse(JSON.stringify(i))),
       texts: h.texts.map((t) => JSON.parse(JSON.stringify(t))),
       audios: h.audios.map((a) => JSON.parse(JSON.stringify(a))),

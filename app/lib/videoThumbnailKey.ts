@@ -1,6 +1,6 @@
 import type { VideoClass } from '@/app/models/VideoClass'
 
-export const MAX_THUMBNAIL_SAMPLES_PER_CLIP = 72
+export const MAX_THUMBNAIL_SAMPLES_PER_CLIP = 36
 export const PRIORITY_THUMBNAIL_SAMPLES_PER_CLIP = 6
 
 export function subsampleThumbnailSecondIndices(seconds: number[], maxSamples: number): number[] {

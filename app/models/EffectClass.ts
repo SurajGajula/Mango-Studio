@@ -1,7 +1,10 @@
 export type EffectType =
   | 'crt-dither'
   | 'flashing-black-vignette'
+  | 'blur-vignette'
+  | 'cool-tone'
   | 'black-and-white'
+  | 'contrast'
   | 'vivid-sharp'
   | 'pixel-glitch-scan'
   | 'grainy'

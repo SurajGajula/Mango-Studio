@@ -122,7 +122,7 @@ export function processLocalLlmToolResult(
 
 export function looksLikeTimelineEditRequest(prompt: string): boolean {
   const normalized = prompt.toLowerCase()
-  return /\b(?:mute|unmute|delete|remove|replace|swap|add|apply|set|move|opacity|transition|fade|flash|wipe|morph|text|row|solid|every|all|zoom|shake|jitter|stretch|animation|intensity|duration|length|speed|split|duplicate|crop|grow|center|normalize|match|half|vignette|grainy|dither)\b/.test(
+  return /\b(?:mute|unmute|delete|remove|replace|swap|add|apply|set|move|opacity|transition|fade|flash|wipe|morph|text|row|solid|every|all|zoom|shake|jitter|stretch|animation|intensity|duration|length|speed|split|duplicate|crop|grow|center|normalize|match|half|vignette|blur|cool|grainy|dither|contrast)\b/.test(
     normalized
   )
 }

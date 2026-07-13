@@ -61,7 +61,7 @@ export function selectLocalChatTools(
     return WEB_LLM_CROP_EXPERIMENT_TOOLS
   }
 
-  if (/\b(?:crt|dither|vignette|grainy|glitch|vivid)\b/.test(normalized) && /\badd\b/.test(normalized)) {
+  if (/\b(?:crt|dither|vignette|blur|cool|grainy|glitch|vivid|contrast|black|white)\b/.test(normalized) && /\badd\b/.test(normalized)) {
     return WEB_LLM_EFFECT_EXPERIMENT_TOOLS
   }
 

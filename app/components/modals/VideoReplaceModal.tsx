@@ -266,8 +266,15 @@ export default function VideoReplaceModal({
 
   useEffect(() => {
     let isMounted = true
+    const createdUrls: string[] = []
     const fetchThumbnails = async () => {
       setIsLoadingThumbnails(true)
+      setThumbnails((prev) => {
+        for (const url of prev.values()) {
+          if (url.startsWith('blob:')) URL.revokeObjectURL(url)
+        }
+        return new Map()
+      })
       const seconds: number[] = []
       const step = videoDuration > 60 ? 2 : 1
       for (let s = 0; s <= videoDuration; s += step) {
@@ -275,13 +282,20 @@ export default function VideoReplaceModal({
       }
 
       await generateVideoThumbnails(videoUrl, seconds, (time, data) => {
-        if (isMounted) {
-          setThumbnails(prev => {
-            const next = new Map(prev)
-            next.set(time, data)
-            return next
-          })
+        if (!isMounted) {
+          if (data.startsWith('blob:')) URL.revokeObjectURL(data)
+          return
         }
+        createdUrls.push(data)
+        setThumbnails((prev) => {
+          const next = new Map(prev)
+          const previous = next.get(time)
+          if (previous && previous.startsWith('blob:') && previous !== data) {
+            URL.revokeObjectURL(previous)
+          }
+          next.set(time, data)
+          return next
+        })
       })
 
       if (isMounted) {
@@ -290,7 +304,12 @@ export default function VideoReplaceModal({
     }
 
     fetchThumbnails()
-    return () => { isMounted = false }
+    return () => {
+      isMounted = false
+      for (const url of createdUrls) {
+        if (url.startsWith('blob:')) URL.revokeObjectURL(url)
+      }
+    }
   }, [videoUrl, videoDuration])
 
   useEffect(() => {

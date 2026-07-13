@@ -70,7 +70,6 @@ interface Message {
 interface UploadedFile {
   id: string
   name: string
-  base64: string
   blobUrl: string
   mimeType: string
   mediaType: 'image' | 'audio' | 'video'
@@ -759,10 +758,7 @@ export default function ChatWindow() {
     }
 
     const uploadImageFile = async (file: UploadedFile): Promise<string> => {
-      const blob = new Blob(
-        [Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0))],
-        { type: file.mimeType }
-      )
+      const blob = await fetch(file.blobUrl).then((res) => res.blob())
       const uploadFile = new File([blob], file.name, { type: file.mimeType })
       const assetId = await uploadToAccountLibrary(uploadFile)
       return assetId ? accountMediaAssetPlaybackUrl(assetId) : URL.createObjectURL(blob)
@@ -858,6 +854,26 @@ export default function ChatWindow() {
     const filesSnapshot = [...uploadedFiles]
     if (filesSnapshot.length > 0) {
       setUploadedFiles([])
+    }
+
+    const revokeUploadedSnapshot = () => {
+      const state = useManifestStore.getState()
+      const liveUrls = new Set<string>()
+      for (const v of state.videos) {
+        if (v.url) liveUrls.add(v.url)
+        if (v.sourceUrl) liveUrls.add(v.sourceUrl)
+      }
+      for (const img of state.images) {
+        if (img.url) liveUrls.add(img.url)
+      }
+      for (const a of state.audios) {
+        if (a.url) liveUrls.add(a.url)
+      }
+      for (const file of filesSnapshot) {
+        if (file.blobUrl.startsWith('blob:') && !liveUrls.has(file.blobUrl)) {
+          URL.revokeObjectURL(file.blobUrl)
+        }
+      }
     }
 
     try {
@@ -971,6 +987,8 @@ export default function ChatWindow() {
       updateStatus(data.message ?? 'Done.', false)
     } catch (error) {
       updateStatus(`Error: ${error instanceof Error ? error.message : 'Failed to process'}`, false)
+    } finally {
+      revokeUploadedSnapshot()
     }
   }
 
@@ -1007,19 +1025,10 @@ export default function ChatWindow() {
       else continue
 
       const blobUrl = URL.createObjectURL(file)
-      let base64 = ''
-      if (mediaType === 'image') {
-        base64 = await new Promise<string>((resolve) => {
-          const reader = new FileReader()
-          reader.onload = () => resolve((reader.result as string).split(',')[1])
-          reader.readAsDataURL(file)
-        })
-      }
 
       newFiles.push({
         id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         name: file.name,
-        base64,
         blobUrl,
         mimeType: file.type,
         mediaType,
@@ -1031,7 +1040,11 @@ export default function ChatWindow() {
   }
 
   const removeUploadedFile = (id: string) => {
-    setUploadedFiles((prev) => prev.filter((f) => f.id !== id))
+    setUploadedFiles((prev) => {
+      const target = prev.find((f) => f.id === id)
+      if (target?.blobUrl.startsWith('blob:')) URL.revokeObjectURL(target.blobUrl)
+      return prev.filter((f) => f.id !== id)
+    })
   }
 
   const copyUserMessage = async (id: string, text: string) => {
@@ -1091,7 +1104,7 @@ export default function ChatWindow() {
             <div key={file.id} className={file.mediaType === 'image' ? styles.referenceImageItem : styles.referenceMediaItem}>
               {file.mediaType === 'image' ? (
                 <img
-                  src={`data:${file.mimeType};base64,${file.base64}`}
+                  src={file.blobUrl}
                   alt={file.name}
                   className={styles.referenceImagePreview}
                 />

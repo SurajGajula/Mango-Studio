@@ -348,7 +348,14 @@ const UnifiedRow = ({
                 const additive = e.metaKey || e.ctrlKey
                 if (!additive) selectEffect(id)
                 onSelectionToggle({ id, type: 'effect' }, additive)
-                if (!isSelected) { setPlaybackTime(startTime + 0.001); onOpenEffects?.() }
+                if (!isSelected) {
+                  const playbackTime = useManifestStore.getState().playbackTime
+                  const endTime = startTime + duration
+                  if (playbackTime < startTime || playbackTime >= endTime) {
+                    setPlaybackTime(startTime + 0.001)
+                  }
+                  onOpenEffects?.()
+                }
               }}
               onMouseDown={(e) => handleEffectDragStart(id, 'move', e)}
               onContextMenu={(e) => {

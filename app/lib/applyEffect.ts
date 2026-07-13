@@ -1,22 +1,18 @@
 import type { EffectType } from '@/app/models/EffectClass'
 
 let bwScratch: HTMLCanvasElement | null = null
+let contrastScratch: HTMLCanvasElement | null = null
 let vividScratch: HTMLCanvasElement | null = null
 let glitchScratch: HTMLCanvasElement | null = null
 let grainScratch: HTMLCanvasElement | null = null
+let blurVignetteScratch: HTMLCanvasElement | null = null
+let coolToneScratch: HTMLCanvasElement | null = null
 
 const VIVID_FILTER = 'saturate(1.38) contrast(1.06)'
 const UNSHARP_STRENGTH = 1.85
 
 function clampByte(n: number): number {
   return n < 0 ? 0 : n > 255 ? 255 : n
-}
-
-function smoothstep(edge0: number, edge1: number, x: number): number {
-  if (x <= edge0) return 0
-  if (x >= edge1) return 1
-  const u = (x - edge0) / (edge1 - edge0)
-  return u * u * (3 - 2 * u)
 }
 
 function getVividScratch(w: number, h: number): HTMLCanvasElement {
@@ -361,6 +357,66 @@ function applyFlashingBlackVignette(
   ctx.restore()
 }
 
+function getBlurVignetteScratch(w: number, h: number): HTMLCanvasElement {
+  if (!blurVignetteScratch) {
+    blurVignetteScratch = document.createElement('canvas')
+    blurVignetteScratch.getContext('2d', { willReadFrequently: true })
+  }
+  if (blurVignetteScratch.width !== w || blurVignetteScratch.height !== h) {
+    blurVignetteScratch.width = w
+    blurVignetteScratch.height = h
+  }
+  return blurVignetteScratch
+}
+
+function applyBlurVignette(
+  ctx: CanvasRenderingContext2D,
+  rx: number,
+  ry: number,
+  rw: number,
+  rh: number,
+  intensity: number = 0.5
+): void {
+  if (rw <= 0 || rh <= 0) return
+  const t = Math.max(0, Math.min(1, intensity))
+  if (t <= 0) return
+
+  const iw = Math.max(1, Math.round(rw))
+  const ih = Math.max(1, Math.round(rh))
+  const snap = getBlurVignetteScratch(iw, ih)
+  const sctx = snap.getContext('2d', { willReadFrequently: true })
+  if (!sctx) return
+
+  const source = ctx.canvas
+  const blurPx = Math.max(1, (2 + t * 14) * (rw / 480))
+  const cx = iw * 0.5
+  const cy = ih * 0.5
+  const maxDist = Math.sqrt(cx * cx + cy * cy)
+  const inner = maxDist * (0.18 + (1 - t) * 0.22)
+  const outer = maxDist * (0.55 + t * 0.4)
+
+  sctx.setTransform(1, 0, 0, 1, 0, 0)
+  sctx.clearRect(0, 0, iw, ih)
+  sctx.filter = `blur(${blurPx}px)`
+  sctx.drawImage(source, rx, ry, rw, rh, 0, 0, iw, ih)
+  sctx.filter = 'none'
+
+  sctx.globalCompositeOperation = 'destination-in'
+  const mask = sctx.createRadialGradient(cx, cy, inner, cx, cy, outer)
+  mask.addColorStop(0, 'rgba(0,0,0,0)')
+  mask.addColorStop(1, 'rgba(0,0,0,1)')
+  sctx.fillStyle = mask
+  sctx.fillRect(0, 0, iw, ih)
+  sctx.globalCompositeOperation = 'source-over'
+
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(rx, ry, rw, rh)
+  ctx.clip()
+  ctx.drawImage(snap, 0, 0, iw, ih, rx, ry, rw, rh)
+  ctx.restore()
+}
+
 function getGrainScratch(w: number, h: number): HTMLCanvasElement {
   if (!grainScratch) {
     grainScratch = document.createElement('canvas')
@@ -386,23 +442,21 @@ function applyGrainy(
   const t = Math.max(0, Math.min(1, intensity))
   if (t <= 0) return
 
-  const V_WIDTH = 480
-  const scale = rw / V_WIDTH
-  const vWidth = V_WIDTH
-  const vHeight = Math.max(1, Math.round(rh / scale))
-  const snap = getGrainScratch(vWidth, vHeight)
+  const iw = Math.max(1, Math.round(rw))
+  const ih = Math.max(1, Math.round(rh))
+  const snap = getGrainScratch(iw, ih)
   const sctx = snap.getContext('2d', { willReadFrequently: true })
   if (!sctx) return
 
   const source = ctx.canvas
   sctx.setTransform(1, 0, 0, 1, 0, 0)
-  sctx.clearRect(0, 0, vWidth, vHeight)
-  sctx.drawImage(source, rx, ry, rw, rh, 0, 0, vWidth, vHeight)
+  sctx.clearRect(0, 0, iw, ih)
+  sctx.drawImage(source, rx, ry, rw, rh, 0, 0, iw, ih)
 
   try {
-    const img = sctx.getImageData(0, 0, vWidth, vHeight)
+    const img = sctx.getImageData(0, 0, iw, ih)
     const d = img.data
-    const fineGrain = 12 + t * 20
+    const fineGrain = 12 + t * 40
     const grainRng = makeLCG(Math.floor(playbackTime * 24))
 
     for (let i = 0; i < d.length; i += 4) {
@@ -412,26 +466,27 @@ function applyGrainy(
       d[i + 2] = clampByte(d[i + 2] + n)
     }
 
-    sctx.putImageData(img, 0, 0)
-
     ctx.save()
     ctx.beginPath()
     ctx.rect(rx, ry, rw, rh)
     ctx.clip()
-    ctx.drawImage(snap, 0, 0, vWidth, vHeight, rx, ry, rw, rh)
+    ctx.clearRect(rx, ry, rw, rh)
+    ctx.putImageData(img, rx, ry)
 
     const speckleRng = makeLCG(Math.floor(playbackTime * 24) ^ 0x9e3779b9)
-    const grainAlpha = 0.25 + t * 0.35
-    const grainPerLevel = 450 + Math.round(t * 550)
+    const grainAlpha = Math.min(1, 0.25 + t * 0.7)
+    const refArea = 480 * Math.max(1, Math.round(480 * (rh / rw)))
+    const grainPerLevel = Math.max(
+      1,
+      Math.round((450 + t * 1100) * ((iw * ih) / refArea))
+    )
     const grainLevels = [65, 105, 145, 185] as const
-    ctx.translate(rx, ry)
-    ctx.scale(scale, scale)
     ctx.globalCompositeOperation = 'overlay'
     ctx.globalAlpha = grainAlpha
     for (const level of grainLevels) {
       ctx.fillStyle = `rgb(${level},${level},${level})`
       for (let gi = 0; gi < grainPerLevel; gi++) {
-        ctx.fillRect(speckleRng() * vWidth, speckleRng() * vHeight, 1, 1)
+        ctx.fillRect(rx + speckleRng() * iw, ry + speckleRng() * ih, 1, 1)
       }
     }
     ctx.restore()
@@ -445,12 +500,9 @@ function applyBlackAndWhite(
   rx: number,
   ry: number,
   rw: number,
-  rh: number,
-  intensity: number = 0.5
+  rh: number
 ): void {
   if (rw <= 0 || rh <= 0) return
-  const t = Math.max(0, Math.min(1, intensity))
-  if (t <= 0) return
 
   const iw = Math.max(1, Math.round(rw))
   const ih = Math.max(1, Math.round(rh))
@@ -466,23 +518,154 @@ function applyBlackAndWhite(
     const img = sctx.getImageData(0, 0, iw, ih)
     const d = img.data
     for (let i = 0; i < d.length; i += 4) {
-      const r = d[i] / 255
-      const g = d[i + 1] / 255
-      const b = d[i + 2] / 255
-      const a = d[i + 3]
-      let L = 0.2126 * r + 0.7152 * g + 0.0722 * b
-      if (L < 0.5) {
-        const shMul = 1 + 5.2 * t
-        L = 0.5 - (0.5 - L) * shMul
-      }
-      if (L < 0) L = 0
-      else if (L > 1) L = 1
-      const v = clampByte(L * 255)
+      const v = clampByte(0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2])
       d[i] = v
       d[i + 1] = v
       d[i + 2] = v
-      d[i + 3] = a
     }
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(rx, ry, rw, rh)
+    ctx.clip()
+    ctx.clearRect(rx, ry, rw, rh)
+    ctx.putImageData(img, rx, ry)
+    ctx.restore()
+  } catch {
+    return
+  }
+}
+
+function getContrastScratch(w: number, h: number): HTMLCanvasElement {
+  if (!contrastScratch) {
+    contrastScratch = document.createElement('canvas')
+    contrastScratch.getContext('2d', { willReadFrequently: true })
+  }
+  if (contrastScratch.width !== w || contrastScratch.height !== h) {
+    contrastScratch.width = w
+    contrastScratch.height = h
+  }
+  return contrastScratch
+}
+
+function applyContrast(
+  ctx: CanvasRenderingContext2D,
+  rx: number,
+  ry: number,
+  rw: number,
+  rh: number,
+  intensity: number = 0.5
+): void {
+  if (rw <= 0 || rh <= 0) return
+  const t = Math.max(0, Math.min(1, intensity))
+  if (t <= 0) return
+
+  const iw = Math.max(1, Math.round(rw))
+  const ih = Math.max(1, Math.round(rh))
+  const snap = getContrastScratch(iw, ih)
+  const sctx = snap.getContext('2d', { willReadFrequently: true })
+  if (!sctx) return
+
+  const source = ctx.canvas
+  sctx.setTransform(1, 0, 0, 1, 0, 0)
+  sctx.clearRect(0, 0, iw, ih)
+  sctx.drawImage(source, rx, ry, rw, rh, 0, 0, iw, ih)
+  try {
+    const img = sctx.getImageData(0, 0, iw, ih)
+    const d = img.data
+    const shadowMul = 1 + 5.2 * t
+    const highlightMul = 1 + 1.8 * t
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i] / 255
+      const g = d[i + 1] / 255
+      const b = d[i + 2] / 255
+      const oldL = 0.2126 * r + 0.7152 * g + 0.0722 * b
+      let L = oldL
+      if (L < 0.5) {
+        L = 0.5 - (0.5 - L) * shadowMul
+      } else {
+        L = 0.5 + (L - 0.5) * highlightMul
+      }
+      if (L < 0) L = 0
+      else if (L > 1) L = 1
+      if (oldL > 1e-6) {
+        const scale = L / oldL
+        d[i] = clampByte(d[i] * scale)
+        d[i + 1] = clampByte(d[i + 1] * scale)
+        d[i + 2] = clampByte(d[i + 2] * scale)
+      } else {
+        const v = clampByte(L * 255)
+        d[i] = v
+        d[i + 1] = v
+        d[i + 2] = v
+      }
+    }
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(rx, ry, rw, rh)
+    ctx.clip()
+    ctx.clearRect(rx, ry, rw, rh)
+    ctx.putImageData(img, rx, ry)
+    ctx.restore()
+  } catch {
+    return
+  }
+}
+
+function getCoolToneScratch(w: number, h: number): HTMLCanvasElement {
+  if (!coolToneScratch) {
+    coolToneScratch = document.createElement('canvas')
+    coolToneScratch.getContext('2d', { willReadFrequently: true })
+  }
+  if (coolToneScratch.width !== w || coolToneScratch.height !== h) {
+    coolToneScratch.width = w
+    coolToneScratch.height = h
+  }
+  return coolToneScratch
+}
+
+function applyCoolTone(
+  ctx: CanvasRenderingContext2D,
+  rx: number,
+  ry: number,
+  rw: number,
+  rh: number,
+  intensity: number = 0.5
+): void {
+  if (rw <= 0 || rh <= 0) return
+  const t = Math.max(0, Math.min(1, intensity))
+  if (t <= 0) return
+
+  const iw = Math.max(1, Math.round(rw))
+  const ih = Math.max(1, Math.round(rh))
+  const snap = getCoolToneScratch(iw, ih)
+  const sctx = snap.getContext('2d', { willReadFrequently: true })
+  if (!sctx) return
+
+  const source = ctx.canvas
+  sctx.setTransform(1, 0, 0, 1, 0, 0)
+  sctx.clearRect(0, 0, iw, ih)
+  sctx.drawImage(source, rx, ry, rw, rh, 0, 0, iw, ih)
+  try {
+    const img = sctx.getImageData(0, 0, iw, ih)
+    const d = img.data
+    const dim = 1 - t * 0.14
+    const warmPull = t * 0.32
+    const blueLift = t * 0.28
+    const tealMix = t * 0.1
+
+    for (let i = 0; i < d.length; i += 4) {
+      let r = d[i]
+      let g = d[i + 1]
+      let b = d[i + 2]
+      const warmth = Math.max(0, r - b) / 255
+      r = r - warmth * warmPull * 90 - t * 18
+      g = g - warmth * warmPull * 35 + (b - g) * tealMix * 0.35
+      b = b + (255 - b) * blueLift * 0.45 + t * 12
+      d[i] = clampByte(r * dim)
+      d[i + 1] = clampByte(g * dim)
+      d[i + 2] = clampByte(b * dim)
+    }
+
     ctx.save()
     ctx.beginPath()
     ctx.rect(rx, ry, rw, rh)
@@ -511,13 +694,82 @@ export function applyEffect(
     applyCrtDither(ctx, x, y, width, height, playbackTime)
   } else if (type === 'flashing-black-vignette') {
     applyFlashingBlackVignette(ctx, x, y, width, height, playbackTime, intensity, flashSpeed)
+  } else if (type === 'blur-vignette') {
+    applyBlurVignette(ctx, x, y, width, height, intensity)
+  } else if (type === 'cool-tone') {
+    applyCoolTone(ctx, x, y, width, height, intensity)
   } else if (type === 'black-and-white') {
-    applyBlackAndWhite(ctx, x, y, width, height, intensity)
+    applyBlackAndWhite(ctx, x, y, width, height)
+  } else if (type === 'contrast') {
+    applyContrast(ctx, x, y, width, height, intensity)
   } else if (type === 'vivid-sharp') {
     applyVividSharp(ctx, x, y, width, height, intensity)
   } else if (type === 'pixel-glitch-scan') {
     applyPixelGlitchScan(ctx, x, y, width, height, playbackTime, intensity)
   } else if (type === 'grainy') {
     applyGrainy(ctx, x, y, width, height, playbackTime, intensity)
+  }
+}
+
+export function applyActiveEffects(
+  ctx: CanvasRenderingContext2D,
+  effects: ReadonlyArray<{
+    type: EffectType
+    intensity: number
+    contrast: number
+    flashSpeed: number
+  }>,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  playbackTime: number
+): void {
+  if (effects.length === 0 || width <= 0 || height <= 0) return
+
+  const iw = Math.max(1, Math.round(width))
+  const ih = Math.max(1, Math.round(height))
+  let contentMask: Uint8Array | null = null
+  try {
+    const before = ctx.getImageData(x, y, iw, ih)
+    contentMask = new Uint8Array(iw * ih)
+    const d = before.data
+    for (let p = 0, i = 0; p < contentMask.length; p++, i += 4) {
+      contentMask[p] = d[i + 3] === 0 ? 0 : 1
+    }
+  } catch {
+    contentMask = null
+  }
+
+  for (let i = 0; i < effects.length; i++) {
+    const eff = effects[i]
+    applyEffect(
+      ctx,
+      eff.type,
+      x,
+      y,
+      width,
+      height,
+      playbackTime,
+      eff.intensity,
+      eff.contrast,
+      eff.flashSpeed
+    )
+  }
+
+  if (!contentMask) return
+  try {
+    const after = ctx.getImageData(x, y, iw, ih)
+    const d = after.data
+    for (let p = 0, i = 0; p < contentMask.length; p++, i += 4) {
+      if (contentMask[p] !== 0) continue
+      d[i] = 0
+      d[i + 1] = 0
+      d[i + 2] = 0
+      d[i + 3] = 0
+    }
+    ctx.putImageData(after, x, y)
+  } catch {
+    return
   }
 }

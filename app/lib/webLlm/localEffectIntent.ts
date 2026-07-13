@@ -7,10 +7,16 @@ const EFFECT_ALIASES: Record<string, AddEffectInstruction['type']> = {
   grainy: 'grainy',
   'black-and-white': 'black-and-white',
   'black and white': 'black-and-white',
+  contrast: 'contrast',
   'vivid-sharp': 'vivid-sharp',
   'vivid sharp': 'vivid-sharp',
   'pixel-glitch-scan': 'pixel-glitch-scan',
   'pixel glitch scan': 'pixel-glitch-scan',
+  'blur-vignette': 'blur-vignette',
+  'blur vignette': 'blur-vignette',
+  'cool-tone': 'cool-tone',
+  'cool tone': 'cool-tone',
+  cool: 'cool-tone',
   vignette: 'flashing-black-vignette',
   'flashing-black-vignette': 'flashing-black-vignette',
   'flashing black vignette': 'flashing-black-vignette',
@@ -23,7 +29,7 @@ function normalizePrompt(prompt: string): string {
 export function resolveLocalEffectIntent(prompt: string): LocalRoutePromptResponse | null {
   const normalized = normalizePrompt(prompt)
   const match = normalized.match(
-    /\badd\s+(crt[- ]?dither|grainy|black[- ]?and[- ]?white|vivid[- ]?sharp|pixel[- ]?glitch[- ]?scan|flashing[- ]?black[- ]?vignette|vignette)\s+(?:effect\s+)?from\s+(\d+(?:\.\d+)?)\s+to\s+(\d+(?:\.\d+)?)\s*(?:seconds?|s)?\b/
+    /\badd\s+(crt[- ]?dither|grainy|black[- ]?and[- ]?white|contrast|vivid[- ]?sharp|pixel[- ]?glitch[- ]?scan|blur[- ]?vignette|cool[- ]?tone|cool|flashing[- ]?black[- ]?vignette|vignette)\s+(?:effect\s+)?from\s+(\d+(?:\.\d+)?)\s+to\s+(\d+(?:\.\d+)?)\s*(?:seconds?|s)?\b/
   )
   if (!match) {
     return null

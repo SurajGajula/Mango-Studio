@@ -6,9 +6,21 @@ type PreviewVideoFrameEntry = {
   valid: boolean
 }
 
+const PREVIEW_FRAME_MAX_EDGE = 960
+
 const previewVideoFrameCache = new WeakMap<HTMLVideoElement, PreviewVideoFrameEntry>()
 const previewVideoListenerAttached = new WeakSet<HTMLVideoElement>()
 const rvfcScheduled = new WeakSet<HTMLVideoElement>()
+
+function previewFrameDrawSize(videoWidth: number, videoHeight: number): { w: number; h: number } {
+  const maxEdge = Math.max(videoWidth, videoHeight)
+  if (maxEdge <= PREVIEW_FRAME_MAX_EDGE) return { w: videoWidth, h: videoHeight }
+  const scale = PREVIEW_FRAME_MAX_EDGE / maxEdge
+  return {
+    w: Math.max(1, Math.round(videoWidth * scale)),
+    h: Math.max(1, Math.round(videoHeight * scale)),
+  }
+}
 
 type VideoFrameRequestCallbackMetadata = {
   presentationTime: number
@@ -71,8 +83,7 @@ export function capturePreviewVideoFrame(el: HTMLVideoElement): HTMLCanvasElemen
     return entry.valid ? entry.canvas : null
   }
 
-  const w = el.videoWidth
-  const h = el.videoHeight
+  const { w, h } = previewFrameDrawSize(el.videoWidth, el.videoHeight)
   if (entry.canvas.width !== w || entry.canvas.height !== h) {
     entry.valid = false
     entry.canvas.width = w

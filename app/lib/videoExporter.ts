@@ -3,12 +3,18 @@ import { ImageClass } from '@/app/models/ImageClass'
 import { TextClass } from '@/app/models/TextClass'
 import { AudioClass } from '@/app/models/AudioClass'
 import { EffectClass } from '@/app/models/EffectClass'
-import { FFmpeg } from '@ffmpeg/ffmpeg'
-import { fetchFile, toBlobURL } from '@ffmpeg/util'
+import { fetchFile } from '@ffmpeg/util'
 import { drawTextOverlay, preloadTextFonts } from '@/app/lib/drawTextOverlay'
 import { applyZoomTransform } from '@/app/lib/applyZoomTransform'
 import { runWithPlacementRotation } from '@/app/lib/placementRotation'
-import { applyEffect } from '@/app/lib/applyEffect'
+import { applyActiveEffects } from '@/app/lib/applyEffect'
+import {
+  acquireFfmpegLock,
+  getFFmpeg,
+  releaseFfmpegLock,
+  terminateFFmpeg,
+  withFfmpegLock,
+} from '@/app/lib/ffmpegEngine'
 import { setVideoCrossOriginForUrl } from '@/app/lib/mediaUtils'
 import {
   getSortedRowItems,
@@ -27,12 +33,13 @@ import {
   videoElapsedForMapping,
 } from '@/app/lib/adjacentSplitVideo'
 import { rowClipElapsedAtTime } from '@/app/lib/timelineClipAdjacency'
-import { videoPlaybackMediaUrl, videoSourceTrimBase } from '@/app/lib/videoPlaybackSource'
+import { videoExportMediaUrl, videoSourceTrimBase } from '@/app/lib/videoPlaybackSource'
 import { audioBufferToWav } from '@/app/lib/audioUtils'
 
-let ffmpegInstance: FFmpeg | null = null
-let ffmpegLoading: Promise<FFmpeg> | null = null
-let ffmpegLock = false
+export { terminateFFmpeg } from '@/app/lib/ffmpegEngine'
+
+const EXPORT_MAX_ACTIVE_VIDEOS = 3
+const EXPORT_VIDEO_PREFETCH_SEC = 2
 
 function videoElementHasDrawableFrame(el: HTMLVideoElement): boolean {
   if (el.videoWidth <= 0 || el.videoHeight <= 0) return false
@@ -44,27 +51,152 @@ function videoElementHasDecodedFrame(el: HTMLVideoElement): boolean {
   return el.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
 }
 
-async function getFFmpeg(): Promise<FFmpeg> {
-  if (ffmpegInstance) return ffmpegInstance
-  if (ffmpegLoading) return ffmpegLoading
-  ffmpegLoading = (async () => {
-    try {
-      const ff = new FFmpeg()
-      const BASE = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd'
-      const [coreURL, wasmURL] = await Promise.all([
-        toBlobURL(`${BASE}/ffmpeg-core.js`, 'text/javascript'),
-        toBlobURL(`${BASE}/ffmpeg-core.wasm`, 'application/wasm'),
-      ])
-      const loadPromise = ff.load({ coreURL, wasmURL })
-      const timeoutPromise = new Promise((_, rej) => setTimeout(() => rej(new Error('FFmpeg load timeout')), 15000))
-      await Promise.race([loadPromise, timeoutPromise])
-      ffmpegInstance = ff
-      return ff
-    } catch (err) {
-      ffmpegLoading = null; ffmpegInstance = null; throw err
+function releaseExportVideoElement(id: string, videoElements: Map<string, HTMLVideoElement>) {
+  const video = videoElements.get(id)
+  videoElements.delete(id)
+  if (!video) return
+  for (const el of videoElements.values()) {
+    if (el === video) return
+  }
+  video.pause()
+  video.src = ''
+  video.load()
+}
+
+function loadExportVideoElement(clip: VideoClass): Promise<HTMLVideoElement> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video')
+    video.preload = 'auto'
+    video.playsInline = true
+    video.muted = true
+    const clipSrc = videoExportMediaUrl(clip)
+    if (clipSrc) setVideoCrossOriginForUrl(video, clipSrc)
+    video.src = clipSrc
+    video.onloadeddata = () => resolve(video)
+    video.onerror = () => reject(new Error(`Failed to load video: ${clip.title}`))
+    video.load()
+  })
+}
+
+function exportVideoDistance(clip: VideoClass, t: number, allVideos: VideoClass[]): number {
+  const start = clip.timestamp
+  const end = start + manifestVideoTimelineSpanSeconds(clip)
+  if (t >= start && t < end) return 0
+  if (t < start) return start - t
+  return t - end
+}
+
+function collectNeededExportVideoIds(
+  t: number,
+  allVideos: VideoClass[],
+  images: ImageClass[] | undefined
+): Set<string> {
+  const needed = new Set<string>()
+  for (const v of allVideos) {
+    if (isVideoActiveAtTimelineTime(v, allVideos, t, images)) {
+      needed.add(v.id)
+      continue
     }
-  })()
-  return ffmpegLoading
+    if (t < v.timestamp && v.timestamp - t <= EXPORT_VIDEO_PREFETCH_SEC) {
+      needed.add(v.id)
+    }
+  }
+
+  const overlayRowIds = new Set<number>()
+  for (const v of allVideos) {
+    if (v.row >= 0) overlayRowIds.add(v.row)
+  }
+  for (const img of images || []) {
+    if (img.row >= 0) overlayRowIds.add(img.row)
+  }
+  for (const row of overlayRowIds) {
+    const sortedR = getSortedRowItems(row, allVideos, images || [])
+    const pr = findActiveAndNextItems(sortedR, t, allVideos)
+    const tr = checkTransition(pr.activeItem, pr.nextItem, t)
+    if (!tr.transitionActive || !pr.activeItem || !pr.nextItem) continue
+    if (pr.activeItem.type === 'video') needed.add(pr.activeItem.item.id)
+    if (pr.nextItem.type === 'video') needed.add(pr.nextItem.item.id)
+  }
+
+  return needed
+}
+
+async function syncExportVideoPool(
+  t: number,
+  allVideos: VideoClass[],
+  images: ImageClass[] | undefined,
+  videoElements: Map<string, HTMLVideoElement>
+): Promise<void> {
+  const neededIds = collectNeededExportVideoIds(t, allVideos, images)
+  const neededClips = [...neededIds]
+    .map((id) => allVideos.find((v) => v.id === id))
+    .filter((v): v is VideoClass => !!v)
+
+  const byUrl = new Map<string, VideoClass[]>()
+  for (const clip of neededClips) {
+    const url = videoExportMediaUrl(clip) || clip.id
+    const list = byUrl.get(url) || []
+    list.push(clip)
+    byUrl.set(url, list)
+  }
+
+  let urlEntries = [...byUrl.entries()].map(([url, clips]) => {
+    const primary =
+      clips.find((c) => isVideoActiveAtTimelineTime(c, allVideos, t, images)) ||
+      clips.reduce((best, clip) =>
+        exportVideoDistance(clip, t, allVideos) < exportVideoDistance(best, t, allVideos) ? clip : best
+      )
+    return {
+      url,
+      clips,
+      primary,
+      dist: exportVideoDistance(primary, t, allVideos),
+    }
+  })
+  urlEntries.sort((a, b) => a.dist - b.dist)
+  if (urlEntries.length > EXPORT_MAX_ACTIVE_VIDEOS) {
+    urlEntries = urlEntries.slice(0, EXPORT_MAX_ACTIVE_VIDEOS)
+  }
+  const keepUrls = new Set(urlEntries.map((e) => e.url))
+  const keepClipIds = new Set(urlEntries.flatMap((e) => e.clips.map((c) => c.id)))
+
+  for (const id of [...videoElements.keys()]) {
+    if (!keepClipIds.has(id)) releaseExportVideoElement(id, videoElements)
+  }
+
+  await Promise.all(
+    urlEntries.map(async ({ url, clips, primary }) => {
+      let shared: HTMLVideoElement | undefined
+      for (const clip of clips) {
+        const existing = videoElements.get(clip.id)
+        if (existing) {
+          shared = existing
+          break
+        }
+      }
+      if (!shared) {
+        for (const el of new Set(videoElements.values())) {
+          const src = el.currentSrc || el.src || ''
+          if (src && (src === url || src.endsWith(url))) {
+            shared = el
+            break
+          }
+        }
+      }
+      if (!shared) {
+        shared = await loadExportVideoElement(primary)
+      }
+      if (!keepUrls.has(url)) {
+        shared.pause()
+        shared.src = ''
+        shared.load()
+        return
+      }
+      for (const clip of clips) {
+        videoElements.set(clip.id, shared)
+      }
+    })
+  )
 }
 
 export interface ExportProgress {
@@ -89,11 +221,9 @@ export async function exportVideo(
 
   if (totalDuration === 0) throw new Error('No content to export')
 
-  while (ffmpegLock) {
+  await acquireFfmpegLock(() => {
     onProgress?.({ phase: 'preparing', progress: 0, message: 'Waiting for engine...' })
-    await new Promise(r => setTimeout(r, 500))
-  }
-  ffmpegLock = true
+  })
 
   try {
     onProgress?.({ phase: 'preparing', progress: 0, message: 'Preparing elements...' })
@@ -114,23 +244,13 @@ export async function exportVideo(
     const height = 1920
     const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height
     const ctx = canvas.getContext('2d', { alpha: false })!
+    const effectsLayer = document.createElement('canvas')
+    effectsLayer.width = width
+    effectsLayer.height = height
+    const effectsLayerCtx = effectsLayer.getContext('2d', { willReadFrequently: true })!
 
     const allVideos = [...videos]
     const videoElements: Map<string, HTMLVideoElement> = new Map()
-
-    if (allVideos.length > 0) {
-      await Promise.all(allVideos.map((clip) =>
-        new Promise<void>((resolve, reject) => {
-          const video = document.createElement('video'); video.preload = 'auto'; video.playsInline = true; video.muted = true
-          const clipSrc = videoPlaybackMediaUrl(clip)
-          if (clipSrc) setVideoCrossOriginForUrl(video, clipSrc)
-          video.src = clipSrc
-          video.onloadeddata = () => { videoElements.set(clip.id, video); resolve() }
-          video.onerror = () => reject(new Error(`Failed to load video: ${clip.title}`))
-          video.load()
-        })
-      ))
-    }
 
     onProgress?.({ phase: 'preparing', progress: 5, message: 'Rendering audio track...' })
 
@@ -202,9 +322,11 @@ export async function exportVideo(
       
       // Video audios
       for (const v of allVideos) {
-        if (v.muted || !v.url) continue
+        if (v.muted) continue
+        const mediaUrl = videoExportMediaUrl(v)
+        if (!mediaUrl) continue
         try {
-          const resp = await fetch(v.url)
+          const resp = await fetch(mediaUrl)
           const buf = await resp.arrayBuffer()
           const audioBuf = await offlineCtx.decodeAudioData(buf)
           const source = offlineCtx.createBufferSource()
@@ -238,6 +360,8 @@ export async function exportVideo(
     const yScale = height / logicalH
 
     const renderFullFrame = async (t: number) => {
+      await syncExportVideoPool(t, allVideos, images, videoElements)
+
       const isFirstFrame = t <= (1 / 60) * 0.5
       const ensureVideoReady = async (vEl: HTMLVideoElement, targetTime: number) => {
         const hasDecoded = videoElementHasDecodedFrame(vEl)
@@ -337,13 +461,31 @@ export async function exportVideo(
       }
 
       if (videosToReady.length > 0) {
-        await Promise.all(videosToReady.map(item => ensureVideoReady(item.el, item.time)))
+        const uniqueByEl = new Map<HTMLVideoElement, number>()
+        for (const item of videosToReady) {
+          if (!uniqueByEl.has(item.el)) uniqueByEl.set(item.el, item.time)
+        }
+        await Promise.all(
+          [...uniqueByEl.entries()].map(([el, time]) => ensureVideoReady(el, time))
+        )
       }
 
       ctx.fillStyle = '#000000'
       ctx.fillRect(0, 0, width, height)
 
       const exportCr = { x: 0, y: 0, width, height }
+      const activeEffects =
+        effects && effects.length > 0
+          ? effects
+              .filter((e) => t >= e.startTime && t < e.endTime)
+              .sort((a, b) => a.row - b.row || a.startTime - b.startTime)
+          : []
+      const useEffectsLayer = activeEffects.length > 0
+      const drawCtx = useEffectsLayer ? effectsLayerCtx : ctx
+      if (useEffectsLayer) {
+        effectsLayerCtx.setTransform(1, 0, 0, 1, 0, 0)
+        effectsLayerCtx.clearRect(0, 0, width, height)
+      }
 
       type OverlayExportEntry =
         | { kind: 'image'; row: number; t0: number; img: ImageClass }
@@ -381,7 +523,7 @@ export async function exportVideo(
         const pr = findActiveAndNextItems(sortedR, t, allVideos)
         const tr = checkTransition(pr.activeItem, pr.nextItem, t)
         if (pr.activeItem && pr.nextItem && tr.transitionActive && tr.progress < 1) {
-          const renderedPair = renderClipTransitionPair(ctx, exportCr, t, pr.activeItem, pr.nextItem, tr.progress, (id) => {
+          const renderedPair = renderClipTransitionPair(drawCtx, exportCr, t, pr.activeItem, pr.nextItem, tr.progress, (id) => {
             const el = videoElements.get(id)
             return el instanceof HTMLVideoElement ? el : undefined
           }, (id) => imageElements.get(id) ?? undefined)
@@ -398,7 +540,7 @@ export async function exportVideo(
         if (entry.kind === 'image') {
           const img = entry.img
           const iEl = imageElements.get(img.id); if (!iEl) continue
-          ctx.save(); ctx.globalAlpha = img.opacity
+          drawCtx.save(); drawCtx.globalAlpha = img.opacity
           const imgElapsed = rowClipElapsedAtTime(
             { id: img.id, type: 'image', startTime: img.startTime, duration: img.duration, item: img },
             t
@@ -409,10 +551,10 @@ export async function exportVideo(
           const iy = kox.y * yScale
           const iw = kox.width * xScale
           const ih = kox.height * yScale
-          runWithPlacementRotation(ctx, ix, iy, iw, ih, img.rotation, (ox, oy) => {
-            applyZoomTransform(ctx, img.animation, img.transition, prog, iEl, ox, oy, iw, ih, kox.cropSx, kox.cropSy, kox.cropSw, kox.cropSh, kox.zoomIntensity, img.duration, img.animationDuration, imgElapsed, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, img.transitionColor, img.transitionFlashMode, img.transitionDirection, img.transitionAxis, img.transitionSlideEasing, img.transitionCircleEasing, img.transitionWipeEasing, img.animationZoomEasing, undefined, img.zoomDistanceIntensity, undefined)
+          runWithPlacementRotation(drawCtx, ix, iy, iw, ih, img.rotation, (ox, oy) => {
+            applyZoomTransform(drawCtx, img.animation, img.transition, prog, iEl, ox, oy, iw, ih, kox.cropSx, kox.cropSy, kox.cropSw, kox.cropSh, kox.zoomIntensity, img.duration, img.animationDuration, imgElapsed, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, img.transitionColor, img.transitionFlashMode, img.transitionDirection, img.transitionAxis, img.transitionSlideEasing, img.transitionCircleEasing, img.transitionWipeEasing, img.animationZoomEasing, undefined, img.zoomDistanceIntensity, undefined)
           }, img.flipHorizontal, img.flipVertical)
-          ctx.restore()
+          drawCtx.restore()
         } else if (entry.kind === 'video') {
           const v = entry.video
           const vEl = videoElements.get(v.id); if (!vEl || !videoElementHasDecodedFrame(vEl)) continue
@@ -420,45 +562,30 @@ export async function exportVideo(
           const elV = videoElapsedForMapping(v, t)
           const prog = calculateAnimationProgress(v, t, v.timestamp)
           const kvx = resolveMediaKeyframeTransform(v, elV, span)
-          ctx.save(); ctx.globalAlpha = v.opacity
+          drawCtx.save(); drawCtx.globalAlpha = v.opacity
           runWithPlacementRotation(
-            ctx,
+            drawCtx,
             kvx.x * xScale,
             kvx.y * yScale,
             kvx.width * xScale,
             kvx.height * yScale,
             0,
             (px, py) => {
-              applyZoomTransform(ctx, v.animation, v.transition, prog, vEl, px, py, kvx.width * xScale, kvx.height * yScale, kvx.cropSx, kvx.cropSy, kvx.cropSw, kvx.cropSh, kvx.zoomIntensity, manifestVideoTimelineSpanSeconds(v), v.animationDuration, elV, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, v.transitionColor, v.transitionFlashMode, v.transitionDirection, v.transitionAxis, v.transitionSlideEasing, v.transitionCircleEasing, v.transitionWipeEasing, v.animationZoomEasing, undefined, v.zoomDistanceIntensity, undefined)
+              applyZoomTransform(drawCtx, v.animation, v.transition, prog, vEl, px, py, kvx.width * xScale, kvx.height * yScale, kvx.cropSx, kvx.cropSy, kvx.cropSw, kvx.cropSh, kvx.zoomIntensity, manifestVideoTimelineSpanSeconds(v), v.animationDuration, elV, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, v.transitionColor, v.transitionFlashMode, v.transitionDirection, v.transitionAxis, v.transitionSlideEasing, v.transitionCircleEasing, v.transitionWipeEasing, v.animationZoomEasing, undefined, v.zoomDistanceIntensity, undefined)
             },
             v.flipHorizontal,
             v.flipVertical
           )
-          ctx.restore()
+          drawCtx.restore()
         } else {
-          drawTextOverlay(ctx, entry.text, exportCr, t)
+          drawTextOverlay(drawCtx, entry.text, exportCr, t)
         }
       }
       }
 
-      if (effects && effects.length > 0) {
-        const activeEffects = effects
-          .filter((e) => t >= e.startTime && t < e.endTime)
-          .sort((a, b) => a.row - b.row || a.startTime - b.startTime)
-        for (let ei = 0; ei < activeEffects.length; ei++) {
-          applyEffect(
-            ctx,
-            activeEffects[ei].type,
-            0,
-            0,
-            width,
-            height,
-            t,
-            activeEffects[ei].intensity,
-            activeEffects[ei].contrast,
-            activeEffects[ei].flashSpeed
-          )
-        }
+      if (useEffectsLayer) {
+        applyActiveEffects(effectsLayerCtx, activeEffects, 0, 0, width, height, t)
+        ctx.drawImage(effectsLayer, 0, 0)
       }
     }
 
@@ -471,14 +598,15 @@ export async function exportVideo(
     return new Promise((resolve, reject) => {
       mediaRecorder.onstop = async () => {
         try {
-          videoElements.forEach(v => { v.pause(); v.src = '' })
-          if (isCancelled || signal?.aborted) { ffmpegLock = false; reject(new DOMException('Export cancelled', 'AbortError')); return }
+          videoElements.forEach((_, id) => releaseExportVideoElement(id, videoElements))
+          if (isCancelled || signal?.aborted) { releaseFfmpegLock(); reject(new DOMException('Export cancelled', 'AbortError')); return }
           onProgress?.({ phase: 'encoding', progress: 95, message: 'Finalizing WebM...' })
           const webmBlob = new Blob(chunks, { type: 'video/webm' })
-          if (chunks.length === 0 || webmBlob.size === 0) { ffmpegLock = false; reject(new Error('No recorded data')); return }
+          chunks.length = 0
+          if (webmBlob.size === 0) { releaseFfmpegLock(); reject(new Error('No recorded data')); return }
           
           onProgress?.({ phase: 'converting', progress: 96, message: 'Loading FFmpeg...' })
-          let ff: FFmpeg; try { ff = await getFFmpeg(); ff.on('log', ({ message }) => console.log('[ffmpeg]', message)) } catch (err) { ffmpegLock = false; resolve(webmBlob); return }
+          let ff; try { ff = await getFFmpeg(); ff.on('log', ({ message }) => console.log('[ffmpeg]', message)) } catch (err) { releaseFfmpegLock(); resolve(webmBlob); return }
           
           try {
             for (const f of ['input.webm', 'input.wav', 'output.mp4']) try { await ff.deleteFile(f) } catch {}
@@ -490,11 +618,17 @@ export async function exportVideo(
             const cmd = ['-y', '-i', 'input.webm', '-i', 'input.wav', '-vf', 'setpts=N/60/TB', '-t', totalDuration.toFixed(3), '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', '-pix_fmt', 'yuv420p', '-r', '60', '-vsync', 'cfr', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', 'output.mp4']
             await ff.exec(cmd)
             const mp4Data = await ff.readFile('output.mp4'); const mp4Blob = new Blob([new Uint8Array(mp4Data as Uint8Array)], { type: 'video/mp4' })
-            ffmpegLock = false; onProgress?.({ phase: 'complete', progress: 100, message: 'Export complete!' }); resolve(mp4Blob)
+            for (const f of ['input.webm', 'input.wav', 'output.mp4']) try { await ff.deleteFile(f) } catch {}
+            terminateFFmpeg()
+            releaseFfmpegLock(); onProgress?.({ phase: 'complete', progress: 100, message: 'Export complete!' }); resolve(mp4Blob)
           } catch (err) {
-            ffmpegLock = false; onProgress?.({ phase: 'error', progress: 0, message: 'MP4 conversion failed, using WebM' }); resolve(webmBlob)
+            try {
+              for (const f of ['input.webm', 'input.wav', 'output.mp4']) try { await ff.deleteFile(f) } catch {}
+            } catch {}
+            terminateFFmpeg()
+            releaseFfmpegLock(); onProgress?.({ phase: 'error', progress: 0, message: 'MP4 conversion failed, using WebM' }); resolve(webmBlob)
           }
-        } catch (err) { ffmpegLock = false; reject(err) }
+        } catch (err) { releaseFfmpegLock(); reject(err) }
       }
 
       let isCancelled = false; let isFirstFrame = true
@@ -528,6 +662,8 @@ export async function exportVideo(
           await new Promise(r => setTimeout(r, 200))
         } catch (err) {
           console.error('Render loop error:', err)
+          videoElements.forEach((_, id) => releaseExportVideoElement(id, videoElements))
+          chunks.length = 0
           reject(err)
           return
         }
@@ -536,7 +672,7 @@ export async function exportVideo(
         if (signal?.aborted) isCancelled = true
       })()
     })
-  } finally { ffmpegLock = false }
+  } finally { releaseFfmpegLock() }
 }
 
 export async function replaceVideoAudioTrack(
@@ -545,12 +681,7 @@ export async function replaceVideoAudioTrack(
   options?: { trimStartSeconds?: number; durationSeconds?: number },
   onProgress?: (msg: string) => void
 ): Promise<Blob> {
-  while (ffmpegLock) {
-    onProgress?.('Waiting for engine...')
-    await new Promise((r) => setTimeout(r, 500))
-  }
-  ffmpegLock = true
-  try {
+  return withFfmpegLock(async () => {
     const ff = await getFFmpeg()
     for (const f of ['input.mp4', 'input-audio', 'output.mp4']) {
       try {
@@ -595,22 +726,17 @@ export async function replaceVideoAudioTrack(
       } catch {}
     }
     return new Blob([new Uint8Array(data as Uint8Array)], { type: 'video/mp4' })
-  } finally {
-    ffmpegLock = false
-  }
+  }, () => onProgress?.('Waiting for engine...'))
 }
 
 export async function extractVideoClip(url: string, startTime: number, duration: number, onProgress?: (msg: string) => void): Promise<Blob> {
-  while (ffmpegLock) { onProgress?.('Waiting for engine...'); await new Promise(r => setTimeout(r, 500)) }
-  ffmpegLock = true
-  try {
+  return withFfmpegLock(async () => {
     const ff = await getFFmpeg(); for (const f of ['input.mp4', 'output.mp4']) try { await ff.deleteFile(f) } catch {}
     const inputData = await fetchFile(url); await ff.writeFile('input.mp4', inputData)
     await ff.exec(['-ss', startTime.toFixed(3), '-i', 'input.mp4', '-t', duration.toFixed(3), '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '22', '-c:a', 'aac', '-b:a', '128k', '-avoid_negative_ts', 'make_zero', 'output.mp4'])
     const data = await ff.readFile('output.mp4'); for (const f of ['input.mp4', 'output.mp4']) try { await ff.deleteFile(f) } catch {}
     return new Blob([new Uint8Array(data as Uint8Array)], { type: 'video/mp4' })
-  } finally { ffmpegLock = false }
+  }, () => onProgress?.('Waiting for engine...'))
 }
 
-export function terminateFFmpeg() { if (ffmpegInstance) { try { ffmpegInstance.terminate() } catch {}; ffmpegInstance = null; ffmpegLoading = null } }
 export function downloadBlob(blob: Blob, filename: string) { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url) }

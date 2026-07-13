@@ -371,6 +371,7 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
                 className={styles.libraryPrimaryButton}
                 onClick={(e) => handleOpenFolderRow(e, folder.id, folder.name)}
               >
+                <span className={styles.libraryKindBadge}>folder</span>
                 {folder.name}
               </button>
               <div className={styles.libraryRowActions}>
@@ -413,7 +414,10 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
               }}
               onDragEnd={endDragVisuals}
             >
-              <span className={styles.libraryAssetName}>{asset.name}</span>
+              <span className={styles.libraryAssetName}>
+                <span className={styles.libraryKindBadge}>{asset.kind}</span>
+                {asset.name}
+              </span>
               <div className={styles.libraryRowActions}>
                 <button
                   type="button"

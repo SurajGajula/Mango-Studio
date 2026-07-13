@@ -5,6 +5,7 @@ import { useManifestStore } from '@/app/stores/manifestStore'
 import { useSelectionStore } from '@/app/stores/selectionStore'
 import { useVideoPlayback } from '@/app/lib/useVideoPlayback'
 import { useLivePlaybackTime } from '@/app/hooks/useLivePlaybackTime'
+import { useEnsureVideoProxies } from '@/app/hooks/useEnsureVideoProxies'
 import { usePreviewInteractions } from '@/app/hooks/preview/usePreviewInteractions'
 import { usePreviewFullscreen } from '@/app/hooks/preview/usePreviewFullscreen'
 import { ImageClass } from '@/app/models/ImageClass'
@@ -122,6 +123,7 @@ export default function PreviewArea() {
   const videos = useManifestStore((state) => state.videos)
   const images = useManifestStore((state) => state.images)
   const texts = useManifestStore((state) => state.texts)
+  useEnsureVideoProxies(videos)
   const playbackTime = useLivePlaybackTime(12)
   const selectedImageId = useSelectionStore((state) => state.selectedImageId)
   const setSelectedImageId = useSelectionStore((state) => state.setSelectedImageId)
