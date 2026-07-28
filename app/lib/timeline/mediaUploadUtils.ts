@@ -1,3 +1,5 @@
+import { uploadAccountMedia } from '@/app/lib/accountMediaUploadClient'
+
 const MAX_MEDIA_UPLOAD_DURATION_SEC = 600
 
 export function accountMediaAssetPlaybackUrl(assetId: string): string {
@@ -5,27 +7,13 @@ export function accountMediaAssetPlaybackUrl(assetId: string): string {
 }
 
 export async function uploadToAccountLibrary(file: File, durationSeconds?: number): Promise<string | null> {
-  const formData = new FormData()
-  formData.append('file', file)
-  if (durationSeconds !== undefined) {
-    formData.append('durationSeconds', String(durationSeconds))
-  }
-  const response = await fetch('/api/media/upload', {
-    method: 'POST',
-    body: formData,
-  })
-  if (!response.ok) {
+  try {
+    const asset = await uploadAccountMedia({ file, durationSeconds })
+    window.dispatchEvent(new Event('account-media-updated'))
+    return asset.id
+  } catch {
     return null
   }
-  let assetId: string | null = null
-  try {
-    const data = (await response.json()) as { asset?: { id: string } }
-    assetId = data.asset?.id ?? null
-  } catch {
-    assetId = null
-  }
-  window.dispatchEvent(new Event('account-media-updated'))
-  return assetId
 }
 
 export function validateMediaDuration(duration: number, typeLabel: 'Video' | 'Audio'): boolean {

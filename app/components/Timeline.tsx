@@ -23,6 +23,7 @@ import { useTimelineMedia } from '@/app/hooks/timeline/useTimelineMedia'
 import { useTimelineReplace } from '@/app/hooks/timeline/useTimelineReplace'
 import { useTimelineDrag } from '@/app/hooks/timeline/useTimelineDrag'
 import { accountMediaDragActive, parseAccountMediaDragData } from '@/app/lib/accountMediaDrag'
+import { uploadAccountMedia } from '@/app/lib/accountMediaUploadClient'
 import { addImageAtTimelineTime } from '@/app/lib/addImageAtPlayhead'
 import { clientXToTimelineTime } from '@/app/lib/timelineDropTime'
 import { addAudioToTimelineAtTime, addVideoToTimelineAtTime } from '@/app/lib/timelineMediaInsert'
@@ -495,23 +496,12 @@ export default function Timeline({ onOpenTransitions, onOpenAnimations, onOpenFo
         throw new Error('Image not found')
       }
       const outputFile = new File([outputBlob], `${image.name}-bg-removed.png`, { type: 'image/png' })
-      const formData = new FormData()
-      formData.append('file', outputFile)
-      formData.append('storageScope', 'bg-removed')
       const sourceAssetMatch = image.url.match(/\/api\/media\/asset\/([^/?#]+)/)
-      if (sourceAssetMatch?.[1]) {
-        formData.append('sourceAssetId', sourceAssetMatch[1])
-      }
-      const uploadResponse = await fetch('/api/media/upload', {
-        method: 'POST',
-        body: formData,
+      const asset = await uploadAccountMedia({
+        file: outputFile,
+        storageScope: 'bg-removed',
+        sourceAssetId: sourceAssetMatch?.[1] ?? null,
       })
-      if (!uploadResponse.ok) {
-        const body = await uploadResponse.json().catch(() => null)
-        throw new Error(body?.error ?? 'Failed to save background-removed image')
-      }
-      const uploadJson = await uploadResponse.json()
-      const asset = uploadJson.asset as { id: string }
       replaceImageSource(imageId, `/api/media/asset/${asset.id}`, image.name)
     },
     [images, replaceImageSource]

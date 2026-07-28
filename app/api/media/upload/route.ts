@@ -1,8 +1,9 @@
 import { PutObjectCommand } from '@aws-sdk/client-s3'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { randomUUID } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { getNextAccountMediaName } from '@/app/lib/accountMediaNaming'
-import { computeMediaContentHash, findExistingUploadedAsset } from '@/app/lib/accountMediaDedup'
+import { findExistingUploadedAsset } from '@/app/lib/accountMediaDedup'
 import { ensureBgRemovedFolderId, findSystemFolderIds } from '@/app/lib/accountMediaSystemFolders'
 import { AccountMediaKind } from '@/app/lib/accountMediaTypes'
 import { getR2Client } from '@/app/lib/r2Client'
@@ -20,17 +21,22 @@ function sanitizeFileName(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, '_')
 }
 
-export async function POST(req: NextRequest) {
-  let formData: FormData
-  try {
-    formData = await req.formData()
-  } catch {
-    return NextResponse.json(
-      { error: 'Expected multipart form data with a file field' },
-      { status: 400 }
-    )
-  }
+function isSha256Hex(value: string): boolean {
+  return /^[a-f0-9]{64}$/i.test(value)
+}
 
+type UploadRequestBody = {
+  fileName?: unknown
+  mimeType?: unknown
+  sizeBytes?: unknown
+  contentHash?: unknown
+  folderId?: unknown
+  storageScope?: unknown
+  sourceAssetId?: unknown
+  durationSeconds?: unknown
+}
+
+export async function POST(req: NextRequest) {
   const supabase = await createClient()
   const {
     data: { user },
@@ -40,27 +46,45 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const file = formData.get('file')
-  const folderIdRaw = formData.get('folderId')
-  const storageScopeRaw = formData.get('storageScope')
-  const sourceAssetIdRaw = formData.get('sourceAssetId')
-  const durationSecondsRaw = formData.get('durationSeconds')
-  const storageScope = storageScopeRaw === 'bg-removed' ? 'bg-removed' : 'default'
-  const sourceAssetId =
-    typeof sourceAssetIdRaw === 'string' && sourceAssetIdRaw.trim().length > 0
-      ? sourceAssetIdRaw.trim()
-      : null
-  const requestedFolderId = typeof folderIdRaw === 'string' && folderIdRaw.length > 0 ? folderIdRaw : null
-  const folderId =
-    storageScope === 'bg-removed' ? await ensureBgRemovedFolderId(user.id) : requestedFolderId
-  const durationSeconds =
-    typeof durationSecondsRaw === 'string' && durationSecondsRaw.length > 0
-      ? Number(durationSecondsRaw)
-      : null
-
-  if (!(file instanceof File)) {
-    return NextResponse.json({ error: 'Missing file' }, { status: 400 })
+  let body: UploadRequestBody
+  try {
+    body = (await req.json()) as UploadRequestBody
+  } catch {
+    return NextResponse.json({ error: 'Expected JSON upload metadata' }, { status: 400 })
   }
+
+  const fileName = typeof body.fileName === 'string' ? body.fileName.trim() : ''
+  const mimeType = typeof body.mimeType === 'string' ? body.mimeType.trim() : ''
+  const contentHash = typeof body.contentHash === 'string' ? body.contentHash.trim().toLowerCase() : ''
+  const sizeBytes = typeof body.sizeBytes === 'number' ? body.sizeBytes : Number(body.sizeBytes)
+  const storageScope = body.storageScope === 'bg-removed' ? 'bg-removed' : 'default'
+  const sourceAssetId =
+    typeof body.sourceAssetId === 'string' && body.sourceAssetId.trim().length > 0
+      ? body.sourceAssetId.trim()
+      : null
+  const requestedFolderId =
+    typeof body.folderId === 'string' && body.folderId.length > 0 ? body.folderId : null
+  const durationSeconds =
+    body.durationSeconds === undefined || body.durationSeconds === null
+      ? null
+      : Number(body.durationSeconds)
+
+  if (!fileName) {
+    return NextResponse.json({ error: 'Missing fileName' }, { status: 400 })
+  }
+  if (!mimeType) {
+    return NextResponse.json({ error: 'Missing mimeType' }, { status: 400 })
+  }
+  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+    return NextResponse.json({ error: 'Invalid sizeBytes' }, { status: 400 })
+  }
+  if (!isSha256Hex(contentHash)) {
+    return NextResponse.json({ error: 'Invalid contentHash' }, { status: 400 })
+  }
+  if (durationSeconds !== null && !Number.isFinite(durationSeconds)) {
+    return NextResponse.json({ error: 'Invalid durationSeconds' }, { status: 400 })
+  }
+
   let r2
   try {
     r2 = getR2Client()
@@ -68,7 +92,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error?.message ?? 'R2 is not configured' }, { status: 500 })
   }
 
-  const kind = normalizeKind(file.type)
+  const kind = normalizeKind(mimeType)
   if (!kind) {
     return NextResponse.json({ error: 'Unsupported media type' }, { status: 400 })
   }
@@ -87,6 +111,9 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const folderId =
+    storageScope === 'bg-removed' ? await ensureBgRemovedFolderId(user.id) : requestedFolderId
+
   if (requestedFolderId && storageScope !== 'bg-removed') {
     const hiddenFolderIds = await findSystemFolderIds(user.id)
     if (hiddenFolderIds.includes(requestedFolderId)) {
@@ -103,17 +130,14 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const arrayBuffer = await file.arrayBuffer()
-  const contentHash = computeMediaContentHash(arrayBuffer)
-
   if (storageScope === 'default') {
     try {
       const existingAsset = await findExistingUploadedAsset(user.id, {
         kind,
         contentHash,
-        originalFilename: file.name,
-        mimeType: file.type,
-        sizeBytes: file.size,
+        originalFilename: fileName,
+        mimeType,
+        sizeBytes,
       })
       if (existingAsset) {
         return NextResponse.json({ asset: existingAsset, deduplicated: true })
@@ -132,7 +156,7 @@ export async function POST(req: NextRequest) {
   }
 
   const assetId = randomUUID()
-  const objectKey = `${user.id}/${assetId}/${sanitizeFileName(file.name)}`
+  const objectKey = `${user.id}/${assetId}/${sanitizeFileName(fileName)}`
   const { data: insertedAsset, error: insertError } = await admin
     .from('media_assets')
     .insert({
@@ -141,9 +165,9 @@ export async function POST(req: NextRequest) {
       folder_id: folderId,
       kind,
       name: defaultName,
-      original_filename: file.name,
-      mime_type: file.type,
-      size_bytes: file.size,
+      original_filename: fileName,
+      mime_type: mimeType,
+      size_bytes: sizeBytes,
       duration_seconds: durationSeconds,
       object_key: objectKey,
       content_hash: contentHash,
@@ -156,18 +180,18 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    await r2.client.send(
+    const uploadUrl = await getSignedUrl(
+      r2.client,
       new PutObjectCommand({
         Bucket: r2.bucketName,
         Key: objectKey,
-        Body: Buffer.from(arrayBuffer),
-        ContentType: file.type,
-      })
+        ContentType: mimeType,
+      }),
+      { expiresIn: 60 * 15 }
     )
+    return NextResponse.json({ asset: insertedAsset, uploadUrl })
   } catch (error: any) {
     await admin.from('media_assets').delete().eq('id', insertedAsset.id).eq('user_id', user.id)
-    return NextResponse.json({ error: error?.message ?? 'R2 upload failed' }, { status: 500 })
+    return NextResponse.json({ error: error?.message ?? 'Failed to create upload URL' }, { status: 500 })
   }
-
-  return NextResponse.json({ asset: insertedAsset })
 }

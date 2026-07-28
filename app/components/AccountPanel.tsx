@@ -10,6 +10,7 @@ import ProjectSelectModal from './modals/ProjectSelectModal'
 import SolidColorPresetStrip from './ui/SolidColorPresetStrip'
 import { addSolidShapePresetAtPlayhead } from '@/app/lib/addImageAtPlayhead'
 import { parseAccountMediaDragData, setAccountMediaDragData } from '@/app/lib/accountMediaDrag'
+import { uploadAccountMedia } from '@/app/lib/accountMediaUploadClient'
 import { useAccountMediaLibrary } from '@/app/hooks/useAccountMediaLibrary'
 import { UserProject } from '@/app/lib/projectTypes'
 import styles from './AccountPanel.module.css'
@@ -158,28 +159,16 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
         }
       }
 
-      const formData = new FormData()
-      formData.append('file', file)
-      if (currentFolderId) {
-        formData.append('folderId', currentFolderId)
+      try {
+        await uploadAccountMedia({
+          file,
+          folderId: currentFolderId,
+          durationSeconds,
+        })
+        window.dispatchEvent(new Event('account-media-updated'))
+      } catch (error: unknown) {
+        alert(error instanceof Error ? error.message : 'Upload failed')
       }
-      if (durationSeconds !== undefined) {
-        formData.append('durationSeconds', String(durationSeconds))
-      }
-
-      const uploadResponse = await fetch('/api/media/upload', {
-        method: 'POST',
-        body: formData,
-      })
-
-      if (!uploadResponse.ok) {
-        const body = await uploadResponse.json().catch(() => null)
-        alert(body?.error ?? 'Upload failed')
-        continue
-      }
-
-      await uploadResponse.json()
-      window.dispatchEvent(new Event('account-media-updated'))
     }
 
     e.target.value = ''
