@@ -14,7 +14,17 @@ import { livePlaybackTimeRef } from '@/app/lib/playbackClock'
 const DB_VERSION = 1
 const STORE_META = 'meta'
 const STORE_BLOBS = 'blobs'
-const inflightCloudLoadSnapshot = new Map<string, Promise<ProjectSnapshotPayload | null>>()
+type CloudSnapshotLoadResult = {
+  snapshot: ProjectSnapshotPayload
+  updatedAt: number
+}
+
+type LocalDraftRecord = {
+  snapshot: ProjectSnapshotPayload
+  savedAt: number
+}
+
+const inflightCloudLoadSnapshot = new Map<string, Promise<CloudSnapshotLoadResult | null>>()
 const lastCloudSnapshotHash = new Map<string, string>()
 const inflightCloudSaveSnapshot = new Map<string, Promise<void>>()
 const CLOUD_SNAPSHOT_MAX_BYTES = 6 * 1024 * 1024
@@ -35,6 +45,11 @@ export type ProjectSnapshotPayload = {
   isLooping?: boolean
   playbackRate?: number
   pendingPrompt?: string | null
+}
+
+type LocalDraftEnvelope = {
+  savedAt: string
+  snapshot: ProjectSnapshotPayload
 }
 
 function userDraftDbName(userId: string): string {
@@ -455,15 +470,6 @@ async function buildProjectSnapshotPayload(): Promise<{
   return { payload, blobWrites }
 }
 
-async function saveProjectSnapshot(dbName: string, metaKey: string): Promise<void> {
-  const { payload, blobWrites } = await buildProjectSnapshotPayload()
-
-  for (const [token, blob] of blobWrites) {
-    await idbPut(dbName, STORE_BLOBS, token, blob)
-  }
-  await idbPut(dbName, STORE_META, metaKey, JSON.stringify(payload))
-}
-
 async function putCloudProjectSnapshot(
   requestBody: string,
   cloudPayloadHash: string,
@@ -523,7 +529,56 @@ async function saveCloudProjectSnapshot(payload: ProjectSnapshotPayload, project
   await nextPromise
 }
 
-async function loadCloudProjectSnapshot(projectId: string): Promise<ProjectSnapshotPayload | null> {
+function parseTimestampMs(value: unknown): number {
+  if (typeof value !== 'string' || value.trim().length === 0) return 0
+  const ms = Date.parse(value)
+  return Number.isFinite(ms) ? ms : 0
+}
+
+function parseLocalDraftRaw(raw: string): LocalDraftRecord | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object') return null
+    const record = parsed as Record<string, unknown>
+    if (record.snapshot && typeof record.snapshot === 'object') {
+      const snapshot = record.snapshot as ProjectSnapshotPayload
+      if (snapshot.version !== 1) return null
+      return { snapshot, savedAt: parseTimestampMs(record.savedAt) }
+    }
+    if (record.version === 1) {
+      return { snapshot: parsed as ProjectSnapshotPayload, savedAt: 0 }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+function encodeLocalDraftEnvelope(payload: ProjectSnapshotPayload, savedAtMs?: number): string {
+  const envelope: LocalDraftEnvelope = {
+    savedAt: new Date(savedAtMs ?? Date.now()).toISOString(),
+    snapshot: payload,
+  }
+  return JSON.stringify(envelope)
+}
+
+export function pickPreferredSnapshotSource(
+  local: LocalDraftRecord | null,
+  cloud: CloudSnapshotLoadResult | null
+): 'local' | 'cloud' | null {
+  const localOk =
+    !!local && local.snapshot.version === 1 && !isSnapshotPayloadVisuallyEmpty(local.snapshot)
+  const cloudOk =
+    !!cloud && cloud.snapshot.version === 1 && !isSnapshotPayloadVisuallyEmpty(cloud.snapshot)
+  if (localOk && cloudOk) {
+    return cloud.updatedAt > local.savedAt ? 'cloud' : 'local'
+  }
+  if (cloudOk) return 'cloud'
+  if (localOk) return 'local'
+  return null
+}
+
+async function loadCloudProjectSnapshot(projectId: string): Promise<CloudSnapshotLoadResult | null> {
   const inflight = inflightCloudLoadSnapshot.get(projectId)
   if (inflight) {
     return inflight
@@ -531,10 +586,11 @@ async function loadCloudProjectSnapshot(projectId: string): Promise<ProjectSnaps
   const nextPromise = fetch(`/api/project/snapshot?projectId=${encodeURIComponent(projectId)}`, { method: 'GET', credentials: 'include' })
     .then(async (res) => {
       if (!res.ok) return null
-      const body = (await res.json().catch(() => null)) as { snapshot?: unknown } | null
+      const body = (await res.json().catch(() => null)) as { snapshot?: unknown; updatedAt?: unknown } | null
       if (!body?.snapshot || typeof body.snapshot !== 'object') return null
       const snapshot = body.snapshot as ProjectSnapshotPayload
-      return snapshot.version === 1 ? snapshot : null
+      if (snapshot.version !== 1) return null
+      return { snapshot, updatedAt: parseTimestampMs(body.updatedAt) }
     })
     .finally(() => {
       inflightCloudLoadSnapshot.delete(projectId)
@@ -543,14 +599,10 @@ async function loadCloudProjectSnapshot(projectId: string): Promise<ProjectSnaps
   return nextPromise
 }
 
-async function loadProjectSnapshot(dbName: string, metaKey: string): Promise<ProjectSnapshotPayload | null> {
+async function loadLocalDraftRecord(dbName: string, metaKey: string): Promise<LocalDraftRecord | null> {
   const raw = await idbGet<string>(dbName, STORE_META, metaKey)
   if (!raw) return null
-  try {
-    return JSON.parse(raw) as ProjectSnapshotPayload
-  } catch {
-    return null
-  }
+  return parseLocalDraftRaw(raw)
 }
 
 function collectBlobTokens(snap: ProjectSnapshotPayload): Set<string> {
@@ -681,49 +733,44 @@ async function hydrateSnapshotIntoStore(
   return repairSnapshotMediaFromAccountLibrary()
 }
 
-export async function saveUserDraftSnapshot(userId: string, projectId: string): Promise<void> {
+export async function saveUserDraftSnapshot(userId: string, projectId: string, savedAtMs?: number): Promise<void> {
   const { payload, blobWrites } = await buildProjectSnapshotPayload()
   for (const [token, blob] of blobWrites) {
     await idbPut(userDraftDbName(userId), STORE_BLOBS, token, blob)
   }
   const snapshotKey = userSnapshotKey(projectId)
-  await idbPut(userDraftDbName(userId), STORE_META, snapshotKey, JSON.stringify(payload))
+  await idbPut(userDraftDbName(userId), STORE_META, snapshotKey, encodeLocalDraftEnvelope(payload, savedAtMs))
 }
 
 async function saveUserDraftCloudSnapshot(userId: string, projectId: string): Promise<void> {
   const snapshotKey = userSnapshotKey(projectId)
-  const raw = await idbGet<string>(userDraftDbName(userId), STORE_META, snapshotKey)
-  if (!raw) return
-  let payload: ProjectSnapshotPayload
-  try {
-    payload = JSON.parse(raw) as ProjectSnapshotPayload
-  } catch {
-    return
-  }
-  if (payload.version !== 1) return
-  await saveCloudProjectSnapshot(payload, projectId)
+  const draft = await loadLocalDraftRecord(userDraftDbName(userId), snapshotKey)
+  if (!draft || draft.snapshot.version !== 1) return
+  await saveCloudProjectSnapshot(draft.snapshot, projectId)
 }
 
 export async function hydrateLocalProjectIfNeeded(user: { id: string }, projectId: string): Promise<void> {
   if (!isManifestVisuallyEmpty()) return
 
   const dbName = userDraftDbName(user.id)
-  const userSnap = await loadProjectSnapshot(dbName, userSnapshotKey(projectId))
-  if (userSnap && userSnap.version === 1 && !isSnapshotPayloadVisuallyEmpty(userSnap)) {
-    const repaired = await hydrateSnapshotIntoStore(userSnap, dbName, true)
-    if (repaired) {
-      await saveUserDraftSnapshot(user.id, projectId)
-      await saveUserDraftCloudSnapshot(user.id, projectId)
-    }
-    return
+  const snapshotKey = userSnapshotKey(projectId)
+  const [localDraft, cloudDraft] = await Promise.all([
+    loadLocalDraftRecord(dbName, snapshotKey),
+    loadCloudProjectSnapshot(projectId),
+  ])
+  const preferred = pickPreferredSnapshotSource(localDraft, cloudDraft)
+  if (!preferred) return
+
+  const chosen = preferred === 'cloud' ? cloudDraft!.snapshot : localDraft!.snapshot
+  const repaired = await hydrateSnapshotIntoStore(chosen, dbName, true)
+  if (preferred === 'cloud') {
+    lastCloudSnapshotHash.set(projectId, cloudSnapshotPayloadHash(chosen))
+    await saveUserDraftSnapshot(user.id, projectId, cloudDraft!.updatedAt || Date.now())
+  } else if (repaired) {
+    await saveUserDraftSnapshot(user.id, projectId)
   }
-  const cloudSnap = await loadCloudProjectSnapshot(projectId)
-  if (cloudSnap && cloudSnap.version === 1 && !isSnapshotPayloadVisuallyEmpty(cloudSnap)) {
-    const repaired = await hydrateSnapshotIntoStore(cloudSnap, dbName, true)
-    if (repaired) {
-      await saveUserDraftSnapshot(user.id, projectId)
-      await saveUserDraftCloudSnapshot(user.id, projectId)
-    }
+  if (repaired) {
+    await saveUserDraftCloudSnapshot(user.id, projectId)
   }
 }
 
