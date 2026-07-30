@@ -494,6 +494,7 @@ async function putCloudProjectSnapshot(
 
 async function saveCloudProjectSnapshot(payload: ProjectSnapshotPayload, projectId: string): Promise<void> {
   if (snapshotUsesLocalOnlyMediaRefs(payload)) {
+    console.warn('Cloud snapshot skipped: timeline still has browser-only blob media refs')
     return
   }
   const requestBody = cloudSnapshotRequestBody(payload, projectId)
@@ -595,10 +596,10 @@ function cloudSnapshotPayloadHash(payload: ProjectSnapshotPayload): string {
   return JSON.stringify(cloudPayload)
 }
 
-function snapshotUsesLocalOnlyMediaRefs(payload: ProjectSnapshotPayload): boolean {
+export function snapshotUsesLocalOnlyMediaRefs(payload: ProjectSnapshotPayload): boolean {
   const walk = (v: unknown): boolean => {
     if (typeof v === 'string') {
-      return isPersistedBlobTokenRef(v) || v.startsWith('blob:') || v.startsWith('data:')
+      return isPersistedBlobTokenRef(v) || v.startsWith('blob:')
     }
     if (Array.isArray(v)) return v.some(walk)
     if (v && typeof v === 'object') return Object.values(v as object).some(walk)

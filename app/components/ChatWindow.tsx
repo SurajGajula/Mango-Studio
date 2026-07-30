@@ -138,7 +138,7 @@ async function runNormalizeAudioVolumes(
 
 export default function ChatWindow() {
   const [messages, setMessages] = useState<Message[]>([])
-  const [inputValue, setInputValue] = useState('')
+  const [inputValue, setInputValue] = useState(() => useManifestStore.getState().pendingPrompt ?? '')
   const [localModelWarming, setLocalModelWarming] = useState(false)
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
@@ -193,12 +193,16 @@ export default function ChatWindow() {
   }, [])
 
   useEffect(() => {
-    if (pendingPrompt) {
-      setInputValue(pendingPrompt)
-      setPendingPrompt(null)
-      textareaRef.current?.focus()
-    }
-  }, [pendingPrompt, setPendingPrompt])
+    if (pendingPrompt == null) return
+    if (pendingPrompt === inputValue) return
+    setInputValue(pendingPrompt)
+    textareaRef.current?.focus()
+  }, [pendingPrompt, inputValue])
+
+  const handlePromptInputChange = (value: string) => {
+    setInputValue(value)
+    setPendingPrompt(value.trim().length > 0 ? value : null)
+  }
 
   const applyMutations = (mutations: ManifestMutation[]) => {
     for (const m of mutations) {
@@ -838,6 +842,7 @@ export default function ChatWindow() {
 
     setMessages((prev) => [...prev, userMessage])
     setInputValue('')
+    setPendingPrompt(null)
 
     const statusId = `status-${Date.now()}`
     const updateStatus = (text: string, loading: boolean) => {
@@ -1154,7 +1159,7 @@ export default function ChatWindow() {
             placeholder="Edit the timeline..."
             className={styles.composerTextarea}
             value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
+            onChange={(e) => handlePromptInputChange(e.target.value)}
             onKeyDown={handleKeyDown}
             rows={1}
           />

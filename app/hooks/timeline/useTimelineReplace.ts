@@ -3,7 +3,6 @@ import { VideoClass } from '@/app/models/VideoClass'
 import { ImageClass } from '@/app/models/ImageClass'
 import { AudioClass } from '@/app/models/AudioClass'
 import { computeMediaCropForAspect, resolveVideoMetadata } from '@/app/lib/mediaUtils'
-import { extractVideoClip } from '@/app/lib/videoExporter'
 import { calculateSourceTime, timelineClipSourceSpanSeconds } from '@/app/lib/renderUtils'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { generateId } from '@/app/lib/idUtils'
@@ -372,40 +371,11 @@ export function useTimelineReplace({
         const se0 = replaceVideoData.speedEnd ?? ps0
         const easing0 = replaceVideoData.speedEasing ?? 'linear'
         const sourceWindowDuration = timelineClipSourceSpanSeconds(W, ps0, ss0, se0, easing0)
-        let finalUrl = replaceVideoData.url
-        let finalTrimStart = trimStart
-        let finalTrimEnd = Math.max(0, replaceVideoData.duration - (trimStart + sourceWindowDuration))
-        let finalOriginalDuration = replaceVideoData.duration
-
-        const originalSourceUrl = replaceVideoData.url
-        let sourceUrl: string | undefined = undefined
-        let sourceTrimStart: number | undefined = undefined
-        let sourceDuration: number | undefined = undefined
-        let extractedClip = false
-
-        if (replaceVideoData.duration > 60) {
-          try {
-            const clipBlob = await extractVideoClip(replaceVideoData.url, trimStart, sourceWindowDuration)
-            finalUrl = URL.createObjectURL(clipBlob)
-            finalTrimStart = 0
-            finalTrimEnd = 0
-            finalOriginalDuration = sourceWindowDuration
-
-            sourceUrl = originalSourceUrl
-            sourceTrimStart = trimStart
-            sourceDuration = replaceVideoData.duration
-            extractedClip = true
-          } catch (err) {
-            console.error('Failed to extract clip:', err)
-            alert('Failed to process video clip. Using original source instead.')
-          }
-        }
-
-        if (!extractedClip) {
-          sourceUrl = undefined
-          sourceTrimStart = undefined
-          sourceDuration = undefined
-        }
+        const finalUrl = replaceVideoData.url
+        const finalTrimStart = trimStart
+        const finalTrimEnd = Math.max(0, replaceVideoData.duration - (trimStart + sourceWindowDuration))
+        const finalOriginalDuration = replaceVideoData.duration
+        const spanForClip = finalOriginalDuration - finalTrimStart - finalTrimEnd
 
         if (replaceVideoData.targetType === 'image') {
           const image = images.find((img) => img.id === replaceVideoData.targetId)
@@ -456,9 +426,9 @@ export function useTimelineReplace({
             patch.cropSy ?? image.cropSy,
             patch.cropSw ?? image.cropSw,
             patch.cropSh ?? image.cropSh,
-            sourceUrl,
-            sourceTrimStart,
-            sourceDuration,
+            undefined,
+            undefined,
+            undefined,
             replaceVideoData.playbackSpeed,
             replaceVideoData.speedStart,
             replaceVideoData.speedEnd,
@@ -478,7 +448,6 @@ export function useTimelineReplace({
           const ps = replaceVideoData.playbackSpeed ?? 1
           const ss = replaceVideoData.speedStart ?? ps
           const se = replaceVideoData.speedEnd ?? ps
-          const spanForClip = finalOriginalDuration - finalTrimStart - finalTrimEnd
           runHistoryTransaction((store) => {
             store.updateVideo(video.id, {
               ...videoCropOverlayFromPatch(patch, video),
@@ -486,15 +455,15 @@ export function useTimelineReplace({
               title: replaceVideoData.title,
               originalDuration: finalOriginalDuration,
               trimStart: finalTrimStart,
-              trimEnd: extractedClip ? 0 : finalTrimEnd,
+              trimEnd: finalTrimEnd,
               duration: W,
-              sourceDuration: extractedClip ? replaceVideoData.duration : spanForClip,
+              sourceDuration: spanForClip,
               playbackSpeed: ps,
               speedStart: ss,
               speedEnd: se,
               speedEasing: replaceVideoData.speedEasing ?? 'linear',
-              sourceUrl,
-              sourceTrimStart,
+              sourceUrl: undefined,
+              sourceTrimStart: undefined,
               muted: true,
               x: video.x,
               y: video.y,

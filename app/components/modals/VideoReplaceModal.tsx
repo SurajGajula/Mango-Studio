@@ -2,7 +2,6 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { generateVideoThumbnails } from '@/app/lib/mediaUtils'
-import { terminateFFmpeg } from '@/app/lib/videoExporter'
 import { calculateSourceTime } from '@/app/lib/renderUtils'
 import { AudioClass } from '@/app/models/AudioClass'
 import styles from './VideoReplaceModal.module.css'
@@ -28,8 +27,22 @@ function isProjectTimeInAudioClip(projectTime: number, audio: AudioClass): boole
   return projectTime >= audio.startTime && projectTime < audio.endTime
 }
 
+function thumbnailStepForDuration(duration: number): number {
+  if (duration > 180) return 5
+  if (duration > 60) return 3
+  return 2
+}
+
+function alignFloor(value: number, step: number): number {
+  return Math.floor(value / step) * step
+}
+
+function alignCeil(value: number, step: number): number {
+  return Math.ceil(value / step) * step
+}
+
 const PIXELS_PER_SECOND = 60
-const VIRTUALIZATION_BUFFER = 5
+const VIRTUALIZATION_BUFFER = 8
 
 interface Props {
   videoUrl: string
@@ -72,6 +85,8 @@ export default function VideoReplaceModal({
   const timelineContainerRef = useRef<HTMLDivElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [thumbnails, setThumbnails] = useState<Map<number, string>>(new Map())
+  const thumbnailsRef = useRef(thumbnails)
+  const requestedThumbTimesRef = useRef(new Set<number>())
   const [isLoadingThumbnails, setIsLoadingThumbnails] = useState(true)
   const [currentTime, setCurrentTime] = useState(initialTrimStart)
   const [containerWidth, setContainerWidth] = useState(0)
@@ -95,6 +110,11 @@ export default function VideoReplaceModal({
         ? ` (preview ${ss.toFixed(2)}x)`
         : ` (preview ${ss.toFixed(2)}x → ${se.toFixed(2)}x)`
   const maxTrimStart = Math.max(0, videoDuration - sourceWindowDuration)
+  const thumbStep = useMemo(() => thumbnailStepForDuration(videoDuration), [videoDuration])
+
+  useEffect(() => {
+    thumbnailsRef.current = thumbnails
+  }, [thumbnails])
 
   const pauseAllAudios = useCallback(() => {
     audioByIdRef.current.forEach((el) => {
@@ -265,28 +285,52 @@ export default function VideoReplaceModal({
   }, [animate])
 
   useEffect(() => {
-    let isMounted = true
-    const createdUrls: string[] = []
-    const fetchThumbnails = async () => {
-      setIsLoadingThumbnails(true)
-      setThumbnails((prev) => {
-        for (const url of prev.values()) {
-          if (url.startsWith('blob:')) URL.revokeObjectURL(url)
-        }
-        return new Map()
-      })
-      const seconds: number[] = []
-      const step = videoDuration > 60 ? 2 : 1
-      for (let s = 0; s <= videoDuration; s += step) {
-        seconds.push(s)
+    setThumbnails((prev) => {
+      for (const url of prev.values()) {
+        if (url.startsWith('blob:')) URL.revokeObjectURL(url)
       }
+      return new Map()
+    })
+    requestedThumbTimesRef.current = new Set()
+    setIsLoadingThumbnails(true)
+  }, [videoUrl, videoDuration])
 
-      await generateVideoThumbnails(videoUrl, seconds, (time, data) => {
+  const [thumbFetchRange, setThumbFetchRange] = useState({ start: visibleStartSecond, end: visibleEndSecond })
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setThumbFetchRange({ start: visibleStartSecond, end: visibleEndSecond })
+    }, 80)
+    return () => window.clearTimeout(timer)
+  }, [visibleStartSecond, visibleEndSecond])
+
+  useEffect(() => {
+    let isMounted = true
+    const rangeStart = Math.max(0, alignFloor(thumbFetchRange.start, thumbStep))
+    const rangeEnd = Math.min(Math.ceil(videoDuration), alignCeil(thumbFetchRange.end, thumbStep))
+    const needed: number[] = []
+    for (let s = rangeStart; s <= rangeEnd; s += thumbStep) {
+      if (requestedThumbTimesRef.current.has(s)) continue
+      if (thumbnailsRef.current.has(s)) continue
+      needed.push(s)
+      requestedThumbTimesRef.current.add(s)
+    }
+
+    if (needed.length === 0) {
+      if (thumbnailsRef.current.size > 0) {
+        setIsLoadingThumbnails(false)
+      }
+      return
+    }
+
+    setIsLoadingThumbnails(thumbnailsRef.current.size === 0)
+
+    const fetchThumbnails = async () => {
+      await generateVideoThumbnails(videoUrl, needed, (time, data) => {
         if (!isMounted) {
           if (data.startsWith('blob:')) URL.revokeObjectURL(data)
           return
         }
-        createdUrls.push(data)
         setThumbnails((prev) => {
           const next = new Map(prev)
           const previous = next.get(time)
@@ -303,14 +347,24 @@ export default function VideoReplaceModal({
       }
     }
 
-    fetchThumbnails()
+    void fetchThumbnails()
     return () => {
       isMounted = false
-      for (const url of createdUrls) {
+      for (const time of needed) {
+        if (!thumbnailsRef.current.has(time)) {
+          requestedThumbTimesRef.current.delete(time)
+        }
+      }
+    }
+  }, [videoUrl, videoDuration, thumbStep, thumbFetchRange.start, thumbFetchRange.end])
+
+  useEffect(() => {
+    return () => {
+      for (const url of thumbnailsRef.current.values()) {
         if (url.startsWith('blob:')) URL.revokeObjectURL(url)
       }
     }
-  }, [videoUrl, videoDuration])
+  }, [])
 
   useEffect(() => {
     if (videoRef.current && !isPlaying) {
@@ -350,7 +404,6 @@ export default function VideoReplaceModal({
         el.load()
       })
       audioByIdRef.current.clear()
-      terminateFFmpeg()
     }
   }, [])
 
@@ -471,7 +524,7 @@ export default function VideoReplaceModal({
               }}
               src={a.url}
               style={{ display: 'none' }}
-              preload="auto"
+              preload="metadata"
             />
           ))}
           <button className={styles.playButton} onClick={handlePlayPause}>
