@@ -26,7 +26,7 @@ export interface MainItem {
 
 const LOGICAL_W = 1080
 const LOGICAL_H = 1920
-const PL_EPS = 0.001
+const PL_EPS = 0.01
 
 export function resolvedClipPlacement(item: VideoClass | ImageClass) {
   return {
@@ -337,7 +337,55 @@ export function renderClipTransitionPair(
       )
       return true
     }
-    return false
+    const activeItem = activeClip.item
+    const progA = calculateAnimationProgress(activeItem, t, activeClip.startTime)
+    const ka =
+      activeClip.type === 'video'
+        ? resolveMediaKeyframeTransform(activeItem as VideoClass, elapsedA, (activeItem as VideoClass).duration ?? 0)
+        : resolveMediaKeyframeTransform(activeItem as ImageClass, elapsedA, (activeItem as ImageClass).duration)
+    applyZoomTransform(
+      ctx,
+      activeItem.animation,
+      'none',
+      progA,
+      curDraw,
+      curParams.x,
+      curParams.y,
+      curParams.w,
+      curParams.h,
+      ka.cropSx,
+      ka.cropSy,
+      ka.cropSw,
+      ka.cropSh,
+      ka.zoomIntensity,
+      activeItem.duration,
+      activeItem.animationDuration,
+      elapsedA,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      activeItem.transitionColor,
+      activeItem.transitionFlashMode,
+      activeItem.transitionDirection,
+      activeItem.transitionAxis,
+      activeItem.transitionSlideEasing,
+      activeItem.transitionCircleEasing,
+      activeItem.transitionWipeEasing,
+      activeItem.animationZoomEasing,
+      undefined,
+      activeItem.zoomDistanceIntensity,
+      undefined,
+      activeItem.flipHorizontal,
+      activeItem.flipVertical,
+      false,
+      false
+    )
+    return true
   }
 
   const nextItem = nextClip.item

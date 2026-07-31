@@ -8,9 +8,11 @@ import styles from './MoveMediaModal.module.css'
 
 type MoveMediaModalProps = {
   itemName: string
-  itemType: 'asset' | 'folder'
+  itemType: 'asset' | 'folder' | 'mixed'
+  itemCount?: number
   currentParentId: string | null
   movingFolderId?: string
+  movingFolderIds?: string[]
   onClose: () => void
   onMove: (parentId: string | null) => Promise<void>
 }
@@ -18,8 +20,10 @@ type MoveMediaModalProps = {
 export default function MoveMediaModal({
   itemName,
   itemType,
+  itemCount = 1,
   currentParentId,
   movingFolderId,
+  movingFolderIds,
   onClose,
   onMove,
 }: MoveMediaModalProps) {
@@ -29,10 +33,22 @@ export default function MoveMediaModal({
   const [moveError, setMoveError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<'root' | string>('root')
 
+  const foldersBeingMoved = useMemo(() => {
+    const ids = [...(movingFolderIds ?? [])]
+    if (movingFolderId) ids.push(movingFolderId)
+    return [...new Set(ids)]
+  }, [movingFolderId, movingFolderIds])
+
   const excluded = useMemo(() => {
-    if (!movingFolderId) return new Set<string>()
-    return new Set([movingFolderId, ...collectDescendantFolderIds(folders, movingFolderId)])
-  }, [folders, movingFolderId])
+    const next = new Set<string>()
+    for (const id of foldersBeingMoved) {
+      next.add(id)
+      for (const descendantId of collectDescendantFolderIds(folders, id)) {
+        next.add(descendantId)
+      }
+    }
+    return next
+  }, [folders, foldersBeingMoved])
   const rows = useMemo(() => buildFolderRows(folders).filter((row) => !excluded.has(row.id)), [folders, excluded])
 
   const loadFolders = useCallback(async () => {
@@ -53,7 +69,7 @@ export default function MoveMediaModal({
 
   const handleConfirm = async () => {
     const target = selectedId === 'root' ? null : selectedId
-    if (target === currentParentId || (target === null && currentParentId === null)) {
+    if (itemCount <= 1 && (target === currentParentId || (target === null && currentParentId === null))) {
       onClose()
       return
     }
@@ -70,17 +86,31 @@ export default function MoveMediaModal({
     }
   }
 
+  const showCurrent = itemCount <= 1
   const isCurrent = (folderId: string | null) =>
-    (folderId === null && currentParentId === null) || folderId === currentParentId
+    showCurrent && ((folderId === null && currentParentId === null) || folderId === currentParentId)
 
-  const title = itemType === 'folder' ? 'Move folder' : 'Move media'
+  const title =
+    itemCount > 1
+      ? 'Move items'
+      : itemType === 'folder'
+        ? 'Move folder'
+        : 'Move media'
 
   return (
     <CenteredModal onClose={onClose} backdropCloseDisabled={pending} size="folder">
       <div className={styles.header}>
         <h2>{title}</h2>
         <p>
-          Choose a folder for <strong>{itemName}</strong>
+          {itemCount > 1 ? (
+            <>
+              Choose a folder for <strong>{itemCount} items</strong>
+            </>
+          ) : (
+            <>
+              Choose a folder for <strong>{itemName}</strong>
+            </>
+          )}
         </p>
       </div>
       {loadError ? <p className={styles.errorText}>{loadError}</p> : null}
@@ -102,7 +132,7 @@ export default function MoveMediaModal({
             className={`${styles.folderOption} ${selectedId === row.id ? styles.folderOptionSelected : ''} ${isCurrent(row.id) ? styles.folderOptionCurrent : ''}`}
             style={{ paddingLeft: `${0.75 + row.depth * 0.75}rem` }}
             onClick={() => setSelectedId(row.id)}
-            disabled={pending}
+            disabled={pending || excluded.has(row.id)}
           >
             {row.name}
             {isCurrent(row.id) ? <span className={styles.badge}>Current</span> : null}

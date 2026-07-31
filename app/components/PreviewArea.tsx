@@ -443,11 +443,15 @@ export default function PreviewArea() {
               onContextMenu={handleCanvasContextMenu}
               onDoubleClick={handleCanvasDoubleClick}
             />
-            {hasMainContent && !isFullscreen && (
+            {hasMainContent && (
               <>
-                <div className={styles.overlayLayer}>
+                <div
+                  className={styles.overlayLayer}
+                  style={isFullscreen ? { pointerEvents: 'none' } : undefined}
+                >
                   {sortedPreviewLayers.map((layer) => {
                     if (layer.kind === 'image') {
+                      if (isFullscreen) return null
                       const image = layer.image
                       const kf = resolveMediaKeyframeTransform(image, playbackTime - image.startTime, image.duration)
                       return (
@@ -479,6 +483,7 @@ export default function PreviewArea() {
                       )
                     }
                     if (layer.kind === 'video') {
+                      if (isFullscreen) return null
                       const video = layer.video
                       const kf = resolveMediaKeyframeTransform(video, playbackTime - video.timestamp, manifestVideoTimelineSpanSeconds(video))
                       return (
@@ -511,8 +516,9 @@ export default function PreviewArea() {
                     const text = layer.text
                     const isVisible =
                       layer.isTimelineActive ||
-                      editingTextId === text.id ||
-                      (selectedTextId === text.id && !isPlaying)
+                      (!isFullscreen &&
+                        (editingTextId === text.id ||
+                          (selectedTextId === text.id && !isPlaying)))
                     return (
                       <TextOverlay
                         key={text.id}
@@ -522,7 +528,7 @@ export default function PreviewArea() {
                         yScale={yScale}
                         offsetX={offsetX}
                         offsetY={offsetY}
-                        editingTextId={editingTextId}
+                        editingTextId={isFullscreen ? null : editingTextId}
                         setEditingTextId={setEditingTextId}
                         editingContent={editingContent}
                         setEditingContent={setEditingContent}
@@ -534,14 +540,16 @@ export default function PreviewArea() {
                       />
                     )
                   })}
-                  {snapLines.vertical.map((x, i) => (
-                    <div key={`v-${i}`} className={styles.snapLineVertical} style={{ left: offsetX + x * xScale }} />
-                  ))}
-                  {snapLines.horizontal.map((y, i) => (
-                    <div key={`h-${i}`} className={styles.snapLineHorizontal} style={{ top: offsetY + y * yScale }} />
-                  ))}
+                  {!isFullscreen &&
+                    snapLines.vertical.map((x, i) => (
+                      <div key={`v-${i}`} className={styles.snapLineVertical} style={{ left: offsetX + x * xScale }} />
+                    ))}
+                  {!isFullscreen &&
+                    snapLines.horizontal.map((y, i) => (
+                      <div key={`h-${i}`} className={styles.snapLineHorizontal} style={{ top: offsetY + y * yScale }} />
+                    ))}
                 </div>
-                {cropEditId && (
+                {!isFullscreen && cropEditId && (
                   <CropEditor
                     cropEditId={cropEditId}
                     xScale={xScale}

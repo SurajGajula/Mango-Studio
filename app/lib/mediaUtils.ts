@@ -473,9 +473,11 @@ export async function generateVideoThumbnails(
   onProgress?: (time: number, data: string) => void
 ): Promise<Map<number, string> | null> {
   const video = document.createElement('video')
+  video.preload = 'metadata'
   video.src = url
   video.crossOrigin = 'anonymous'
   video.muted = true
+  video.playsInline = true
 
   await new Promise<void>((resolve) => {
     video.onloadeddata = () => resolve()
@@ -483,13 +485,18 @@ export async function generateVideoThumbnails(
   })
 
   if (video.duration === 0 || !video.videoWidth) {
-    video.src = ''
+    video.removeAttribute('src')
+    video.load()
     return null
   }
 
   const canvas = document.createElement('canvas')
   const ctx = canvas.getContext('2d')
-  if (!ctx) return null
+  if (!ctx) {
+    video.removeAttribute('src')
+    video.load()
+    return null
+  }
 
   const thumbHeight = 40
   const thumbWidth = Math.round(thumbHeight * (video.videoWidth / video.videoHeight)) || 72
@@ -547,7 +554,10 @@ export async function generateVideoThumbnails(
     await new Promise(r => setTimeout(r, 0))
   }
 
-  video.src = ''
+  video.removeAttribute('src')
+  video.load()
+  canvas.width = 0
+  canvas.height = 0
   return thumbnails
 }
 

@@ -2,14 +2,24 @@ import { useState, useEffect, useRef } from 'react'
 import { generateVideoThumbnails, revokeThumbnailUrls } from '@/app/lib/mediaUtils'
 import { VideoClass } from '@/app/models/VideoClass'
 import {
+  MAX_THUMBNAIL_SAMPLES_PER_SOURCE,
+  subsampleThumbnailSecondIndices,
   videoThumbnailCacheKey,
+  videoThumbnailGenerationUrl,
   videoThumbnailPrioritySecondIndices,
   videoThumbnailSecondIndices,
 } from '@/app/lib/videoThumbnailKey'
 
 type ThumbnailWork = {
   cacheKey: string
+  generationUrl: string
   seconds: number[]
+}
+
+function generationUrlForCacheKey(videos: VideoClass[], cacheKey: string): string {
+  const match = videos.find((v) => videoThumbnailCacheKey(v) === cacheKey)
+  if (!match) return cacheKey
+  return videoThumbnailGenerationUrl(match) || cacheKey
 }
 
 function collectThumbnailWork(videos: VideoClass[]): ThumbnailWork[] {
@@ -27,7 +37,11 @@ function collectThumbnailWork(videos: VideoClass[]): ThumbnailWork[] {
   })
   return Array.from(neededByKey.entries()).map(([cacheKey, seconds]) => ({
     cacheKey,
-    seconds: Array.from(seconds).sort((a, b) => a - b),
+    generationUrl: generationUrlForCacheKey(videos, cacheKey),
+    seconds: subsampleThumbnailSecondIndices(
+      Array.from(seconds).sort((a, b) => a - b),
+      MAX_THUMBNAIL_SAMPLES_PER_SOURCE
+    ),
   }))
 }
 
@@ -46,6 +60,7 @@ function priorityWorkForVideos(videos: VideoClass[]): ThumbnailWork[] {
   })
   return Array.from(neededByKey.entries()).map(([cacheKey, seconds]) => ({
     cacheKey,
+    generationUrl: generationUrlForCacheKey(videos, cacheKey),
     seconds: Array.from(seconds).sort((a, b) => a - b),
   }))
 }
@@ -81,15 +96,18 @@ export function useVideoThumbnails(videos: VideoClass[]) {
       return seconds.filter((s) => !existing?.has(s))
     }
 
+    const tabIsHidden = () => document.visibilityState === 'hidden'
+
     const generateForWork = async (work: ThumbnailWork[]) => {
-      for (const { cacheKey, seconds } of work) {
+      for (const { cacheKey, generationUrl, seconds } of work) {
         if (cancelled) return
+        if (tabIsHidden()) return
         const missing = missingSeconds(cacheKey, seconds)
         if (missing.length === 0) continue
         if (processingKeysRef.current.has(cacheKey)) continue
         processingKeysRef.current.add(cacheKey)
         try {
-          await generateVideoThumbnails(cacheKey, missing, (time, data) => {
+          await generateVideoThumbnails(generationUrl, missing, (time, data) => {
             if (cancelled) {
               if (data.startsWith('blob:')) URL.revokeObjectURL(data)
               return
@@ -113,7 +131,7 @@ export function useVideoThumbnails(videos: VideoClass[]) {
     }
 
     const run = async () => {
-      if (cancelled) return
+      if (cancelled || tabIsHidden()) return
 
       const fullWork = collectThumbnailWork(videos)
       const activeKeys = new Set(fullWork.map((w) => w.cacheKey))
@@ -121,13 +139,14 @@ export function useVideoThumbnails(videos: VideoClass[]) {
 
       const priorityWork = priorityWorkForVideos(videos)
       await generateForWork(priorityWork)
-      if (cancelled) return
+      if (cancelled || tabIsHidden()) return
 
       const deferFull = () => {
-        if (cancelled) return
+        if (cancelled || tabIsHidden()) return
         const remaining = fullWork
-          .map(({ cacheKey, seconds }) => ({
+          .map(({ cacheKey, generationUrl, seconds }) => ({
             cacheKey,
+            generationUrl,
             seconds: missingSeconds(cacheKey, seconds),
           }))
           .filter((w) => w.seconds.length > 0)
@@ -143,6 +162,7 @@ export function useVideoThumbnails(videos: VideoClass[]) {
 
     const schedule = () => {
       if (cancelled) return
+      if (tabIsHidden()) return
       if (typeof requestIdleCallback === 'function') {
         idleId = requestIdleCallback(() => void run(), { timeout: 4000 })
       } else {
@@ -150,15 +170,21 @@ export function useVideoThumbnails(videos: VideoClass[]) {
       }
     }
 
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') schedule()
+    }
+
     if (document.readyState === 'complete') {
       schedule()
     } else {
       window.addEventListener('load', schedule, { once: true })
     }
+    document.addEventListener('visibilitychange', onVisibility)
 
     return () => {
       cancelled = true
       window.removeEventListener('load', schedule)
+      document.removeEventListener('visibilitychange', onVisibility)
       if (idleId) cancelIdleCallback(idleId)
       if (timeoutId) clearTimeout(timeoutId)
     }

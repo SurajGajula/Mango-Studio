@@ -44,6 +44,7 @@ export function subscribePreviewWake(listener: () => void) {
 
 export function wakePreviewLoop() {
   if (!previewEngineEnabled) return
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
   previewWakeListeners.forEach((listener) => listener())
 }
 

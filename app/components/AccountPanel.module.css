@@ -265,10 +265,24 @@
   gap: 0.45rem;
   padding: 0.4rem 0.5rem;
   border-bottom: 1px solid #181818;
+  user-select: none;
+  cursor: default;
 }
 
 .libraryRow:last-child {
   border-bottom: none;
+}
+
+.libraryRow:hover {
+  background: #141414;
+}
+
+.libraryRowSelected {
+  background: #1c2430;
+}
+
+.libraryRowSelected:hover {
+  background: #223044;
 }
 
 .libraryRow[draggable='true'] {
@@ -282,27 +296,6 @@
 .libraryRowDrop {
   outline: 1px dashed #444;
   background: #141414;
-}
-
-.libraryPrimaryButton {
-  border: none;
-  background: transparent;
-  color: #ddd;
-  text-align: left;
-  cursor: pointer;
-  font-size: 0.72rem;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.libraryPrimaryButton:hover {
-  color: #fff;
 }
 
 .libraryAssetName {
@@ -347,6 +340,54 @@
 
 .rowActionButton:hover {
   color: #fff;
+}
+
+.libraryContextMenu {
+  position: fixed;
+  z-index: 1000;
+  background-color: #1e1e1e;
+  border: 1px solid #333333;
+  border-radius: 6px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 180px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
+.libraryContextMenuItem {
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: #cccccc;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  transition: background-color 0.12s ease, color 0.12s ease;
+  white-space: nowrap;
+}
+
+.libraryContextMenuItem:hover {
+  background-color: #2e2e2e;
+  color: #ffffff;
+}
+
+.libraryContextMenuItemDanger {
+  color: #ff6b6b;
+}
+
+.libraryContextMenuItemDanger:hover {
+  background-color: #4a1a1a;
+  color: #ff8e8e;
+}
+
+.libraryContextMenuSeparator {
+  height: 1px;
+  background-color: #333333;
+  margin: 4px 0;
 }
 
 .statusText {

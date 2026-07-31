@@ -1,6 +1,6 @@
 'use client'
 
-import { ChangeEvent, useCallback, useMemo, useRef, useState, type MouseEvent } from 'react'
+import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { useAuth } from './AuthProvider'
 import DeleteConfirmModal from './modals/DeleteProjectModal'
 import MediaNameModal from './modals/MediaNameModal'
@@ -19,6 +19,7 @@ type NameModalState =
   | { type: 'new-project' }
   | { type: 'rename-project'; initialValue: string }
   | { type: 'new-folder' }
+  | { type: 'new-folder-and-move' }
   | { type: 'rename-folder'; folderId: string; initialValue: string }
   | { type: 'rename-asset'; assetId: string; initialValue: string }
 
@@ -26,10 +27,22 @@ type DeleteModalState =
   | { type: 'project' }
   | { type: 'folder'; folderId: string; name: string }
   | { type: 'asset'; assetId: string; name: string }
+  | { type: 'selection'; assetIds: string[]; folderIds: string[]; name: string }
 
 type MoveModalState =
   | { type: 'asset'; assetId: string; name: string; folderId: string | null }
   | { type: 'folder'; folderId: string; name: string; parentId: string | null }
+  | {
+      type: 'selection'
+      assetIds: string[]
+      folderIds: string[]
+      name: string
+      itemCount: number
+    }
+
+type LibrarySelectionItem = { type: 'asset' | 'folder'; id: string }
+
+type LibraryContextMenuState = { x: number; y: number }
 
 type AccountPanelProps = {
   projects: UserProject[]
@@ -42,6 +55,7 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [folderTrail, setFolderTrail] = useState<Array<{ id: string | null; name: string }>>([{ id: null, name: 'Root' }])
   const uploadInputRef = useRef<HTMLInputElement>(null)
+  const libraryContextMenuRef = useRef<HTMLDivElement>(null)
   const [nameModal, setNameModal] = useState<NameModalState | null>(null)
   const [moveModal, setMoveModal] = useState<MoveModalState | null>(null)
   const [draggingAssetId, setDraggingAssetId] = useState<string | null>(null)
@@ -49,6 +63,9 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
   const [shapesOpen, setShapesOpen] = useState(false)
   const [projectModalOpen, setProjectModalOpen] = useState(false)
   const [deleteModal, setDeleteModal] = useState<DeleteModalState | null>(null)
+  const [selectedItems, setSelectedItems] = useState<LibrarySelectionItem[]>([])
+  const [selectionAnchorIndex, setSelectionAnchorIndex] = useState<number | null>(null)
+  const [libraryContextMenu, setLibraryContextMenu] = useState<LibraryContextMenuState | null>(null)
 
   const { user, supabase, profile } = useAuth()
   const {
@@ -66,8 +83,58 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
     deleteFolder,
     deleteAsset,
     moveAsset,
+    moveAssets,
     moveFolder,
+    moveFolders,
   } = useAccountMediaLibrary(true)
+
+  const libraryItems = useMemo((): LibrarySelectionItem[] => {
+    return [
+      ...folders.map((folder) => ({ type: 'folder' as const, id: folder.id })),
+      ...assets.map((asset) => ({ type: 'asset' as const, id: asset.id })),
+    ]
+  }, [folders, assets])
+
+  const selectedKeySet = useMemo(
+    () => new Set(selectedItems.map((item) => `${item.type}:${item.id}`)),
+    [selectedItems]
+  )
+
+  const selectedAssetIds = useMemo(
+    () => selectedItems.filter((item) => item.type === 'asset').map((item) => item.id),
+    [selectedItems]
+  )
+  const selectedFolderIds = useMemo(
+    () => selectedItems.filter((item) => item.type === 'folder').map((item) => item.id),
+    [selectedItems]
+  )
+
+  const clearLibrarySelection = useCallback(() => {
+    setSelectedItems([])
+    setSelectionAnchorIndex(null)
+    setLibraryContextMenu(null)
+  }, [])
+
+  useEffect(() => {
+    clearLibrarySelection()
+  }, [currentFolderId, search, clearLibrarySelection])
+
+  useEffect(() => {
+    if (!libraryContextMenu) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (libraryContextMenuRef.current?.contains(event.target as Node)) return
+      setLibraryContextMenu(null)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setLibraryContextMenu(null)
+    }
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [libraryContextMenu])
 
   const endDragVisuals = useCallback(() => {
     setDraggingAssetId(null)
@@ -175,33 +242,199 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
   }
 
   const handleOpenFolder = (folderId: string, name: string) => {
+    clearLibrarySelection()
     setCurrentFolderId(folderId)
     setFolderTrail((prev) => [...prev, { id: folderId, name }])
   }
 
   const handleGoToTrail = (index: number) => {
+    clearLibrarySelection()
     const nextTrail = folderTrail.slice(0, index + 1)
     setFolderTrail(nextTrail)
     setCurrentFolderId(nextTrail[nextTrail.length - 1]?.id ?? null)
   }
 
+  const resolveAssetIdsToMove = (assetId: string) => {
+    if (selectedAssetIds.includes(assetId) && selectedAssetIds.length > 1) {
+      return selectedAssetIds
+    }
+    return [assetId]
+  }
+
   const handleDropOnFolder = async (folderId: string | null, assetId: string) => {
-    const asset = assets.find((a) => a.id === assetId)
-    const current = asset?.folder_id ?? null
-    if (current === folderId) return
+    const ids = resolveAssetIdsToMove(assetId)
+    const idsNeedingMove = ids.filter((id) => {
+      const asset = assets.find((a) => a.id === id)
+      return (asset?.folder_id ?? null) !== folderId
+    })
+    if (idsNeedingMove.length === 0) return
     try {
-      await moveAsset(assetId, folderId)
-    } catch (err: any) {
-      alert(err?.message ?? 'Failed to move item')
+      await moveAssets(idsNeedingMove, folderId)
+      clearLibrarySelection()
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to move item')
     }
   }
 
-  const handleOpenFolderRow = (e: MouseEvent, folderId: string, name: string) => {
+  const isLibraryItemSelected = (type: LibrarySelectionItem['type'], id: string) =>
+    selectedKeySet.has(`${type}:${id}`)
+
+  const handleLibraryItemClick = (e: MouseEvent, item: LibrarySelectionItem, index: number) => {
     if (draggingAssetId) {
       e.preventDefault()
       return
     }
-    handleOpenFolder(folderId, name)
+    e.stopPropagation()
+    setLibraryContextMenu(null)
+
+    if (e.shiftKey) {
+      if (selectionAnchorIndex !== null) {
+        const start = Math.min(selectionAnchorIndex, index)
+        const end = Math.max(selectionAnchorIndex, index)
+        setSelectedItems(libraryItems.slice(start, end + 1))
+        return
+      }
+      setSelectedItems([item])
+      setSelectionAnchorIndex(index)
+      return
+    }
+
+    if (e.metaKey || e.ctrlKey) {
+      setSelectedItems((prev) => {
+        const exists = prev.some((entry) => entry.type === item.type && entry.id === item.id)
+        if (exists) {
+          return prev.filter((entry) => !(entry.type === item.type && entry.id === item.id))
+        }
+        return [...prev, item]
+      })
+      setSelectionAnchorIndex(index)
+      return
+    }
+
+    if (item.type === 'folder') {
+      const folder = folders.find((entry) => entry.id === item.id)
+      if (folder) handleOpenFolder(folder.id, folder.name)
+      return
+    }
+
+    setSelectedItems([item])
+    setSelectionAnchorIndex(index)
+  }
+
+  const handleLibraryContextMenu = (e: MouseEvent, item: LibrarySelectionItem, index: number) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const alreadySelected = selectedItems.some((entry) => entry.type === item.type && entry.id === item.id)
+    if (!alreadySelected) {
+      setSelectedItems([item])
+      setSelectionAnchorIndex(index)
+    }
+    setLibraryContextMenu({ x: e.clientX, y: e.clientY })
+  }
+
+  const selectionLabel = useMemo(() => {
+    if (selectedItems.length === 0) return ''
+    if (selectedItems.length === 1) {
+      const only = selectedItems[0]
+      if (only.type === 'folder') {
+        return folders.find((folder) => folder.id === only.id)?.name ?? '1 item'
+      }
+      return assets.find((asset) => asset.id === only.id)?.name ?? '1 item'
+    }
+    return `${selectedItems.length} items`
+  }, [selectedItems, folders, assets])
+
+  const openMoveForSelection = () => {
+    if (selectedItems.length === 0) return
+    setLibraryContextMenu(null)
+    if (selectedItems.length === 1 && selectedAssetIds.length === 1) {
+      const asset = assets.find((entry) => entry.id === selectedAssetIds[0])
+      if (!asset) return
+      setMoveModal({
+        type: 'asset',
+        assetId: asset.id,
+        name: asset.name,
+        folderId: asset.folder_id,
+      })
+      return
+    }
+    if (selectedItems.length === 1 && selectedFolderIds.length === 1) {
+      const folder = folders.find((entry) => entry.id === selectedFolderIds[0])
+      if (!folder) return
+      setMoveModal({
+        type: 'folder',
+        folderId: folder.id,
+        name: folder.name,
+        parentId: folder.parent_id,
+      })
+      return
+    }
+    setMoveModal({
+      type: 'selection',
+      assetIds: selectedAssetIds,
+      folderIds: selectedFolderIds,
+      name: selectionLabel,
+      itemCount: selectedItems.length,
+    })
+  }
+
+  const openNewFolderAndMove = () => {
+    if (selectedItems.length === 0) return
+    setLibraryContextMenu(null)
+    setNameModal({ type: 'new-folder-and-move' })
+  }
+
+  const openDeleteForSelection = () => {
+    if (selectedItems.length === 0) return
+    setLibraryContextMenu(null)
+    if (selectedItems.length === 1 && selectedAssetIds.length === 1) {
+      const asset = assets.find((entry) => entry.id === selectedAssetIds[0])
+      if (!asset) return
+      setDeleteModal({ type: 'asset', assetId: asset.id, name: asset.name })
+      return
+    }
+    if (selectedItems.length === 1 && selectedFolderIds.length === 1) {
+      const folder = folders.find((entry) => entry.id === selectedFolderIds[0])
+      if (!folder) return
+      setDeleteModal({ type: 'folder', folderId: folder.id, name: folder.name })
+      return
+    }
+    setDeleteModal({
+      type: 'selection',
+      assetIds: selectedAssetIds,
+      folderIds: selectedFolderIds,
+      name: selectionLabel,
+    })
+  }
+
+  const moveSelectedItems = async (parentId: string | null) => {
+    if (selectedAssetIds.length > 0) {
+      await moveAssets(selectedAssetIds, parentId)
+    }
+    if (selectedFolderIds.length > 0) {
+      await moveFolders(selectedFolderIds, parentId)
+    }
+    clearLibrarySelection()
+  }
+
+  const performDeleteSelection = async (assetIds: string[], folderIds: string[]) => {
+    if (assetIds.length > 0 || folderIds.length > 0) {
+      const response = await fetch('/api/media/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assetIds, folderIds }),
+      })
+      if (!response.ok) {
+        const body = await response.json().catch(() => null)
+        throw new Error(body?.error ?? 'Failed to delete items')
+      }
+      if (currentFolderId && folderIds.includes(currentFolderId)) {
+        setCurrentFolderId(null)
+        setFolderTrail([{ id: null, name: 'Root' }])
+      }
+      window.dispatchEvent(new Event('account-media-updated'))
+    }
+    clearLibrarySelection()
   }
 
   const hasEntries = useMemo(() => folders.length > 0 || assets.length > 0, [folders, assets])
@@ -349,104 +582,119 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
             </button>
           ))}
         </div>
-        <div className={styles.libraryList}>
+        <div
+          className={styles.libraryList}
+          onClick={() => {
+            clearLibrarySelection()
+          }}
+        >
           {loading ? <p className={styles.statusText}>Loading media...</p> : null}
           {error ? <p className={styles.errorText}>{error}</p> : null}
           {!loading && !hasEntries ? <p className={styles.statusText}>No media yet.</p> : null}
-          {folders.map((folder) => (
-            <div
-              key={folder.id}
-              className={`${styles.libraryRow} ${draggingAssetId && dragOverTarget === folder.id ? styles.libraryRowDrop : ''}`}
-              onDragOver={(e) => {
-                if (!draggingAssetId) return
-                e.preventDefault()
-                e.dataTransfer.dropEffect = 'move'
-                setDragOverTarget(folder.id)
-              }}
-              onDrop={(e) => {
-                if (!draggingAssetId) return
-                e.preventDefault()
-                const id = parseAccountMediaDragData(e.dataTransfer)?.id ?? e.dataTransfer.getData('text/plain')
-                if (id) void handleDropOnFolder(folder.id, id)
-                endDragVisuals()
-              }}
-            >
-              <button
-                type="button"
-                className={styles.libraryPrimaryButton}
-                onClick={(e) => handleOpenFolderRow(e, folder.id, folder.name)}
+          {folders.map((folder, folderIndex) => {
+            const item: LibrarySelectionItem = { type: 'folder', id: folder.id }
+            const index = folderIndex
+            const selected = isLibraryItemSelected('folder', folder.id)
+            return (
+              <div
+                key={folder.id}
+                className={`${styles.libraryRow} ${selected ? styles.libraryRowSelected : ''} ${draggingAssetId && dragOverTarget === folder.id ? styles.libraryRowDrop : ''}`}
+                onClick={(e) => handleLibraryItemClick(e, item, index)}
+                onContextMenu={(e) => handleLibraryContextMenu(e, item, index)}
+                onDragOver={(e) => {
+                  if (!draggingAssetId) return
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'move'
+                  setDragOverTarget(folder.id)
+                }}
+                onDrop={(e) => {
+                  if (!draggingAssetId) return
+                  e.preventDefault()
+                  const id = parseAccountMediaDragData(e.dataTransfer)?.id ?? e.dataTransfer.getData('text/plain')
+                  if (id) void handleDropOnFolder(folder.id, id)
+                  endDragVisuals()
+                }}
               >
-                <span className={styles.libraryKindBadge}>folder</span>
-                {folder.name}
-              </button>
-              <div className={styles.libraryRowActions}>
-                <button
-                  type="button"
-                  className={styles.rowActionButton}
-                  onClick={() =>
-                    setMoveModal({
-                      type: 'folder',
-                      folderId: folder.id,
-                      name: folder.name,
-                      parentId: folder.parent_id,
-                    })
-                  }
-                >
-                  Move
-                </button>
-                <button type="button" className={styles.rowActionButton} onClick={() => setNameModal({ type: 'rename-folder', folderId: folder.id, initialValue: folder.name })}>
-                  Rename
-                </button>
-                <button type="button" className={styles.rowActionButton} onClick={() => setDeleteModal({ type: 'folder', folderId: folder.id, name: folder.name })}>
-                  Delete
-                </button>
+                <span className={styles.libraryAssetName}>
+                  <span className={styles.libraryKindBadge}>folder</span>
+                  {folder.name}
+                </span>
+                <div className={styles.libraryRowActions} onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    className={styles.rowActionButton}
+                    onClick={() =>
+                      setMoveModal({
+                        type: 'folder',
+                        folderId: folder.id,
+                        name: folder.name,
+                        parentId: folder.parent_id,
+                      })
+                    }
+                  >
+                    Move
+                  </button>
+                  <button type="button" className={styles.rowActionButton} onClick={() => setNameModal({ type: 'rename-folder', folderId: folder.id, initialValue: folder.name })}>
+                    Rename
+                  </button>
+                  <button type="button" className={styles.rowActionButton} onClick={() => setDeleteModal({ type: 'folder', folderId: folder.id, name: folder.name })}>
+                    Delete
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
-          {assets.map((asset) => (
-            <div
-              key={asset.id}
-              className={styles.libraryRow}
-              draggable
-              title="Drag onto the timeline to add"
-              onDragStart={(e) => {
-                setDraggingAssetId(asset.id)
-                setAccountMediaDragData(e.dataTransfer, {
-                  id: asset.id,
-                  kind: asset.kind,
-                  name: asset.name,
-                })
-              }}
-              onDragEnd={endDragVisuals}
-            >
-              <span className={styles.libraryAssetName}>
-                <span className={styles.libraryKindBadge}>{asset.kind}</span>
-                {asset.name}
-              </span>
-              <div className={styles.libraryRowActions}>
-                <button
-                  type="button"
-                  className={styles.rowActionButton}
-                  onClick={() =>
-                    setMoveModal({
-                      type: 'asset',
-                      assetId: asset.id,
-                      name: asset.name,
-                      folderId: asset.folder_id,
-                    })
-                  }
-                >
-                  Move
-                </button>
-                <button type="button" className={styles.rowActionButton} onClick={() => setNameModal({ type: 'rename-asset', assetId: asset.id, initialValue: asset.name })}>
-                  Rename
-                </button>
-                <button type="button" className={styles.rowActionButton} onClick={() => setDeleteModal({ type: 'asset', assetId: asset.id, name: asset.name })}>
-                  Delete
-                </button>
+            )
+          })}
+          {assets.map((asset, assetIndex) => {
+            const item: LibrarySelectionItem = { type: 'asset', id: asset.id }
+            const index = folders.length + assetIndex
+            const selected = isLibraryItemSelected('asset', asset.id)
+            return (
+              <div
+                key={asset.id}
+                className={`${styles.libraryRow} ${selected ? styles.libraryRowSelected : ''}`}
+                draggable
+                title="Drag onto the timeline to add · Shift-click to multi-select"
+                onClick={(e) => handleLibraryItemClick(e, item, index)}
+                onContextMenu={(e) => handleLibraryContextMenu(e, item, index)}
+                onDragStart={(e) => {
+                  setDraggingAssetId(asset.id)
+                  setAccountMediaDragData(e.dataTransfer, {
+                    id: asset.id,
+                    kind: asset.kind,
+                    name: asset.name,
+                  })
+                }}
+                onDragEnd={endDragVisuals}
+              >
+                <span className={styles.libraryAssetName}>
+                  <span className={styles.libraryKindBadge}>{asset.kind}</span>
+                  {asset.name}
+                </span>
+                <div className={styles.libraryRowActions} onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    className={styles.rowActionButton}
+                    onClick={() =>
+                      setMoveModal({
+                        type: 'asset',
+                        assetId: asset.id,
+                        name: asset.name,
+                        folderId: asset.folder_id,
+                      })
+                    }
+                  >
+                    Move
+                  </button>
+                  <button type="button" className={styles.rowActionButton} onClick={() => setNameModal({ type: 'rename-asset', assetId: asset.id, initialValue: asset.name })}>
+                    Rename
+                  </button>
+                  <button type="button" className={styles.rowActionButton} onClick={() => setDeleteModal({ type: 'asset', assetId: asset.id, name: asset.name })}>
+                    Delete
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
         <div className={styles.shapesDropdown}>
           <button
@@ -517,6 +765,15 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
         />
       ) : null}
 
+      {deleteModal?.type === 'selection' ? (
+        <DeleteConfirmModal
+          title="Delete items"
+          itemName={deleteModal.name}
+          onClose={() => setDeleteModal(null)}
+          onConfirm={() => performDeleteSelection(deleteModal.assetIds, deleteModal.folderIds)}
+        />
+      ) : null}
+
       {nameModal?.type === 'new-project' ? (
         <MediaNameModal
           title="New project"
@@ -574,6 +831,20 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
         />
       ) : null}
 
+      {nameModal?.type === 'new-folder-and-move' ? (
+        <MediaNameModal
+          title="Move to new folder"
+          description={`Create a folder and move ${selectionLabel} into it.`}
+          initialValue=""
+          confirmLabel="Create & move"
+          onClose={() => setNameModal(null)}
+          onConfirm={async (name) => {
+            const folder = await createFolder(name)
+            await moveSelectedItems(folder.id)
+          }}
+        />
+      ) : null}
+
       {nameModal?.type === 'rename-folder' ? (
         <MediaNameModal
           title="Rename folder"
@@ -622,6 +893,50 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
             await moveFolder(moveModal.folderId, parentId)
           }}
         />
+      ) : null}
+      {moveModal?.type === 'selection' ? (
+        <MoveMediaModal
+          itemName={moveModal.name}
+          itemType={moveModal.assetIds.length > 0 && moveModal.folderIds.length > 0 ? 'mixed' : moveModal.folderIds.length > 0 ? 'folder' : 'asset'}
+          itemCount={moveModal.itemCount}
+          currentParentId={currentFolderId}
+          movingFolderIds={moveModal.folderIds}
+          onClose={() => setMoveModal(null)}
+          onMove={async (parentId) => {
+            if (moveModal.assetIds.length > 0) {
+              await moveAssets(moveModal.assetIds, parentId)
+            }
+            if (moveModal.folderIds.length > 0) {
+              await moveFolders(moveModal.folderIds, parentId)
+            }
+            clearLibrarySelection()
+          }}
+        />
+      ) : null}
+
+      {libraryContextMenu && selectedItems.length > 0 ? (
+        <div
+          ref={libraryContextMenuRef}
+          className={styles.libraryContextMenu}
+          style={{ left: libraryContextMenu.x, top: libraryContextMenu.y }}
+          role="menu"
+        >
+          <button type="button" className={styles.libraryContextMenuItem} role="menuitem" onClick={openMoveForSelection}>
+            Move to folder…
+          </button>
+          <button type="button" className={styles.libraryContextMenuItem} role="menuitem" onClick={openNewFolderAndMove}>
+            Move to new folder…
+          </button>
+          <div className={styles.libraryContextMenuSeparator} />
+          <button
+            type="button"
+            className={`${styles.libraryContextMenuItem} ${styles.libraryContextMenuItemDanger}`}
+            role="menuitem"
+            onClick={openDeleteForSelection}
+          >
+            Delete
+          </button>
+        </div>
       ) : null}
     </div>
   )

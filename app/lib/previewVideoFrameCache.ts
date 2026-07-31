@@ -6,7 +6,7 @@ type PreviewVideoFrameEntry = {
   valid: boolean
 }
 
-const PREVIEW_FRAME_MAX_EDGE = 960
+const PREVIEW_FRAME_MAX_EDGE = 720
 
 const previewVideoFrameCache = new WeakMap<HTMLVideoElement, PreviewVideoFrameEntry>()
 const previewVideoListenerAttached = new WeakSet<HTMLVideoElement>()
@@ -48,6 +48,7 @@ function peekPreviewVideoFrame(el: HTMLVideoElement): HTMLCanvasElement | null {
 }
 
 function refreshPreviewVideoFrame(el: HTMLVideoElement): void {
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
   capturePreviewVideoFrame(el)
   wakePreviewLoop()
 }
@@ -61,6 +62,15 @@ export function attachPreviewVideoFrameListeners(el: HTMLVideoElement): void {
   el.addEventListener('timeupdate', () => {
     if (!el.paused && !el.seeking) refreshPreviewVideoFrame(el)
   })
+}
+
+export function releasePreviewVideoFrameCache(el: HTMLVideoElement): void {
+  const entry = previewVideoFrameCache.get(el)
+  if (!entry) return
+  entry.valid = false
+  entry.canvas.width = 0
+  entry.canvas.height = 0
+  previewVideoFrameCache.delete(el)
 }
 
 export function capturePreviewVideoFrame(el: HTMLVideoElement): HTMLCanvasElement | null {
@@ -117,12 +127,14 @@ export function primePreviewVideoFrame(el: HTMLVideoElement): void {
 }
 
 export function schedulePreviewVideoFrameCapture(el: HTMLVideoElement): void {
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
   if (el.paused || el.seeking || rvfcScheduled.has(el)) return
   const rvfc = (el as HTMLVideoElementWithRvfc).requestVideoFrameCallback
   if (typeof rvfc !== 'function') return
   rvfcScheduled.add(el)
   rvfc.call(el, () => {
     rvfcScheduled.delete(el)
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
     capturePreviewVideoFrame(el)
     wakePreviewLoop()
     if (!el.paused && !el.seeking) schedulePreviewVideoFrameCapture(el)

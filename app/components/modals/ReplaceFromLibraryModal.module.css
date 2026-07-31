@@ -182,3 +182,50 @@
   font-size: 0.72rem;
   color: #c44;
 }
+
+.rowSelected {
+  background: #1c2430;
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding-top: 0.35rem;
+}
+
+.cancelButton,
+.confirmButton {
+  border-radius: 6px;
+  font-size: 0.72rem;
+  padding: 0.4rem 0.7rem;
+  cursor: pointer;
+}
+
+.cancelButton {
+  border: 1px solid #333;
+  background: transparent;
+  color: #aaa;
+}
+
+.cancelButton:hover:not(:disabled) {
+  color: #fff;
+  border-color: #555;
+}
+
+.confirmButton {
+  border: none;
+  background: #fff;
+  color: #111;
+  font-weight: 600;
+}
+
+.confirmButton:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.confirmButton:disabled,
+.cancelButton:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

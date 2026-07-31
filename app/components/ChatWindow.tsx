@@ -58,6 +58,7 @@ import {
   warmLocalChatEngine,
 } from '@/app/lib/webLlm/localChatRouter'
 import { getLoadedWebLlmModelId } from '@/app/lib/webLlm/webLlmTestEngine'
+import ReplaceFromLibraryModal, { type ReplaceLibraryAsset } from './modals/ReplaceFromLibraryModal'
 
 interface Message {
   id: string
@@ -73,6 +74,7 @@ interface UploadedFile {
   blobUrl: string
   mimeType: string
   mediaType: 'image' | 'audio' | 'video'
+  source?: 'local' | 'library'
 }
 
 const AUDIO_RMS_FLOOR = 1e-7
@@ -142,6 +144,7 @@ export default function ChatWindow() {
   const [localModelWarming, setLocalModelWarming] = useState(false)
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
+  const [libraryAttachOpen, setLibraryAttachOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -762,6 +765,9 @@ export default function ChatWindow() {
     }
 
     const uploadImageFile = async (file: UploadedFile): Promise<string> => {
+      if (file.source === 'library' || file.blobUrl.startsWith('/api/media/asset/')) {
+        return file.blobUrl
+      }
       const blob = await fetch(file.blobUrl).then((res) => res.blob())
       const uploadFile = new File([blob], file.name, { type: file.mimeType })
       const assetId = await uploadToAccountLibrary(uploadFile)
@@ -769,6 +775,9 @@ export default function ChatWindow() {
     }
 
     const uploadVideoFile = async (file: UploadedFile): Promise<string> => {
+      if (file.source === 'library' || file.blobUrl.startsWith('/api/media/asset/')) {
+        return file.blobUrl
+      }
       const { duration } = await resolveVideoMetadata(file.blobUrl)
       if (!validateMediaDuration(duration, 'Video')) return file.blobUrl
       const blob = await fetch(file.blobUrl).then((res) => res.blob())
@@ -784,6 +793,7 @@ export default function ChatWindow() {
           audioFileIndices.map(async (fileIndex) => {
             const file = files[fileIndex]
             if (!file) return
+            if (file.source === 'library' || file.blobUrl.startsWith('/api/media/asset/')) return
             const duration = await resolveAudioDurationFromUrl(file.blobUrl)
             if (!validateMediaDuration(duration, 'Audio')) return
             const blob = await fetch(file.blobUrl).then((res) => res.blob())
@@ -1037,11 +1047,34 @@ export default function ChatWindow() {
         blobUrl,
         mimeType: file.type,
         mediaType,
+        source: 'local',
       })
     }
 
     setUploadedFiles((prev) => [...prev, ...newFiles])
     if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const attachLibraryAssets = (assets: ReplaceLibraryAsset[]) => {
+    setUploadedFiles((prev) => {
+      const existingLibraryIds = new Set(
+        prev.filter((file) => file.source === 'library').map((file) => file.id)
+      )
+      const newFiles: UploadedFile[] = []
+      for (const asset of assets) {
+        if (existingLibraryIds.has(asset.id)) continue
+        newFiles.push({
+          id: asset.id,
+          name: asset.name,
+          blobUrl: accountMediaAssetPlaybackUrl(asset.id),
+          mimeType: asset.mimeType,
+          mediaType: asset.kind,
+          source: 'library',
+        })
+      }
+      if (newFiles.length === 0) return prev
+      return [...prev, ...newFiles]
+    })
   }
 
   const removeUploadedFile = (id: string) => {
@@ -1106,7 +1139,11 @@ export default function ChatWindow() {
       {uploadedFiles.length > 0 && (
         <div className={styles.referenceFilesContainer}>
           {uploadedFiles.map((file) => (
-            <div key={file.id} className={file.mediaType === 'image' ? styles.referenceImageItem : styles.referenceMediaItem}>
+            <div
+              key={file.id}
+              className={file.mediaType === 'image' ? styles.referenceImageItem : styles.referenceMediaItem}
+              title={file.source === 'library' ? `${file.name} (library)` : file.name}
+            >
               {file.mediaType === 'image' ? (
                 <img
                   src={file.blobUrl}
@@ -1132,6 +1169,7 @@ export default function ChatWindow() {
                   <span className={styles.referenceMediaName}>{file.name}</span>
                 </div>
               )}
+              {file.source === 'library' ? <span className={styles.libraryAttachBadge}>Lib</span> : null}
               <button
                 className={styles.removeFileButton}
                 onClick={() => removeUploadedFile(file.id)}
@@ -1164,17 +1202,30 @@ export default function ChatWindow() {
             rows={1}
           />
           <div className={styles.composerFooter}>
-            <button
-              type="button"
-              className={styles.composerIconBtn}
-              onClick={() => fileInputRef.current?.click()}
-              title="Attach files"
-              aria-label="Attach files"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
-              </svg>
-            </button>
+            <div className={styles.composerAttachGroup}>
+              <button
+                type="button"
+                className={styles.composerIconBtn}
+                onClick={() => fileInputRef.current?.click()}
+                title="Attach files"
+                aria-label="Attach files"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                className={styles.composerIconBtn}
+                onClick={() => setLibraryAttachOpen(true)}
+                title="Attach from library"
+                aria-label="Attach from library"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+                </svg>
+              </button>
+            </div>
             <button
               type="button"
               className={`${styles.composerIconBtn} ${styles.composerSendBtn}`}
@@ -1191,6 +1242,19 @@ export default function ChatWindow() {
           </div>
         </div>
       </div>
+
+      <ReplaceFromLibraryModal
+        open={libraryAttachOpen}
+        onClose={() => setLibraryAttachOpen(false)}
+        mediaFilter="all"
+        multiSelect
+        title="Attach from library"
+        description="Select images, videos, or audio from your media library."
+        confirmLabel="Attach"
+        onPickMany={(assets) => {
+          attachLibraryAssets(assets)
+        }}
+      />
     </div>
   )
 }

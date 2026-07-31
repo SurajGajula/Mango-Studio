@@ -56,6 +56,10 @@ export function releaseFfmpegLock() {
   ffmpegLock = false
 }
 
+export function isFfmpegBusy() {
+  return ffmpegLock
+}
+
 export async function createScaledVideoProxy(
   url: string,
   maxEdge = 720,

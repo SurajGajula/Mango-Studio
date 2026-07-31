@@ -1,10 +1,10 @@
-import { createScaledVideoProxy } from '@/app/lib/ffmpegEngine'
+import { createScaledVideoProxy, terminateFFmpeg } from '@/app/lib/ffmpegEngine'
 import { isPlaybackFetchableUrl } from '@/app/lib/persistedMediaRefs'
 import { videoFullResMediaUrl } from '@/app/lib/videoPlaybackSource'
 import type { VideoClass } from '@/app/models/VideoClass'
 import { useManifestStore } from '@/app/stores/manifestStore'
 
-const VIDEO_PROXY_MAX_EDGE = 720
+const VIDEO_PROXY_MAX_EDGE = 480
 
 const proxyUrlBySource = new Map<string, string>()
 const skippedSources = new Set<string>()
@@ -60,6 +60,8 @@ async function createProxyObjectUrl(sourceUrl: string): Promise<string | null> {
     console.error('Failed to create video proxy', sourceUrl, error)
     skippedSources.add(sourceUrl)
     return null
+  } finally {
+    terminateFFmpeg()
   }
 }
 

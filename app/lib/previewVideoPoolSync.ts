@@ -4,6 +4,7 @@ import {
   attachPreviewVideoFrameListeners,
   invalidatePreviewVideoFrameCache,
   previewVideoFrameReady,
+  releasePreviewVideoFrameCache,
 } from '@/app/lib/previewVideoFrameCache'
 import { setVideoCrossOriginForUrl } from '@/app/lib/mediaUtils'
 import { manifestVideoTimelineSpanSeconds } from '@/app/lib/timeUtils'
@@ -16,6 +17,10 @@ import {
   videoPlaybackMediaUrl,
   videoSourceTrimBase,
 } from '@/app/lib/videoPlaybackSource'
+import {
+  clipsAreEffectivelyAdjacent,
+  type TimelineRowClip,
+} from '@/app/lib/timelineClipAdjacency'
 import type { VideoClass } from '@/app/models/VideoClass'
 import type { ImageClass } from '@/app/models/ImageClass'
 import { useManifestStore } from '@/app/stores/manifestStore'
@@ -27,7 +32,12 @@ export const PREVIEW_VIDEO_PREFETCH_SEC = 6
 export const PREVIEW_VIDEO_PREFETCH_SEC_MANY_CLIPS = 3
 export const PREVIEW_VIDEO_SCRUB_PREFETCH_SEC = 5
 export const PREVIEW_VIDEO_SCRUB_PREFETCH_SEC_MANY_CLIPS = 3
+export const MAX_PREVIEW_BUFFERED_SEC = 12
+const BUFFER_RESET_COOLDOWN_MS = 10_000
 const MANY_UNIQUE_SOURCES = 3
+
+const lastBufferResetAt = new WeakMap<HTMLVideoElement, number>()
+const bufferResetInFlight = new WeakSet<HTMLVideoElement>()
 
 function prefetchLeadForPool(uniqueSources: number, scrubbing: boolean): number {
   if (uniqueSources <= 2) {
@@ -94,8 +104,95 @@ function clipIdsForElement(
 
 function destroyPreviewVideoElement(video: HTMLVideoElement) {
   video.pause()
+  releasePreviewVideoFrameCache(video)
+  video.removeAttribute('src')
   video.src = ''
   video.load()
+}
+
+function previewVideoBufferedSpan(el: HTMLVideoElement): number {
+  try {
+    let span = 0
+    for (let i = 0; i < el.buffered.length; i++) {
+      span += el.buffered.end(i) - el.buffered.start(i)
+    }
+    return span
+  } catch {
+    return 0
+  }
+}
+
+export function resetPreviewVideoBufferIfBloated(el: HTMLVideoElement, resumeAt: number): void {
+  if (bufferResetInFlight.has(el)) return
+  const now = performance.now()
+  const lastReset = lastBufferResetAt.get(el) ?? 0
+  if (now - lastReset < BUFFER_RESET_COOLDOWN_MS) return
+  if (el.networkState === HTMLMediaElement.NETWORK_LOADING) return
+  if (previewVideoBufferedSpan(el) <= MAX_PREVIEW_BUFFERED_SEC) return
+  const src = el.currentSrc || el.src
+  if (!src) return
+  const muted = el.muted
+  const rate = el.playbackRate
+  const paused = el.paused
+  bufferResetInFlight.add(el)
+  lastBufferResetAt.set(el, now)
+  el.pause()
+  releasePreviewVideoFrameCache(el)
+  el.removeAttribute('src')
+  el.load()
+  setVideoCrossOriginForUrl(el, src)
+  el.preload = 'metadata'
+  el.muted = muted
+  el.playbackRate = rate
+  el.src = src
+  el.load()
+  const seekTo = Number.isFinite(resumeAt) ? Math.max(0, resumeAt) : 0
+  const finish = () => {
+    bufferResetInFlight.delete(el)
+    try {
+      el.currentTime = seekTo
+    } catch {}
+    if (!paused) {
+      const p = el.play()
+      if (p) p.catch(() => {})
+    }
+    wakePreviewLoop()
+  }
+  const onMeta = () => {
+    finish()
+  }
+  if (el.readyState >= HTMLMediaElement.HAVE_METADATA) {
+    finish()
+  } else {
+    el.addEventListener('loadedmetadata', onMeta, { once: true })
+    el.addEventListener(
+      'error',
+      () => {
+        bufferResetInFlight.delete(el)
+      },
+      { once: true }
+    )
+  }
+  attachPreviewVideoFrameListeners(el)
+}
+
+export function releaseAllPreviewVideoElements(
+  videoElementsRef: MutableRefObject<Map<string, HTMLVideoElement>>,
+  persistenceCanvasesRef: MutableRefObject<PersistenceCanvasMap>,
+  releaseDeadlinesRef: MutableRefObject<Map<string, number>>
+) {
+  const ids = [...videoElementsRef.current.keys()]
+  for (const id of ids) {
+    releasePreviewVideoElement(id, videoElementsRef, persistenceCanvasesRef, releaseDeadlinesRef)
+  }
+  releaseDeadlinesRef.current.clear()
+  persistenceCanvasesRef.current.forEach((pair) => {
+    pair.current.width = 0
+    pair.current.height = 0
+    pair.accumulation.width = 0
+    pair.accumulation.height = 0
+  })
+  persistenceCanvasesRef.current.clear()
 }
 
 export function releasePreviewVideoElement(
@@ -231,9 +328,67 @@ export function activePreviewVideosNeedFrames(
   return false
 }
 
-function createPreviewVideoElement(clip: VideoClass, clipSrc: string, preload: 'auto' | 'metadata') {
+function toRowClip(clip: VideoClass): TimelineRowClip {
+  return {
+    id: clip.id,
+    type: 'video',
+    startTime: clip.timestamp,
+    duration: manifestVideoTimelineSpanSeconds(clip),
+    item: clip,
+  }
+}
+
+function clipsNeedSeparateElementsForTransition(a: VideoClass, b: VideoClass): boolean {
+  const earlier = a.timestamp <= b.timestamp ? a : b
+  const later = a.timestamp <= b.timestamp ? b : a
+  if ((later.transition ?? 'none') === 'none') return false
+  return clipsAreEffectivelyAdjacent(toRowClip(earlier), toRowClip(later))
+}
+
+function acquirePreviewVideoElement(
+  clip: VideoClass,
+  mediaUrl: string,
+  videoElementsRef: MutableRefObject<Map<string, HTMLVideoElement>>,
+  freeByUrl: Map<string, HTMLVideoElement>,
+  preferExisting: HTMLVideoElement | undefined
+): HTMLVideoElement {
+  const existingForClip = videoElementsRef.current.get(clip.id)
+  if (existingForClip && videoElementSrcMatches(existingForClip, mediaUrl)) {
+    attachPreviewVideoFrameListeners(existingForClip)
+    if (existingForClip.preload !== 'metadata') existingForClip.preload = 'metadata'
+    return existingForClip
+  }
+
+  let video =
+    preferExisting && videoElementSrcMatches(preferExisting, mediaUrl)
+      ? preferExisting
+      : findExistingElementForUrl(mediaUrl, videoElementsRef, freeByUrl)
+
+  if (video && existingForClip && existingForClip !== video) {
+    parkElementIfUnused(existingForClip, videoElementsRef, freeByUrl)
+  }
+
+  if (!video) {
+    video = createPreviewVideoElement(clip, mediaUrl, 'metadata')
+  } else {
+    attachPreviewVideoFrameListeners(video)
+    if (!videoElementSrcMatches(video, mediaUrl)) {
+      invalidatePreviewVideoFrameCache(video)
+      setVideoCrossOriginForUrl(video, mediaUrl)
+      video.pause()
+      video.preload = 'metadata'
+      video.src = resolvedVideoElementSrc(mediaUrl)
+      video.load()
+    } else if (video.preload !== 'metadata') {
+      video.preload = 'metadata'
+    }
+  }
+  return video
+}
+
+function createPreviewVideoElement(clip: VideoClass, clipSrc: string, _preload: 'auto' | 'metadata') {
   const video = document.createElement('video')
-  video.preload = preload
+  video.preload = 'metadata'
   video.playsInline = true
   setVideoCrossOriginForUrl(video, clipSrc)
   video.src = resolvedVideoElementSrc(clipSrc)
@@ -379,6 +534,15 @@ export function syncManifestVideoPool(
   }
 
   neededByUrl.forEach((clips, mediaUrl) => {
+    const sorted = [...clips].sort((a, b) => a.timestamp - b.timestamp)
+    const separateIds = new Set<string>()
+    for (let i = 1; i < sorted.length; i++) {
+      if (clipsNeedSeparateElementsForTransition(sorted[i - 1], sorted[i])) {
+        separateIds.add(sorted[i - 1].id)
+        separateIds.add(sorted[i].id)
+      }
+    }
+
     const primary =
       clips.find((c) => isVideoActiveAtTimelineTime(c, videosList, playbackTime, imagesList)) ||
       clips.reduce((best, clip) =>
@@ -388,42 +552,50 @@ export function syncManifestVideoPool(
           : best
       )
 
-    let video =
-      clips
-        .map((clip) => videoElementsRef.current.get(clip.id))
-        .find((el): el is HTMLVideoElement => !!el) ||
-      findExistingElementForUrl(mediaUrl, videoElementsRef, freeByUrl)
-    const inTimelineRange = isVideoActiveAtTimelineTime(
-      primary,
-      videosList,
-      playbackTime,
-      imagesList
-    )
-
-    if (!video) {
-      video = createPreviewVideoElement(primary, mediaUrl, inTimelineRange ? 'auto' : 'metadata')
-    } else {
-      attachPreviewVideoFrameListeners(video)
-      if (!videoElementSrcMatches(video, mediaUrl)) {
-        invalidatePreviewVideoFrameCache(video)
-        setVideoCrossOriginForUrl(video, mediaUrl)
-        video.pause()
-        video.src = resolvedVideoElementSrc(mediaUrl)
-        video.load()
-      } else if (inTimelineRange && video.preload !== 'auto') {
-        video.preload = 'auto'
-      }
+    const sharedClips = clips.filter((clip) => !separateIds.has(clip.id))
+    let sharedVideo: HTMLVideoElement | undefined
+    if (sharedClips.length > 0) {
+      sharedVideo = acquirePreviewVideoElement(
+        primary,
+        mediaUrl,
+        videoElementsRef,
+        freeByUrl,
+        sharedClips
+          .map((clip) => videoElementsRef.current.get(clip.id))
+          .find((el): el is HTMLVideoElement => !!el)
+      )
     }
 
+    const assignedElements = new Set<HTMLVideoElement>()
     for (const clip of clips) {
       const prevUrl = lastMediaUrlByClipId.get(clip.id)
-      if (prevUrl && prevUrl !== mediaUrl) {
-        const oldEl = videoElementsRef.current.get(clip.id)
+      const previousEl = videoElementsRef.current.get(clip.id)
+      if (prevUrl && prevUrl !== mediaUrl && previousEl) {
         videoElementsRef.current.delete(clip.id)
-        if (oldEl && oldEl !== video) {
-          parkElementIfUnused(oldEl, videoElementsRef, freeByUrl)
-        }
+        parkElementIfUnused(previousEl, videoElementsRef, freeByUrl)
       }
+
+      let video: HTMLVideoElement
+      if (separateIds.has(clip.id)) {
+        const occupied = new Set(
+          [...videoElementsRef.current.entries()]
+            .filter(([id, el]) => id !== clip.id && assignedElements.has(el))
+            .map(([, el]) => el)
+        )
+        const existing = videoElementsRef.current.get(clip.id)
+        const prefer =
+          existing && !occupied.has(existing) && videoElementSrcMatches(existing, mediaUrl)
+            ? existing
+            : undefined
+        video = acquirePreviewVideoElement(clip, mediaUrl, videoElementsRef, freeByUrl, prefer)
+        if (occupied.has(video)) {
+          video = createPreviewVideoElement(clip, mediaUrl, 'metadata')
+        }
+      } else {
+        video = sharedVideo ?? acquirePreviewVideoElement(clip, mediaUrl, videoElementsRef, freeByUrl, undefined)
+      }
+
+      assignedElements.add(video)
       lastMediaUrlByClipId.set(clip.id, mediaUrl)
       videoElementsRef.current.set(clip.id, video)
       releaseDeadlinesRef.current.delete(clip.id)

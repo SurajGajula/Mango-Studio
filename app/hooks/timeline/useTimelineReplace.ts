@@ -6,7 +6,7 @@ import { computeMediaCropForAspect, resolveVideoMetadata } from '@/app/lib/media
 import { calculateSourceTime, timelineClipSourceSpanSeconds } from '@/app/lib/renderUtils'
 import { useManifestStore } from '@/app/stores/manifestStore'
 import { generateId } from '@/app/lib/idUtils'
-import { getOrCreateObjectURLForFile } from '@/app/lib/fileObjectUrlCache'
+import { getOrCreateObjectURLForFile, revokeFileObjectUrl } from '@/app/lib/fileObjectUrlCache'
 import { FIXED_ASPECT_RATIO } from '@/app/lib/aspectRatio'
 import { resolveTimelineFullMediaFromLibrary } from '@/app/lib/accountMediaLibraryMatch'
 import { isPlaybackFetchableUrl } from '@/app/lib/persistedMediaRefs'
@@ -346,7 +346,8 @@ export function useTimelineReplace({
       const title = file.name
       let applyUrl = blobUrl
       if (isImage) {
-        void uploadToAccountLibrary(file)
+        const assetId = await uploadToAccountLibrary(file)
+        if (assetId) applyUrl = accountMediaAssetPlaybackUrl(assetId)
       } else if (isVideo) {
         const { duration } = await resolveVideoMetadata(blobUrl)
         const assetId = await uploadToAccountLibrary(file, duration)
@@ -354,6 +355,7 @@ export function useTimelineReplace({
       }
 
       await applyReplaceFromUrl(replaceTargetId, applyUrl, title, isVideo ? 'video' : 'image')
+      if (applyUrl !== blobUrl) revokeFileObjectUrl(blobUrl)
       e.target.value = ''
     },
     [replaceTargetId, applyReplaceFromUrl]
@@ -543,6 +545,7 @@ export function useTimelineReplace({
       const applyUrl = assetId ? accountMediaAssetPlaybackUrl(assetId) : blobUrl
 
       await applyReplaceAudioFromUrl(audioReplaceTargetId, applyUrl, title)
+      if (applyUrl !== blobUrl) revokeFileObjectUrl(blobUrl)
       setAudioReplaceTargetId(null)
       e.target.value = ''
     },

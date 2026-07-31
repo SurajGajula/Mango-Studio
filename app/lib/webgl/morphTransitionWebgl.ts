@@ -242,6 +242,12 @@ function disposeCache(c: GLCache): void {
   gl.deleteProgram(program)
 }
 
+export function disposeMorphTransitionWebgl() {
+  if (!cache) return
+  disposeCache(cache)
+  cache = null
+}
+
 function getCache(): GLCache | null {
   if (typeof document === 'undefined') return null
   if (disabled) return null

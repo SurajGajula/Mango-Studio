@@ -40,6 +40,7 @@ import {
   resolvePreviewVideoDrawSource,
   schedulePreviewVideoFrameCapture,
 } from '@/app/lib/previewVideoFrameCache'
+import { resetPreviewVideoBufferIfBloated } from '@/app/lib/previewVideoPoolSync'
 
 export interface RenderState {
   playbackTime: number
@@ -72,6 +73,27 @@ const PREVIEW_CHROME_FILL = '#0f0f0f'
 const previewVideoPrimeAwaitSeeked = new WeakSet<HTMLVideoElement>()
 const lastDrivenClipByElement = new WeakMap<HTMLVideoElement, string>()
 const lastGoodFrameByElement = new WeakMap<HTMLVideoElement, HTMLCanvasElement>()
+const MAX_VIDEO_HOLD_FRAMES = 8
+
+function zeroCanvas(canvas: HTMLCanvasElement) {
+  canvas.width = 0
+  canvas.height = 0
+}
+
+function clearHoldMap(holdMap: Map<string, HTMLCanvasElement>) {
+  holdMap.forEach((canvas) => zeroCanvas(canvas))
+  holdMap.clear()
+}
+
+function evictOldestHoldFrames(holdMap: Map<string, HTMLCanvasElement>) {
+  while (holdMap.size > MAX_VIDEO_HOLD_FRAMES) {
+    const oldest = holdMap.keys().next().value
+    if (!oldest) break
+    const canvas = holdMap.get(oldest)
+    if (canvas) zeroCanvas(canvas)
+    holdMap.delete(oldest)
+  }
+}
 
 function prewarmLeadForTimeline(videos: VideoClass[]): number {
   const uniqueSources = uniqueVideoMediaUrlCount(videos)
@@ -245,7 +267,9 @@ function storeClipHoldFrame(
   source: HTMLCanvasElement
 ) {
   const existing = holdMap.get(clipId)
+  holdMap.delete(clipId)
   holdMap.set(clipId, copyFrameToCanvas(source, existing && existing !== source ? existing : undefined))
+  evictOldestHoldFrames(holdMap)
 }
 
 function storeElementBridgeFrame(vEl: HTMLVideoElement, source: HTMLCanvasElement) {
@@ -323,6 +347,22 @@ export class VideoRenderingEngine {
   private lastVideoVisualKeyForHold = ''
   private effectsLayer: HTMLCanvasElement | null = null
 
+  public releaseCachedResources() {
+    clearHoldMap(this.videoHoldFrame)
+    this.lastVideoVisualKeyForHold = ''
+    if (this.effectsLayer) {
+      this.effectsLayer.width = 0
+      this.effectsLayer.height = 0
+      this.effectsLayer = null
+    }
+    this.lastRenderedTime = -1
+    this.lastStateKey = ''
+    this.cachedVideos = null
+    this.cachedImages = null
+    this.cachedTexts = null
+    this.cachedEffects = null
+  }
+
   private getEffectsLayer(width: number, height: number): HTMLCanvasElement {
     if (!this.effectsLayer) {
       this.effectsLayer = document.createElement('canvas')
@@ -379,7 +419,7 @@ export class VideoRenderingEngine {
 
     const videoVisualKey = this.getVideoVisualKey(state.videos)
     if (videoVisualKey !== this.lastVideoVisualKeyForHold) {
-      this.videoHoldFrame.clear()
+      clearHoldMap(this.videoHoldFrame)
       this.lastVideoVisualKeyForHold = videoVisualKey
     }
     const imageVisualKey = this.getImageVisualKey(state.images)
@@ -449,6 +489,18 @@ export class VideoRenderingEngine {
         bestCandidateByElement.set(candidate.vEl, candidate)
         continue
       }
+
+      const rowTrans = rowTransitionByRow.get(candidate.video.row)
+      if (rowTrans?.transitionActive) {
+        const candIsIncoming = rowTrans.next.id === candidate.video.id
+        const existIsIncoming = rowTrans.next.id === existing.video.id
+        if (candIsIncoming && !existIsIncoming) {
+          bestCandidateByElement.set(candidate.vEl, candidate)
+          continue
+        }
+        if (!candIsIncoming && existIsIncoming) continue
+      }
+
       if (candidate.inRange && !existing.inRange) {
         bestCandidateByElement.set(candidate.vEl, candidate)
         continue
@@ -501,6 +553,9 @@ export class VideoRenderingEngine {
         } else {
           invalidatePreviewVideoFrameCache(vEl)
           if (!vEl.seeking && handoffDrift > 0.01) {
+            if (handoffDrift > 8) {
+              resetPreviewVideoBufferIfBloated(vEl, clampedTarget)
+            }
             vEl.currentTime = clampedTarget
             onVideoUpdate(clampedTarget)
           }
@@ -845,8 +900,29 @@ export class VideoRenderingEngine {
             }
             const expectedTime = expectedSourceTimeForClip(video, currentTime, el)
             const isDriver = lastDrivenClipByElement.get(el) === id
+            const rowTrans = rowTransitionByRow.get(video.row)
+            const isTransitionOutgoing =
+              !!rowTrans?.transitionActive && rowTrans.active.type === 'video' && rowTrans.active.id === id
+            const isTransitionIncoming =
+              !!rowTrans?.transitionActive && rowTrans.next.type === 'video' && rowTrans.next.id === id
             const predecessor = findAdjacentSameSourcePredecessor(videos, video)
             const predecessorHold = predecessor ? this.videoHoldFrame.get(predecessor.id) : undefined
+            if (isTransitionOutgoing) {
+              return resolveOverlayVideoDrawSource(el, this.videoHoldFrame.get(id), undefined, {
+                allowLive: isDriver,
+                expectedTime,
+                allowFallbackHold: false,
+                bridgeHold: isDriver ? lastGoodFrameByElement.get(el) : undefined,
+              })
+            }
+            if (isTransitionIncoming) {
+              return resolveOverlayVideoDrawSource(el, this.videoHoldFrame.get(id), undefined, {
+                allowLive: isDriver,
+                expectedTime,
+                allowFallbackHold: false,
+                bridgeHold: isDriver ? lastGoodFrameByElement.get(el) : undefined,
+              })
+            }
             const allowFallbackHold =
               !!predecessor && isDriver && adjacentSameSourceIsContinuous(predecessor, video)
             return resolveOverlayVideoDrawSource(el, this.videoHoldFrame.get(id), predecessorHold, {

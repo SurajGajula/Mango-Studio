@@ -34,14 +34,14 @@ describe('videoThumbnailKey', () => {
   it('subsamples priority indices for long clips', () => {
     const v = new VideoClass('v1', 't', 'blob:full', 300, 0)
     const priority = videoThumbnailPrioritySecondIndices(v)
-    expect(priority.length).toBe(6)
+    expect(priority.length).toBe(4)
     expect(priority[0]).toBe(0)
   })
 
   it('caps thumbnail samples for long clips', () => {
     const v = new VideoClass('v1', 't', 'blob:full', 300, 0)
     const indices = videoThumbnailSecondIndices(v)
-    expect(indices.length).toBe(36)
+    expect(indices.length).toBe(12)
     expect(indices[0]).toBe(0)
     expect(indices[indices.length - 1]).toBeLessThan(300)
   })

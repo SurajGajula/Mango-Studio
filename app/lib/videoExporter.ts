@@ -166,34 +166,66 @@ async function syncExportVideoPool(
 
   await Promise.all(
     urlEntries.map(async ({ url, clips, primary }) => {
-      let shared: HTMLVideoElement | undefined
-      for (const clip of clips) {
-        const existing = videoElements.get(clip.id)
-        if (existing) {
-          shared = existing
-          break
+      const sorted = [...clips].sort((a, b) => a.timestamp - b.timestamp)
+      const separateIds = new Set<string>()
+      for (let i = 1; i < sorted.length; i++) {
+        const earlier = sorted[i - 1]
+        const later = sorted[i]
+        if ((later.transition ?? 'none') === 'none') continue
+        const earlierEnd = earlier.timestamp + (earlier.duration ?? 0)
+        const gap = later.timestamp - earlierEnd
+        if (gap >= -1e-6 && gap < 3 / 60) {
+          separateIds.add(earlier.id)
+          separateIds.add(later.id)
         }
       }
-      if (!shared) {
-        for (const el of new Set(videoElements.values())) {
-          const src = el.currentSrc || el.src || ''
-          if (src && (src === url || src.endsWith(url))) {
-            shared = el
+
+      let shared: HTMLVideoElement | undefined
+      const sharedClips = clips.filter((clip) => !separateIds.has(clip.id))
+      if (sharedClips.length > 0 || separateIds.size === 0) {
+        for (const clip of sharedClips.length > 0 ? sharedClips : clips) {
+          const existing = videoElements.get(clip.id)
+          if (existing) {
+            shared = existing
             break
           }
         }
+        if (!shared) {
+          for (const el of new Set(videoElements.values())) {
+            const src = el.currentSrc || el.src || ''
+            if (src && (src === url || src.endsWith(url))) {
+              shared = el
+              break
+            }
+          }
+        }
+        if (!shared) {
+          shared = await loadExportVideoElement(primary)
+        }
       }
-      if (!shared) {
-        shared = await loadExportVideoElement(primary)
-      }
+
       if (!keepUrls.has(url)) {
-        shared.pause()
-        shared.src = ''
-        shared.load()
+        if (shared) {
+          shared.pause()
+          shared.src = ''
+          shared.load()
+        }
         return
       }
+
+      const occupied = new Set<HTMLVideoElement>()
       for (const clip of clips) {
-        videoElements.set(clip.id, shared)
+        if (separateIds.has(clip.id)) {
+          let el = videoElements.get(clip.id)
+          if (!el || occupied.has(el) || (shared && el === shared)) {
+            el = await loadExportVideoElement(clip)
+          }
+          occupied.add(el)
+          videoElements.set(clip.id, el)
+        } else if (shared) {
+          occupied.add(shared)
+          videoElements.set(clip.id, shared)
+        }
       }
     })
   )

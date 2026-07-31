@@ -19,6 +19,12 @@ export function forgetFileObjectUrlIfRevoked(url: string): void {
   }
 }
 
+export function revokeFileObjectUrl(url: string): void {
+  if (!url.startsWith('blob:')) return
+  URL.revokeObjectURL(url)
+  forgetFileObjectUrlIfRevoked(url)
+}
+
 export function clearFileObjectUrlCache(): void {
   for (const url of fileKeyToUrl.values()) {
     URL.revokeObjectURL(url)

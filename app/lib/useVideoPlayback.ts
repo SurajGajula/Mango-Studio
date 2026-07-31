@@ -24,10 +24,13 @@ import {
 import {
   activePreviewVideosNeedFrames,
   purgeOffscreenPreviewVideos,
+  releaseAllPreviewVideoElements,
   releasePreviewVideoElement,
   syncManifestVideoPool,
 } from '@/app/lib/previewVideoPoolSync'
 import { isImageActiveAtTimelineTime } from '@/app/lib/adjacentSplitVideo'
+import { disposeMorphTransitionWebgl } from '@/app/lib/webgl/morphTransitionWebgl'
+import { terminateFFmpeg, isFfmpegBusy } from '@/app/lib/ffmpegEngine'
 
 function resolvedMediaHref(src: string): string {
   try {
@@ -284,6 +287,7 @@ export function useVideoPlayback(
   }, [getState])
 
   useEffect(() => {
+    if (document.visibilityState === 'hidden') return
     disposeRemovedPreviewVideos()
     syncManifestVideoPool(
       getState().playbackTime,
@@ -304,7 +308,69 @@ export function useVideoPlayback(
     notifyLivePlaybackSubscribers()
   }, [textEditOverride?.id, textEditOverride?.content])
 
+  const clearImageBitmapCaches = useCallback(() => {
+    imagePrefetchGenRef.current += 1
+    lastImagePrefetchBucketRef.current = -1
+    urlCacheRef.current.forEach((bitmap) => bitmap.close())
+    urlCacheRef.current.clear()
+    imageBitmapsRef.current.clear()
+    imageUrlsRef.current.clear()
+    loadingUrlsRef.current.clear()
+  }, [])
+
+  const sleepPreviewForBackground = useCallback(() => {
+    const state = getState()
+    if (state.isPlaying) {
+      state.setIsPlaying(false)
+    }
+
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
+
+    videoElementsRef.current.forEach((el) => {
+      if (!el.paused) el.pause()
+    })
+    audioElementsRef.current.forEach((el) => {
+      if (!el.paused) el.pause()
+    })
+
+    releaseAllPreviewVideoElements(
+      videoElementsRef,
+      persistenceCanvasesRef,
+      videoReleaseDeadlinesRef
+    )
+    setPreviewVideoPool(new Map())
+
+    const audioIds = [...audioElementsRef.current.keys()]
+    audioIds.forEach((id) => disposePreviewAudio(id))
+    audioPlayPromisesRef.current.clear()
+    audioWarmupUntilRef.current.clear()
+    audioPendingStartRef.current.clear()
+    videoPlayPromisesRef.current.clear()
+
+    clearImageBitmapCaches()
+    engineRef.current?.releaseCachedResources()
+    disposeMorphTransitionWebgl()
+
+    if (bufferCanvasRef.current) {
+      bufferCanvasRef.current.width = 0
+      bufferCanvasRef.current.height = 0
+    }
+
+    const ctx = audioCtxRef.current
+    if (ctx && ctx.state === 'running') {
+      void ctx.suspend().catch(() => {})
+    }
+
+    if (!isFfmpegBusy()) {
+      terminateFFmpeg()
+    }
+  }, [clearImageBitmapCaches, disposePreviewAudio, getState])
+
   const prefetchImagesNearPlayhead = useCallback((playbackTime: number) => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
     const bucket = Math.floor(playbackTime * 2)
     if (bucket === lastImagePrefetchBucketRef.current) return
     lastImagePrefetchBucketRef.current = bucket
@@ -418,12 +484,14 @@ export function useVideoPlayback(
   }, [images, videos])
 
   useEffect(() => {
+    if (document.visibilityState === 'hidden') return
     imagePrefetchGenRef.current += 1
     lastImagePrefetchBucketRef.current = -1
     prefetchImagesNearPlayhead(getState().playbackTime)
   }, [images, prefetchImagesNearPlayhead, getState])
 
   useEffect(() => {
+    if (document.visibilityState === 'hidden') return
     syncPreviewAudioPool(getState().playbackTime, audios)
   }, [audios, syncPreviewAudioPool, getState])
 
@@ -443,32 +511,37 @@ export function useVideoPlayback(
     }
   }, [getAudioCtx])
 
+  const wakePreviewFromBackground = useCallback(() => {
+    const ctx = getAudioCtx()
+    void ctx.resume().catch(() => {})
+    playbackClockResetRef.current = true
+    const state = getState()
+    internalPlaybackTimeRef.current = state.playbackTime
+    lastImagePrefetchBucketRef.current = -1
+    syncManifestVideoPool(
+      state.playbackTime,
+      state.videos,
+      videoElementsRef,
+      persistenceCanvasesRef,
+      videoReleaseDeadlinesRef,
+      state.images
+    )
+    prefetchImagesNearPlayhead(state.playbackTime)
+    syncPreviewAudioPool(state.playbackTime, state.audios)
+    notifyLivePlaybackSubscribers()
+  }, [getAudioCtx, getState, prefetchImagesNearPlayhead, syncPreviewAudioPool])
+
   useEffect(() => {
     const onVisibility = () => {
-      if (document.visibilityState !== 'visible') return
-      const ctx = getAudioCtx()
-      void ctx.resume().catch(() => {})
-      playbackClockResetRef.current = true
-      const state = getState()
-      internalPlaybackTimeRef.current = state.playbackTime
-      if (!state.isPlaying) return
-      audioPlayPromisesRef.current.clear()
-      audioWarmupUntilRef.current.clear()
-      audioPendingStartRef.current.clear()
-      state.audios.forEach((audioItem) => {
-        const el = audioElementsRef.current.get(audioItem.id)
-        if (!el) return
-        const l = audioCanPlayListenersRef.current.get(audioItem.id)
-        if (l) {
-          el.removeEventListener('canplay', l)
-          audioCanPlayListenersRef.current.delete(audioItem.id)
-        }
-      })
-      rebuildAllPreviewAudios(state.audios, state.playbackTime)
+      if (document.visibilityState === 'hidden') {
+        sleepPreviewForBackground()
+        return
+      }
+      wakePreviewFromBackground()
     }
     document.addEventListener('visibilitychange', onVisibility)
     return () => document.removeEventListener('visibilitychange', onVisibility)
-  }, [getAudioCtx, getState, rebuildAllPreviewAudios])
+  }, [sleepPreviewForBackground, wakePreviewFromBackground])
 
   useEffect(() => {
     return () => {
@@ -590,7 +663,7 @@ export function useVideoPlayback(
     }
 
     const loop = (timestamp: number) => {
-      if (!isPreviewEngineEnabled()) {
+      if (!isPreviewEngineEnabled() || document.visibilityState === 'hidden') {
         rafRef.current = null
         return
       }
@@ -1039,11 +1112,14 @@ export function useVideoPlayback(
     }
 
     const startPreviewRafIfIdle = () => {
+      if (document.visibilityState === 'hidden') return
       if (rafRef.current !== null) return
       rafRef.current = requestAnimationFrame(loop)
     }
 
-    rafRef.current = requestAnimationFrame(loop)
+    if (document.visibilityState !== 'hidden') {
+      rafRef.current = requestAnimationFrame(loop)
+    }
 
     const unsubscribeWake = subscribePreviewWake(startPreviewRafIfIdle)
     const unsubscribePurge = subscribePreviewVideoPurge(purgePreviewVideoPool)

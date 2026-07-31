@@ -76,8 +76,10 @@ export function useAccountMediaLibrary(enabled: boolean) {
         const body = await response.json().catch(() => null)
         throw new Error(body?.error ?? 'Failed to create folder')
       }
+      const json = (await response.json()) as { folder: AccountMediaFolder }
       await fetchList()
       window.dispatchEvent(new Event('account-media-updated'))
+      return json.folder
     },
     [currentFolderId, fetchList]
   )
@@ -152,19 +154,30 @@ export function useAccountMediaLibrary(enabled: boolean) {
     [fetchList]
   )
 
-  const moveAsset = useCallback(
-    async (assetId: string, folderId: string | null) => {
+  const moveAssets = useCallback(
+    async (assetIds: string[], folderId: string | null) => {
+      const uniqueIds = [...new Set(assetIds)].filter(Boolean)
+      if (uniqueIds.length === 0) return
       const previousAssets = assets
-      setAssets((prev) => prev.filter((asset) => (asset.id === assetId ? folderId === currentFolderId : true)))
-      const response = await fetch('/api/media/move', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assetId, folderId }),
-      })
-      if (!response.ok) {
+      const idSet = new Set(uniqueIds)
+      setAssets((prev) =>
+        prev.filter((asset) => (idSet.has(asset.id) ? folderId === currentFolderId : true))
+      )
+      try {
+        for (const assetId of uniqueIds) {
+          const response = await fetch('/api/media/move', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ assetId, folderId }),
+          })
+          if (!response.ok) {
+            const body = await response.json().catch(() => null)
+            throw new Error(body?.error ?? 'Failed to move asset')
+          }
+        }
+      } catch (error) {
         setAssets(previousAssets)
-        const body = await response.json().catch(() => null)
-        throw new Error(body?.error ?? 'Failed to move asset')
+        throw error
       }
       window.dispatchEvent(new Event('account-media-updated'))
       void fetchList()
@@ -172,24 +185,49 @@ export function useAccountMediaLibrary(enabled: boolean) {
     [assets, currentFolderId, fetchList]
   )
 
-  const moveFolder = useCallback(
-    async (folderId: string, parentId: string | null) => {
+  const moveAsset = useCallback(
+    async (assetId: string, folderId: string | null) => {
+      await moveAssets([assetId], folderId)
+    },
+    [moveAssets]
+  )
+
+  const moveFolders = useCallback(
+    async (folderIds: string[], parentId: string | null) => {
+      const uniqueIds = [...new Set(folderIds)].filter(Boolean)
+      if (uniqueIds.length === 0) return
       const previousFolders = folders
-      setFolders((prev) => prev.filter((folder) => (folder.id === folderId ? parentId === currentFolderId : true)))
-      const response = await fetch('/api/media/move', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ folderId, parentId }),
-      })
-      if (!response.ok) {
+      const idSet = new Set(uniqueIds)
+      setFolders((prev) =>
+        prev.filter((folder) => (idSet.has(folder.id) ? parentId === currentFolderId : true))
+      )
+      try {
+        for (const folderId of uniqueIds) {
+          const response = await fetch('/api/media/move', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ folderId, parentId }),
+          })
+          if (!response.ok) {
+            const body = await response.json().catch(() => null)
+            throw new Error(body?.error ?? 'Failed to move folder')
+          }
+        }
+      } catch (error) {
         setFolders(previousFolders)
-        const body = await response.json().catch(() => null)
-        throw new Error(body?.error ?? 'Failed to move folder')
+        throw error
       }
       window.dispatchEvent(new Event('account-media-updated'))
       void fetchList()
     },
     [currentFolderId, fetchList, folders]
+  )
+
+  const moveFolder = useCallback(
+    async (folderId: string, parentId: string | null) => {
+      await moveFolders([folderId], parentId)
+    },
+    [moveFolders]
   )
 
   return {
@@ -208,6 +246,8 @@ export function useAccountMediaLibrary(enabled: boolean) {
     deleteFolder,
     deleteAsset,
     moveAsset,
+    moveAssets,
     moveFolder,
+    moveFolders,
   }
 }

@@ -12,27 +12,44 @@ export function useEnsureVideoProxies(videos: VideoClass[]) {
       .map((video) => `${video.id}:${videoFullResMediaUrl(video)}:${video.proxyUrl ?? ''}`)
       .join('|')
     if (key === keyRef.current) return
-    keyRef.current = key
     let cancelled = false
+    let idleId = 0
+    let timeoutId = 0
+
     const run = async () => {
-      if (cancelled) return
+      if (cancelled || document.visibilityState === 'hidden') return
+      keyRef.current = key
       await ensureProxiesForVideos(videos)
     }
-    if (typeof requestIdleCallback === 'function') {
-      const idleId = requestIdleCallback(() => {
-        void run()
-      }, { timeout: 2500 })
-      return () => {
-        cancelled = true
-        cancelIdleCallback(idleId)
+
+    const schedule = () => {
+      if (cancelled) return
+      if (document.visibilityState === 'hidden') return
+      if (typeof requestIdleCallback === 'function') {
+        idleId = requestIdleCallback(() => {
+          void run()
+        }, { timeout: 2500 })
+      } else {
+        timeoutId = window.setTimeout(() => {
+          void run()
+        }, 400)
       }
     }
-    const timeoutId = window.setTimeout(() => {
-      void run()
-    }, 400)
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') schedule()
+    }
+
+    if (document.visibilityState === 'visible') {
+      schedule()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+
     return () => {
       cancelled = true
-      window.clearTimeout(timeoutId)
+      document.removeEventListener('visibilitychange', onVisibility)
+      if (idleId) cancelIdleCallback(idleId)
+      if (timeoutId) window.clearTimeout(timeoutId)
     }
   }, [videos])
 }
