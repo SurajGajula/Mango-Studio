@@ -6,7 +6,7 @@ type PreviewVideoFrameEntry = {
   valid: boolean
 }
 
-const PREVIEW_FRAME_MAX_EDGE = 720
+const PREVIEW_FRAME_MAX_EDGE = 960
 
 const previewVideoFrameCache = new WeakMap<HTMLVideoElement, PreviewVideoFrameEntry>()
 const previewVideoListenerAttached = new WeakSet<HTMLVideoElement>()

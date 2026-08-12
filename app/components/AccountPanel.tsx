@@ -449,6 +449,16 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
     <div className={styles.container}>
       <div className={styles.header}>
         <div className={styles.headerSignedIn}>
+          {onReplayOnboarding ? (
+            <button
+              type="button"
+              className={styles.helpButton}
+              onClick={onReplayOnboarding}
+              title="Replay getting started tour"
+            >
+              ?
+            </button>
+          ) : null}
           <div className={styles.userInfo}>
             <span className={styles.userEmail}>{user.email}</span>
             {profile?.requests_remaining !== undefined && (
@@ -465,16 +475,6 @@ export default function AccountPanel({ projects, activeProjectId, onSelectProjec
                 Pro
               </button>
             )}
-            {onReplayOnboarding ? (
-              <button
-                type="button"
-                className={styles.helpButton}
-                onClick={onReplayOnboarding}
-                title="Replay getting started tour"
-              >
-                ?
-              </button>
-            ) : null}
             <button type="button" className={styles.signOutButton} onClick={handleSignOut} title="Sign Out">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />

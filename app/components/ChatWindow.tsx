@@ -57,7 +57,6 @@ import {
   routeLocalChatPrompt,
   warmLocalChatEngine,
 } from '@/app/lib/webLlm/localChatRouter'
-import { getLoadedWebLlmModelId } from '@/app/lib/webLlm/webLlmTestEngine'
 import ReplaceFromLibraryModal, { type ReplaceLibraryAsset } from './modals/ReplaceFromLibraryModal'
 
 interface Message {
@@ -141,7 +140,6 @@ async function runNormalizeAudioVolumes(
 export default function ChatWindow() {
   const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState(() => useManifestStore.getState().pendingPrompt ?? '')
-  const [localModelWarming, setLocalModelWarming] = useState(false)
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const [libraryAttachOpen, setLibraryAttachOpen] = useState(false)
@@ -177,22 +175,8 @@ export default function ChatWindow() {
   const addAudio = useManifestStore((state) => state.addAudio)
   const duplicateTimelineRange = useManifestStore((state) => state.duplicateTimelineRange)
   useEffect(() => {
-    if (isLocalChatModelReady()) {
-      setLocalModelWarming(false)
-      return
-    }
-
-    let cancelled = false
-    setLocalModelWarming(true)
-    void warmLocalChatEngine().finally(() => {
-      if (!cancelled) {
-        setLocalModelWarming(false)
-      }
-    })
-
-    return () => {
-      cancelled = true
-    }
+    if (isLocalChatModelReady()) return
+    void warmLocalChatEngine()
   }, [])
 
   useEffect(() => {
@@ -1095,13 +1079,6 @@ export default function ChatWindow() {
 
   return (
     <div className={styles.container}>
-      <div className={styles.localModeBar}>
-        <span className={styles.localModeHint}>
-          {localModelWarming
-            ? 'Loading local model in background...'
-            : `Local AI routes timeline edits.${getLoadedWebLlmModelId() ? ` Model: ${getLoadedWebLlmModelId()}.` : ''}`}
-        </span>
-      </div>
       <div className={styles.messages}>
         {messages.map((message) => (
           <div

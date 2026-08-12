@@ -6,35 +6,6 @@
   border-left: 1px solid #333333;
 }
 
-.localModeBar {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  padding: 0.6rem 0.85rem;
-  border-bottom: 1px solid #222;
-  background-color: #0d0d0d;
-}
-
-.localModeToggle {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  font-size: 0.78rem;
-  color: #ddd;
-  cursor: pointer;
-  user-select: none;
-}
-
-.localModeToggle input {
-  accent-color: #d4a574;
-}
-
-.localModeHint {
-  font-size: 0.68rem;
-  color: #666;
-  line-height: 1.35;
-}
-
 .messages {
   flex: 1;
   overflow-y: auto;

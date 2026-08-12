@@ -5,6 +5,8 @@ import type { VideoClass } from '@/app/models/VideoClass'
 import { ensureProxiesForVideos } from '@/app/lib/mediaProxy'
 import { videoFullResMediaUrl } from '@/app/lib/videoPlaybackSource'
 
+const PROXY_START_DELAY_MS = 1000
+
 export function useEnsureVideoProxies(videos: VideoClass[]) {
   const keyRef = useRef('')
   useEffect(() => {
@@ -13,7 +15,6 @@ export function useEnsureVideoProxies(videos: VideoClass[]) {
       .join('|')
     if (key === keyRef.current) return
     let cancelled = false
-    let idleId = 0
     let timeoutId = 0
 
     const run = async () => {
@@ -25,15 +26,9 @@ export function useEnsureVideoProxies(videos: VideoClass[]) {
     const schedule = () => {
       if (cancelled) return
       if (document.visibilityState === 'hidden') return
-      if (typeof requestIdleCallback === 'function') {
-        idleId = requestIdleCallback(() => {
-          void run()
-        }, { timeout: 2500 })
-      } else {
-        timeoutId = window.setTimeout(() => {
-          void run()
-        }, 400)
-      }
+      timeoutId = window.setTimeout(() => {
+        void run()
+      }, PROXY_START_DELAY_MS)
     }
 
     const onVisibility = () => {
@@ -48,7 +43,6 @@ export function useEnsureVideoProxies(videos: VideoClass[]) {
     return () => {
       cancelled = true
       document.removeEventListener('visibilitychange', onVisibility)
-      if (idleId) cancelIdleCallback(idleId)
       if (timeoutId) window.clearTimeout(timeoutId)
     }
   }, [videos])

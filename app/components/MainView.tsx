@@ -17,6 +17,7 @@ import {
   hydrateLocalProjectIfNeeded,
   useUserProjectPersistence,
 } from '@/app/lib/projectPersistence'
+import { prepareProjectPreviewStartup } from '@/app/lib/mediaProxy'
 import { useProjects } from '@/app/hooks/useProjects'
 import { useOnboardingTour } from '@/app/hooks/useOnboardingTour'
 import OnboardingTour from './onboarding/OnboardingTour'
@@ -41,6 +42,7 @@ export default function MainView() {
   const [pitchItemId, setPitchItemId] = useState<string | null>(null)
   const [localPersistReady, setLocalPersistReady] = useState(false)
   const [chatReady, setChatReady] = useState(false)
+  const [loadingLabel, setLoadingLabel] = useState('Loading project…')
   const [forceOnboarding, setForceOnboarding] = useState(false)
   const { user, loading } = useAuth()
   const { projects, activeProjectId, setActiveProjectId, ready: projectsReady } = useProjects(user?.id ?? null)
@@ -75,10 +77,15 @@ export default function MainView() {
     void (async () => {
       if (!user || !projectsReady || !activeProjectId) return
       if (hydratedProjectRef.current !== activeProjectId) {
-        if (!cancelled) setLocalPersistReady(false)
+        if (!cancelled) {
+          setLocalPersistReady(false)
+          setLoadingLabel('Loading project…')
+        }
         useManifestStore.getState().resetStore()
         useSelectionStore.getState().clearSelection()
         await hydrateLocalProjectIfNeeded(user, activeProjectId)
+        if (token !== hydrationTokenRef.current || cancelled) return
+        await prepareProjectPreviewStartup()
         hydratedProjectRef.current = activeProjectId
       }
       if (token !== hydrationTokenRef.current) return
@@ -273,7 +280,7 @@ export default function MainView() {
         <div className={styles.loadingOverlay} role="status" aria-live="polite" aria-busy="true">
           <div className={styles.loadingContent}>
             <div className={styles.spinner} aria-hidden />
-            <span className={styles.loadingLabel}>Loading project…</span>
+            <span className={styles.loadingLabel}>{loadingLabel}</span>
           </div>
         </div>
       )}

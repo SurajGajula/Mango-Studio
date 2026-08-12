@@ -70,6 +70,8 @@ function resetAudioElementForLoop(el: HTMLAudioElement, restartAt: number) {
 
 const AUDIO_PREFETCH_BEFORE_SEC = 12
 const AUDIO_KEEP_AFTER_SEC = 2
+const AUDIO_START_BUFFER_AHEAD_SEC = 0.4
+const AUDIO_WARMUP_MS = 320
 const IMAGE_PREFETCH_WINDOW_SEC = 20
 const IMAGE_BITMAP_CACHE_MAX = 12
 const IMAGE_BITMAP_MAX_EDGE = 1280
@@ -96,11 +98,31 @@ async function createDownscaledImageBitmap(blob: Blob): Promise<ImageBitmap> {
   return resized
 }
 
+function audioHasBufferedAround(el: HTMLAudioElement, time: number, aheadSec: number): boolean {
+  try {
+    for (let i = 0; i < el.buffered.length; i++) {
+      if (el.buffered.start(i) <= time + 0.05 && el.buffered.end(i) >= time + aheadSec) {
+        return true
+      }
+    }
+  } catch {
+  }
+  return false
+}
+
 function isAudioElementReady(el: HTMLAudioElement): boolean {
   if (el.readyState < HTMLMediaElement.HAVE_METADATA) return false
   if (el.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) return false
   const duration = el.duration
   return Number.isFinite(duration) && duration > 0
+}
+
+function isAudioElementPlayable(el: HTMLAudioElement, atTime?: number): boolean {
+  if (!isAudioElementReady(el)) return false
+  if (el.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return false
+  const time = Number.isFinite(atTime) ? (atTime as number) : el.currentTime
+  if (audioHasBufferedAround(el, time, AUDIO_START_BUFFER_AHEAD_SEC)) return true
+  return el.readyState >= HTMLMediaElement.HAVE_ENOUGH_DATA
 }
 
 type PersistenceCanvasMap = Map<string, { current: HTMLCanvasElement; accumulation: HTMLCanvasElement }>
@@ -165,17 +187,24 @@ export function useVideoPlayback(
 
   const getState = useManifestStore.getState
 
+  const detachAudioCanPlayListener = useCallback((id: string, el?: HTMLAudioElement | null) => {
+    const listener = audioCanPlayListenersRef.current.get(id)
+    if (!listener) return
+    const target = el ?? audioElementsRef.current.get(id)
+    if (target) {
+      target.removeEventListener('canplay', listener)
+      target.removeEventListener('canplaythrough', listener)
+    }
+    audioCanPlayListenersRef.current.delete(id)
+  }, [])
+
   const disposePreviewAudio = useCallback((id: string) => {
     audioPlayPromisesRef.current.delete(id)
     audioPendingStartRef.current.delete(id)
     audioWarmupUntilRef.current.delete(id)
     const el = audioElementsRef.current.get(id)
     if (el) {
-      const listener = audioCanPlayListenersRef.current.get(id)
-      if (listener) {
-        el.removeEventListener('canplay', listener)
-        audioCanPlayListenersRef.current.delete(id)
-      }
+      detachAudioCanPlayListener(id, el)
       el.pause()
       el.src = ''
       audioElementsRef.current.delete(id)
@@ -191,7 +220,7 @@ export function useVideoPlayback(
       }
       audioNodesRef.current.delete(id)
     }
-  }, [])
+  }, [detachAudioCanPlayListener])
 
   const installPreviewAudio = useCallback(
     (audioItem: AudioClass) => {
@@ -201,22 +230,18 @@ export function useVideoPlayback(
       const el = new Audio(audioItem.url)
       el.preload = 'auto'
       el.crossOrigin = 'anonymous'
-      el.load()
       const trimPrime = Math.max(0, audioItem.trimStart ?? 0)
       const primeSeekToTrim = () => {
         el.currentTime = clampAudioSeekTime(el, trimPrime)
       }
-      if (el.readyState >= HTMLMediaElement.HAVE_METADATA) {
-        primeSeekToTrim()
-      } else {
-        el.addEventListener('loadedmetadata', primeSeekToTrim, { once: true })
-      }
+      el.addEventListener('loadedmetadata', primeSeekToTrim, { once: true })
+      el.load()
       ;(el as HTMLAudioElement & { preservesPitch?: boolean; webkitPreservesPitch?: boolean }).preservesPitch = false
       ;(el as HTMLAudioElement & { preservesPitch?: boolean; webkitPreservesPitch?: boolean }).webkitPreservesPitch = false
       audioElementsRef.current.set(audioItem.id, el)
       const source = ctx.createMediaElementSource(el)
       const gain = ctx.createGain()
-      gain.gain.value = audioItem.volume ?? 1.0
+      gain.gain.value = 0
       source.connect(gain)
       gain.connect(ctx.destination)
       audioNodesRef.current.set(audioItem.id, { source, gain })
@@ -760,11 +785,7 @@ export function useVideoPlayback(
           const el = audioElementsRef.current.get(audioItem.id)
           if (!el) return
           if (!el.paused) el.pause()
-          const l = audioCanPlayListenersRef.current.get(audioItem.id)
-          if (l) {
-            el.removeEventListener('canplay', l)
-            audioCanPlayListenersRef.current.delete(audioItem.id)
-          }
+          detachAudioCanPlayListener(audioItem.id, el)
         })
         videoElementsRef.current.forEach((el, id) => {
           if (el.paused) return
@@ -807,8 +828,7 @@ export function useVideoPlayback(
           if (!el) return
           const canPlayListener = audioCanPlayListenersRef.current.get(audioItem.id)
           if (canPlayListener) {
-            el.removeEventListener('canplay', canPlayListener)
-            audioCanPlayListenersRef.current.delete(audioItem.id)
+            detachAudioCanPlayListener(audioItem.id, el)
           }
           const nodes = audioNodesRef.current.get(audioItem.id)
           if (nodes) {
@@ -888,7 +908,7 @@ export function useVideoPlayback(
             fadeOutDuration > 0 ? Math.min(1, Math.max(0, timeRemaining / fadeOutDuration)) : 1
           const effectiveVol = vol * fadeOutGain
 
-          if (!isAudioElementReady(el)) {
+          if (!isAudioElementPlayable(el, syncTarget)) {
             const isStalledWhilePlaying =
               !el.paused &&
               el.readyState < HTMLMediaElement.HAVE_CURRENT_DATA &&
@@ -913,23 +933,27 @@ export function useVideoPlayback(
                 const pending = audioPendingStartRef.current.get(audioItem.id)
                 if (!pending) return
                 if (!getState().isPlaying) return
-                if (!isAudioElementReady(el) || !el.paused || audioPlayPromisesRef.current.has(audioItem.id)) return
+                if (!isAudioElementPlayable(el, pending.syncTarget) || !el.paused || audioPlayPromisesRef.current.has(audioItem.id)) return
                 el.currentTime = clampAudioSeekTime(el, pending.syncTarget)
                 nodes.gain.gain.setValueAtTime(0, audioCtx.currentTime)
-                nodes.gain.gain.linearRampToValueAtTime(pending.effectiveVol, audioCtx.currentTime + 0.05)
-                audioWarmupUntilRef.current.set(audioItem.id, pending.timestamp + 140)
+                nodes.gain.gain.linearRampToValueAtTime(pending.effectiveVol, audioCtx.currentTime + 0.08)
+                audioWarmupUntilRef.current.set(audioItem.id, pending.timestamp + AUDIO_WARMUP_MS)
                 const p = el.play()
                 audioPlayPromisesRef.current.set(audioItem.id, p)
                 p.catch(() => {}).finally(() => {
                   audioPlayPromisesRef.current.delete(audioItem.id)
                 })
               }
+              el.addEventListener('canplaythrough', canPlayListener)
               el.addEventListener('canplay', canPlayListener)
               audioCanPlayListenersRef.current.set(audioItem.id, canPlayListener)
             }
-            if (!audioPlayPromisesRef.current.has(audioItem.id)) {
+            if (
+              el.readyState >= HTMLMediaElement.HAVE_METADATA &&
+              !audioPlayPromisesRef.current.has(audioItem.id)
+            ) {
               nodes.gain.gain.setValueAtTime(0, audioCtx.currentTime)
-              audioWarmupUntilRef.current.set(audioItem.id, timestamp + 140)
+              audioWarmupUntilRef.current.set(audioItem.id, timestamp + AUDIO_WARMUP_MS)
               const p = el.play()
               audioPlayPromisesRef.current.set(audioItem.id, p)
               p.catch(() => {}).finally(() => {
@@ -939,11 +963,7 @@ export function useVideoPlayback(
             return
           }
           audioPendingStartRef.current.delete(audioItem.id)
-          const readyListener = audioCanPlayListenersRef.current.get(audioItem.id)
-          if (readyListener) {
-            el.removeEventListener('canplay', readyListener)
-            audioCanPlayListenersRef.current.delete(audioItem.id)
-          }
+          detachAudioCanPlayListener(audioItem.id, el)
           const warmupUntil = audioWarmupUntilRef.current.get(audioItem.id) ?? 0
           const isWarmingUp = timestamp < warmupUntil
           if (!isWarmingUp && Math.abs(nodes.gain.gain.value - effectiveVol) > 0.001) {
@@ -964,15 +984,15 @@ export function useVideoPlayback(
           }
 
           const drift = Math.abs(el.currentTime - syncTarget)
-          if (!isWarmingUp && drift > audioDriftSeek) {
+          if (!isWarmingUp && el.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA && drift > audioDriftSeek) {
             el.currentTime = clampAudioSeekTime(el, syncTarget)
           }
 
           if (el.paused && !audioPlayPromisesRef.current.has(audioItem.id)) {
             el.currentTime = clampAudioSeekTime(el, syncTarget)
             nodes.gain.gain.setValueAtTime(0, audioCtx.currentTime)
-            nodes.gain.gain.linearRampToValueAtTime(effectiveVol, audioCtx.currentTime + 0.05)
-            audioWarmupUntilRef.current.set(audioItem.id, timestamp + 140)
+            nodes.gain.gain.linearRampToValueAtTime(effectiveVol, audioCtx.currentTime + 0.08)
+            audioWarmupUntilRef.current.set(audioItem.id, timestamp + AUDIO_WARMUP_MS)
             const p = el.play()
             audioPlayPromisesRef.current.set(audioItem.id, p)
             p.catch(() => {}).finally(() => {
@@ -1150,7 +1170,7 @@ export function useVideoPlayback(
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
       rafRef.current = null
     }
-  }, [getState, canvasRef, containerRef, getAudioCtx, renderTextsInCanvas, rebuildAllPreviewAudios, prefetchImagesNearPlayhead, purgePreviewVideoPool, syncPreviewAudioPool])
+  }, [getState, canvasRef, containerRef, getAudioCtx, renderTextsInCanvas, rebuildAllPreviewAudios, prefetchImagesNearPlayhead, purgePreviewVideoPool, syncPreviewAudioPool, detachAudioCanPlayListener])
 
   useEffect(() => { return () => { 
     videoElementsRef.current.forEach((_, id) => {
